@@ -1,0 +1,388 @@
+import "dotenv/config";
+
+import db from "./index";
+import {
+  opportunitiesTable,
+  postsTable,
+  profilesTable,
+  repliesTable,
+  scoutRunsTable,
+  socialAccountsTable,
+  watchlistAccountsTable,
+} from "./schema";
+
+async function seed() {
+  console.log("🌱 Seeding database...");
+
+  // --------------------------------------------------
+  // 1. PROFILE
+  // Replace this with a real Neon Auth user ID if needed.
+  // --------------------------------------------------
+
+  const [profile] = await db
+    .insert(profilesTable)
+    .values({
+      userId: "seed-user-001",
+      displayName: "Martin",
+      occupation: "Founder",
+      bio: "Building AI products and documenting the process.",
+      targetAudience: "Founders, developers, indie hackers, and creators",
+      primaryGoal: "Grow an audience while building products in public",
+      knownFor: "AI startups, product building, and entrepreneurship",
+      onboardingCompleted: true,
+
+      voiceBrain: {
+        tone: ["direct", "curious", "informal"],
+        style: "short and conversational",
+        avoids: ["corporate language", "generic AI phrases"],
+      },
+
+      interestBrain: {
+        coreTopics: [
+          "AI",
+          "startups",
+          "SaaS",
+          "product development",
+          "building in public",
+        ],
+        secondaryTopics: ["marketing", "design", "technology"],
+      },
+
+      goalBrain: {
+        primaryGoal: "grow_audience",
+        targetAudience: ["founders", "developers", "creators"],
+        desiredPositioning: "Founder building useful AI products in public",
+      },
+    })
+    .returning();
+
+  console.log("✓ Profile created");
+
+  // --------------------------------------------------
+  // 2. SOCIAL ACCOUNT
+  // --------------------------------------------------
+
+  const [socialAccount] = await db
+    .insert(socialAccountsTable)
+    .values({
+      profileId: profile.id,
+      platform: "x",
+      platformUserId: "x-user-martin",
+      handle: "martinbuilds",
+      displayName: "Martin",
+    })
+    .returning();
+
+  console.log("✓ Social account created");
+
+  // --------------------------------------------------
+  // 3. USER'S EXISTING POSTS
+  // --------------------------------------------------
+
+  const postContents = [
+    "AI makes it incredibly easy to build software. The harder part is figuring out what is actually worth building.",
+
+    "I think most founders spend too much time polishing products before putting them in front of real users.",
+
+    "Building in public is interesting because distribution becomes part of product development.",
+
+    "The best AI products probably won't feel like AI products. They'll just remove work people used to do manually.",
+
+    "Starting another experiment today. The goal is simple: build something people actually want.",
+
+    "There is a huge difference between using AI to write code and actually understanding the system you're building.",
+
+    "Distribution is increasingly becoming the real moat for small software companies.",
+
+    "A surprisingly useful startup exercise: find something people repeatedly do in spreadsheets and ask why it still requires a spreadsheet.",
+
+    "I'm becoming more interested in products that don't just generate content but actually decide what deserves your attention.",
+
+    "The cost of building software is collapsing. The cost of finding customers isn't.",
+
+    "I would rather ship something imperfect to 10 real users than spend another month making the dashboard prettier.",
+
+    "Personal AI gets much more interesting when it remembers what you've done instead of starting every conversation from zero.",
+
+    "One thing I'm trying to get better at: killing product ideas faster.",
+
+    "A good AI agent shouldn't just do tasks. It should understand which tasks are worth doing.",
+
+    "The hardest part of building a startup isn't usually writing the code. It's finding a reason for someone to care.",
+  ];
+
+  await db.insert(postsTable).values(
+    postContents.map((content, index) => ({
+      socialAccountId: socialAccount.id,
+      platformPostId: `seed-post-${index + 1}`,
+      content,
+      url: `https://x.com/martinbuilds/status/seed-${index + 1}`,
+      metrics: {
+        likes: 10 + index * 3,
+        replies: index % 5,
+        reposts: index % 3,
+        impressions: 500 + index * 175,
+      },
+      publishedAt: new Date(Date.now() - index * 24 * 60 * 60 * 1000),
+    })),
+  );
+
+  console.log("✓ 15 posts created");
+
+  // --------------------------------------------------
+  // 4. WATCHLIST
+  // --------------------------------------------------
+
+  const watchlist = await db
+    .insert(watchlistAccountsTable)
+    .values([
+      {
+        profileId: profile.id,
+        platform: "x",
+        platformUserId: "watch-001",
+        handle: "alex_ai",
+        displayName: "Alex",
+        notes: "AI founder",
+      },
+      {
+        profileId: profile.id,
+        platform: "x",
+        platformUserId: "watch-002",
+        handle: "sarahbuilds",
+        displayName: "Sarah",
+        notes: "Indie hacker",
+      },
+      {
+        profileId: profile.id,
+        platform: "x",
+        platformUserId: "watch-003",
+        handle: "davidgrowth",
+        displayName: "David",
+        notes: "Startup growth",
+      },
+      {
+        profileId: profile.id,
+        platform: "x",
+        platformUserId: "watch-004",
+        handle: "tomproduct",
+        displayName: "Tom",
+        notes: "Product and SaaS",
+      },
+      {
+        profileId: profile.id,
+        platform: "x",
+        platformUserId: "watch-005",
+        handle: "emilyfounder",
+        displayName: "Emily",
+        notes: "Founder and creator",
+      },
+    ])
+    .returning();
+
+  console.log(`✓ ${watchlist.length} watchlist accounts created`);
+
+  // --------------------------------------------------
+  // 5. SCOUT RUN
+  // --------------------------------------------------
+
+  const [scoutRun] = await db
+    .insert(scoutRunsTable)
+    .values({
+      profileId: profile.id,
+      status: "completed",
+      opportunitiesFound: 10,
+      startedAt: new Date(Date.now() - 5 * 60 * 1000),
+      completedAt: new Date(),
+    })
+    .returning();
+
+  console.log("✓ Scout run created");
+
+  // --------------------------------------------------
+  // 6. OPPORTUNITIES
+  // --------------------------------------------------
+
+  const opportunities = await db
+    .insert(opportunitiesTable)
+    .values([
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-001",
+        authorHandle: "alex_ai",
+        content:
+          "AI coding tools are going to make software engineers 10x more productive.",
+        score: 94,
+        reason:
+          "Strong match with your previous posts about AI-assisted coding and software development.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-002",
+        authorHandle: "sarahbuilds",
+        content:
+          "The biggest mistake indie hackers make is building for months before talking to customers.",
+        score: 91,
+        reason:
+          "You have repeatedly discussed shipping early and testing with real users.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-003",
+        authorHandle: "davidgrowth",
+        content:
+          "Distribution is becoming more important than product for early-stage SaaS.",
+        score: 89,
+        reason:
+          "Directly overlaps with your existing views about distribution becoming a moat.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-004",
+        authorHandle: "tomproduct",
+        content:
+          "Would you rather have 1,000 free users or 10 customers paying $100/month?",
+        score: 82,
+        reason:
+          "Relevant to your interest in validation and building products people will pay for.",
+        status: "saved",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-005",
+        authorHandle: "emilyfounder",
+        content:
+          "Building in public is becoming one of the best distribution channels for founders.",
+        score: 96,
+        reason:
+          "Extremely strong alignment with your current build-in-public strategy.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-006",
+        authorHandle: "alex_ai",
+        content:
+          "AI agents need memory more than they need another reasoning benchmark.",
+        score: 86,
+        reason: "Matches your previous interest in persistent AI memory.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-007",
+        authorHandle: "sarahbuilds",
+        content:
+          "The fastest way to validate a startup idea is still talking to people.",
+        score: 78,
+        reason: "Relevant to your product validation philosophy.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-008",
+        authorHandle: "tomproduct",
+        content:
+          "I think dashboards are massively overbuilt in modern SaaS products.",
+        score: 72,
+        reason:
+          "Moderate fit with your preference for shipping functional MVPs quickly.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-009",
+        authorHandle: "davidgrowth",
+        content:
+          "Founders should spend at least as much time distributing their product as building it.",
+        score: 88,
+        reason: "Strong alignment with your existing distribution thesis.",
+        status: "new",
+        postedAt: new Date(),
+      },
+      {
+        scoutRunId: scoutRun.id,
+        profileId: profile.id,
+        platform: "x",
+        platformPostId: "opportunity-010",
+        authorHandle: "emilyfounder",
+        content: "What's one startup idea you killed recently and why?",
+        score: 76,
+        reason:
+          "You have previously discussed getting better at killing weak ideas quickly.",
+        status: "new",
+        postedAt: new Date(),
+      },
+    ])
+    .returning();
+
+  console.log(`✓ ${opportunities.length} opportunities created`);
+
+  // --------------------------------------------------
+  // 7. REPLIES
+  // --------------------------------------------------
+
+  await db.insert(repliesTable).values([
+    {
+      opportunityId: opportunities[0].id,
+      content:
+        "The interesting part is that AI makes writing code cheaper, but understanding what should be built doesn't get 10x easier.",
+      status: "draft",
+    },
+    {
+      opportunityId: opportunities[1].id,
+      content:
+        "10 conversations with real users are probably worth more than another month polishing an MVP nobody has seen.",
+      status: "approved",
+    },
+    {
+      opportunityId: opportunities[4].id,
+      content:
+        "Building in public feels less like marketing when the audience is actually influencing what gets built.",
+      status: "draft",
+    },
+  ]);
+
+  console.log("✓ Replies created");
+
+  console.log("");
+  console.log("✅ Database seeded successfully.");
+}
+
+seed()
+  .catch((error) => {
+    console.error("❌ Seed failed:");
+    console.error(error);
+    process.exit(1);
+  })
+  .finally(() => {
+    process.exit(0);
+  });

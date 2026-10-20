@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Scout
 
-## Getting Started
+Scout is an AI growth operator for X/Twitter.
 
-First, run the development server:
+It learns a user's voice, interests, expertise, audience, and goals, then monitors selected accounts and finds conversations where the user should engage. It ranks opportunities and generates personalized replies based on the user's actual opinions and writing style.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## MVP Flow
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. User signs up
+2. Completes onboarding
+3. Connects/adds X account
+4. Scout analyzes previous posts
+5. Builds:
+   - Voice Brain
+   - Interest Brain
+   - Goal Brain
+6. User adds ~10–20 accounts to Watchlist
+7. User clicks `Run Scout`
+8. Scout fetches recent posts
+9. Filters and scores opportunities
+10. Shows ranked Opportunity Feed
+11. Generates personalized replies
+12. User can Copy / Edit / Regenerate / Skip
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+No automatic X posting in v0.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Stack
 
-## Learn More
+- Next.js 16 App Router
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Neon Postgres
+- Drizzle ORM
+- Drizzle Kit
+- Neon Auth / Managed Better Auth
+- @neondatabase/serverless
+- OpenAI API
+- X API
+- Vercel
 
-To learn more about Next.js, take a look at the following resources:
+Do NOT use Supabase, Prisma, or React Router.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Database Architecture
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Neon Auth manages authentication users/sessions.
 
-## Deploy on Vercel
+Application tables:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- profiles
+- social_accounts
+- posts
+- watchlist_accounts
+- scout_runs
+- opportunities
+- replies
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Relationship:
+
+Auth User
+→ Profile
+→ Social Accounts → Posts
+→ Watchlist Accounts
+→ Scout Runs → Opportunities → Replies
+
+Do not create a duplicate application `users` table unless there is a clear reason. `profiles.userId` should reference/identify the authenticated Neon Auth user.
+
+## Architecture Principles
+
+- Server-first Next.js architecture.
+- Use Server Components by default.
+- Use Client Components only when necessary.
+- Server Actions or Route Handlers for mutations/API boundaries.
+- Database access through a dedicated Drizzle query/service layer.
+- Do not query the database directly from UI components.
+- Validate external/user input with Zod.
+- AI responses should use structured outputs, not free-text parsing.
+- Keep X API logic behind a dedicated client/service.
+- Keep business logic separate from UI.
+
+## Important
+
+I am deliberately writing the important code myself to improve my full-stack skills.
+
+When helping:
+
+- Explain architecture and tradeoffs.
+- Help debug.
+- Review my code.
+- Point me toward the correct approach.
+- Do NOT generate entire features unless I explicitly ask.
+- Do not unnecessarily abstract simple code.
+- Prefer readable, explicit TypeScript.
+- Challenge bad architectural decisions instead of blindly agreeing.

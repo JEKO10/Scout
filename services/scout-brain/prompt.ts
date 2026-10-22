@@ -18,7 +18,18 @@ Rules:
 5. Write all descriptions in English, even if the posts are in another language, and record the posting languages.
 6. Only reference post IDs that appear in the provided list.
 7. Be specific and concrete. Avoid generic filler like "engaging", "authentic", "insightful".
-8. If there are few posts, say so through lower confidence instead of guessing.`;
+8. If there are few posts, say so through lower confidence instead of guessing.
+9. Scout uses this brain to write replies in other people's conversations. Keep promotion apart from voice: calls to action, link pointers and subscription or sales boilerplate go in promotionalPatterns, never in signaturePhrases.
+10. Operational posts (customer support, shipping, billing, checkout help, access announcements) inform replyStyle and promotionalPatterns only. They are not topics, opinions or expertise.
+11. Judge low confidence at the level of subject areas, not individual items. If "military history" is a topic, a single post about Frederick the Great supports that topic; it is not a low-confidence topic.
+12. Record perspective: whether the account speaks as a person ("I") or as an organization ("we").`;
+
+const URL_PATTERN = /https?:\/\/\S+/g;
+
+/** Posts that are nothing but a link carry no voice or interest signal. */
+export function hasTextBeyondLinks(content: string): boolean {
+  return content.replace(URL_PATTERN, "").trim().length > 0;
+}
 
 type PostForPrompt = Pick<Post, "platformPostId" | "content" | "publishedAt" | "metrics">;
 

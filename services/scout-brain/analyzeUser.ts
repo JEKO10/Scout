@@ -10,7 +10,11 @@ import {
   scoutBrainAnalysisSchema,
 } from "@/lib/ai/schemas/scoutBrain";
 
-import { buildScoutBrainInput, SCOUT_BRAIN_INSTRUCTIONS } from "./prompt";
+import {
+  buildScoutBrainInput,
+  hasTextBeyondLinks,
+  SCOUT_BRAIN_INSTRUCTIONS,
+} from "./prompt";
 
 const ANALYSIS_POST_LIMIT = 100;
 export const MIN_POSTS_FOR_ANALYSIS = 5;
@@ -26,11 +30,13 @@ export type AnalyzeUserResult =
 export async function analyzeUser(
   profileId: string,
 ): Promise<AnalyzeUserResult> {
-  const [profile, posts] = await Promise.all([
+  const [profile, recentPosts] = await Promise.all([
     getProfileById(profileId),
     getRecentPostsForProfile(profileId, ANALYSIS_POST_LIMIT),
   ]);
   if (!profile) throw new Error(`Profile ${profileId} not found`);
+
+  const posts = recentPosts.filter((post) => hasTextBeyondLinks(post.content));
 
   if (posts.length < MIN_POSTS_FOR_ANALYSIS) {
     return { status: "not_enough_posts", postCount: posts.length };

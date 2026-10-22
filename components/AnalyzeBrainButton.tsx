@@ -26,7 +26,7 @@ export function AnalyzeBrainButton({ analyzed }: { analyzed: boolean }) {
         ) : analyzed ? (
           "Re-analyze"
         ) : (
-          "Build my Scout Brain"
+          "Analyze my profile"
         )}
       </button>
       {state.message && !pending && (

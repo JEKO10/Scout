@@ -26,6 +26,11 @@ export const voiceBrainSchema = z.object({
   languages: z
     .array(z.string())
     .describe("Languages the person posts in, most used first."),
+  perspective: z
+    .enum(["personal", "institutional", "mixed"])
+    .describe(
+      "personal = writes as an individual ('I'); institutional = writes on behalf of an organization ('we', the brand name); mixed = both.",
+    ),
   tone: z
     .array(z.string())
     .describe("3–6 short tone descriptors, e.g. 'direct', 'dry humor', 'optimistic'."),
@@ -53,7 +58,12 @@ export const voiceBrainSchema = z.object({
   signaturePhrases: z
     .array(z.string())
     .describe(
-      "Phrases or patterns that recur in at least 2 posts, quoted exactly in the original language. Empty if none.",
+      "Phrases or rhetorical patterns that recur in at least 2 posts and would also fit in a conversation, quoted exactly in the original language. Exclude calls to action, link pointers and subscription or sales boilerplate. Empty if none.",
+    ),
+  promotionalPatterns: z
+    .array(z.string())
+    .describe(
+      "Recurring calls to action and promotional boilerplate (e.g. 'Link below:', 'subscribe', 'free for 48 hours'). Recorded so replies can deliberately avoid them. Empty if none.",
     ),
   avoid: z
     .array(z.string())
@@ -84,7 +94,7 @@ export const interestBrainSchema = z.object({
       }),
     )
     .describe(
-      "Topics the person has something to say about. Only include topics covered by at least 2 posts or stated in onboarding.",
+      "Subject areas the person could credibly join other people's conversations about. Only include areas covered by at least 2 posts or stated in onboarding. Not their own business operations (shipping, billing, support, subscription drives).",
     ),
   expertise: z
     .array(
@@ -99,7 +109,7 @@ export const interestBrainSchema = z.object({
       }),
     )
     .describe(
-      "Areas of real expertise. Talking about a topic is not expertise; require depth or first-hand experience.",
+      "Areas of real expertise. Talking about a topic is not expertise; require depth or first-hand experience. Handling one's own shipping, billing or customer support is not subject expertise.",
     ),
   recurringThemes: z
     .array(z.string())
@@ -131,7 +141,7 @@ export const interestBrainSchema = z.object({
       }),
     )
     .describe(
-      "Topics that appear only once or superficially. Scout should avoid engaging on these.",
+      "Subject areas that appear only once or superficially AND are not part of any topic above. Scout avoids engaging on these. Never list a specific subject (a book, event or figure) whose broader area is already a topic.",
     ),
 });
 

@@ -10,6 +10,12 @@ const dateFormat = new Intl.DateTimeFormat("en", {
   minute: "2-digit",
 });
 
+const perspectiveLabels = {
+  personal: "A person (“I”)",
+  institutional: "An organization (“we”)",
+  mixed: "Both “I” and “we”",
+} as const;
+
 const humanize = (value: string) =>
   value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 
@@ -48,6 +54,7 @@ export function ScoutBrainPanel({
             </BrainGroup>
 
             <dl className="brain-facts">
+              <Fact label="Speaks as" value={perspectiveLabels[brain.voice.perspective]} />
               <Fact label="Sentences" value={humanize(brain.voice.sentenceLength)} />
               <Fact label="Directness" value={humanize(brain.voice.directness)} />
               <Fact label="Emoji" value={humanize(brain.voice.emojiUsage)} />
@@ -69,6 +76,16 @@ export function ScoutBrainPanel({
             <BrainGroup label="Never">
               <BrainList brain="voice" list="avoid" items={brain.voice.avoid} addLabel="Add something to avoid" />
             </BrainGroup>
+
+            {brain.voice.promotionalPatterns.length > 0 && (
+              <BrainGroup label="Promotional patterns — kept out of replies">
+                <p className="brain-muted">
+                  {brain.voice.promotionalPatterns
+                    .map((pattern) => `“${pattern}”`)
+                    .join(", ")}
+                </p>
+              </BrainGroup>
+            )}
           </article>
 
           <article className="brain-column">

@@ -2,15 +2,43 @@
 
 import { useActionState } from "react";
 
+import type { ProfileFormState } from "@/actions/profile";
 import type { Profile } from "@/db/schema";
-import type { ProfileFormState } from "@/lib/profile/actions";
 
-const fields = [
+import { XHandleField } from "./XHandleField";
+
+type ProfileFieldName =
+  | "displayName"
+  | "xHandle"
+  | "occupation"
+  | "bio"
+  | "targetAudience"
+  | "primaryGoal"
+  | "knownFor";
+
+type ProfileField = {
+  name: ProfileFieldName;
+  label: string;
+  hint: string;
+  placeholder: string;
+  multiline: boolean;
+  options?: readonly string[];
+  optional?: boolean;
+};
+
+const fields: readonly ProfileField[] = [
   {
     name: "displayName",
     label: "Display name",
     hint: "How your name appears across Scout.",
     placeholder: "e.g. Martin",
+    multiline: false,
+  },
+  {
+    name: "xHandle",
+    label: "What's your X handle?",
+    hint: "Your username on X, with or without the @.",
+    placeholder: "e.g. @martinbuilds",
     multiline: false,
   },
   {
@@ -23,32 +51,41 @@ const fields = [
   {
     name: "bio",
     label: "Short bio",
-    hint: "Give Scout useful context about your work.",
+    hint: "Optional. Give Scout useful context about your work.",
     placeholder: "What are you building and why?",
     multiline: true,
+    optional: true,
   },
   {
     name: "targetAudience",
-    label: "Target audience",
-    hint: "The people you most want to reach.",
+    label: "Who do you want to reach?",
+    hint: "Describe the people you want Scout to find conversations with.",
     placeholder: "Founders, developers, creators…",
     multiline: true,
   },
   {
     name: "primaryGoal",
-    label: "Primary goal",
-    hint: "The outcome Scout should optimize for.",
-    placeholder: "Grow an audience, find customers…",
-    multiline: true,
+    label: "What's your primary goal?",
+    hint: "Choose the outcome Scout should optimize for.",
+    placeholder: "Choose a goal",
+    multiline: false,
+    options: [
+      "Grow my audience",
+      "Build my personal brand",
+      "Find customers",
+      "Build authority",
+      "Network with relevant people",
+    ],
   },
   {
     name: "knownFor",
-    label: "Known for",
-    hint: "Topics where your perspective is strongest.",
+    label: "What do you want to be known for?",
+    hint: "Optional. Describe the topics where you want to build recognition.",
     placeholder: "AI products, SaaS, product strategy…",
     multiline: true,
+    optional: true,
   },
-] as const;
+];
 
 type ProfileFormProps = {
   profile: Profile | undefined;
@@ -81,30 +118,87 @@ export function ProfileForm({
       </div>
 
       <div className="form-fields">
-        {fields.map(({ name, label, hint, placeholder, multiline }) => (
-          <label key={name} className="field-row">
-            <span className="field-label">
-              <strong>{label}</strong>
-              <small>{hint}</small>
-            </span>
-            {multiline ? (
-              <textarea
-                name={name}
-                rows={3}
-                placeholder={placeholder}
-                defaultValue={profile?.[name] ?? ""}
-                className="field-control"
-              />
-            ) : (
-              <input
-                name={name}
-                placeholder={placeholder}
-                defaultValue={profile?.[name] ?? ""}
-                className="field-control"
-              />
-            )}
-          </label>
-        ))}
+        {fields.map(
+          ({
+            name,
+            label,
+            hint,
+            placeholder,
+            multiline,
+            options,
+            optional,
+          }) => {
+            const currentValue = profile?.[name] ?? "";
+
+            if (name === "xHandle") {
+              return (
+                <XHandleField
+                  key={name}
+                  name={name}
+                  label={label}
+                  hint={hint}
+                  placeholder={placeholder.replace("@", "")}
+                  defaultValue={currentValue}
+                />
+              );
+            }
+            const customOption =
+              options && currentValue && !options.includes(currentValue)
+                ? currentValue
+                : null;
+
+            return (
+              <label key={name} className="field-row">
+                <span className="field-label">
+                  <strong>
+                    {label}
+                    {!optional && (
+                      <span className="required-mark" aria-hidden="true">
+                        *
+                      </span>
+                    )}
+                  </strong>
+                  <small>{hint}</small>
+                </span>
+                {options ? (
+                  <select
+                    name={name}
+                    defaultValue={currentValue}
+                    required={!optional}
+                    className="field-control"
+                  >
+                    <option value="">{placeholder}</option>
+                    {customOption && (
+                      <option value={customOption}>{customOption}</option>
+                    )}
+                    {options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : multiline ? (
+                  <textarea
+                    name={name}
+                    rows={3}
+                    placeholder={placeholder}
+                    defaultValue={currentValue}
+                    required={!optional}
+                    className="field-control"
+                  />
+                ) : (
+                  <input
+                    name={name}
+                    placeholder={placeholder}
+                    defaultValue={currentValue}
+                    required={!optional}
+                    className="field-control"
+                  />
+                )}
+              </label>
+            );
+          },
+        )}
       </div>
 
       <div className="form-footer">

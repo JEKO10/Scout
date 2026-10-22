@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
     agentFeedback: true,
   },
   cacheComponents: true,
+  images: {
+    // X profile pictures
+    remotePatterns: [{ protocol: "https", hostname: "pbs.twimg.com" }],
+  },
   partialPrefetching: true,
   turbopack: {
     rules: {

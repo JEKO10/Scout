@@ -12,6 +12,12 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type {
+  StoredGoalBrain,
+  StoredInterestBrain,
+  StoredVoiceBrain,
+} from "../lib/ai/schemas/scoutBrain";
+
 const timestamps = {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true })
@@ -53,15 +59,16 @@ export const profilesTable = pgTable("profiles", {
   // References the Neon Auth user (neon_auth.user.id)
   userId: text().notNull().unique(),
   displayName: text(),
+  xHandle: text(),
   occupation: text(),
   bio: text(),
   targetAudience: text(),
   primaryGoal: text(),
   knownFor: text(),
 
-  voiceBrain: jsonb().$type<Record<string, unknown>>(),
-  interestBrain: jsonb().$type<Record<string, unknown>>(),
-  goalBrain: jsonb().$type<Record<string, unknown>>(),
+  voiceBrain: jsonb().$type<StoredVoiceBrain>(),
+  interestBrain: jsonb().$type<StoredInterestBrain>(),
+  goalBrain: jsonb().$type<StoredGoalBrain>(),
 
   onboardingCompleted: boolean().notNull().default(false),
   ...timestamps,

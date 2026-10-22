@@ -4,11 +4,32 @@ import { eq } from "drizzle-orm";
 
 import db from "@/db";
 import { type Profile, profilesTable } from "@/db/schema";
+import type {
+  BrainListEdits,
+  BrainName,
+  ScoutBrainAnalysis,
+} from "@/lib/ai/schemas/scoutBrain";
 
 export async function getProfileByUserId(
   userId: string,
 ): Promise<Profile | undefined> {
   return db.query.profilesTable.findFirst({ where: { userId } });
+}
+
+export async function getProfileById(
+  id: string,
+): Promise<Profile | undefined> {
+  return db.query.profilesTable.findFirst({ where: { id } });
+}
+
+export async function updateProfileXHandle(
+  id: string,
+  xHandle: string,
+): Promise<void> {
+  await db
+    .update(profilesTable)
+    .set({ xHandle })
+    .where(eq(profilesTable.id, id));
 }
 
 /**
@@ -40,6 +61,7 @@ export async function updateProfileByUserId(
     Pick<
       Profile,
       | "displayName"
+      | "xHandle"
       | "occupation"
       | "bio"
       | "targetAudience"
@@ -56,4 +78,79 @@ export async function updateProfileByUserId(
     .where(eq(profilesTable.userId, userId))
     .returning();
   return profile;
+}
+
+/** Stores a fresh AI analysis while keeping the user's existing edits. */
+export async function updateProfileBrain(
+  profileId: string,
+  {
+    analysis,
+    postCount,
+    model,
+  }: { analysis: ScoutBrainAnalysis; postCount: number; model: string },
+): Promise<void> {
+  const profile = await getProfileById(profileId);
+  if (!profile) throw new Error(`Profile ${profileId} not found`);
+
+  const meta = { analyzedAt: new Date().toISOString(), postCount, model };
+
+  await db
+    .update(profilesTable)
+    .set({
+      voiceBrain: {
+        data: analysis.voice,
+        edits: profile.voiceBrain?.edits ?? {},
+        ...meta,
+      },
+      interestBrain: {
+        data: analysis.interests,
+        edits: profile.interestBrain?.edits ?? {},
+        ...meta,
+      },
+      goalBrain: {
+        data: analysis.goals,
+        edits: profile.goalBrain?.edits ?? {},
+        ...meta,
+      },
+    })
+    .where(eq(profilesTable.id, profileId));
+}
+
+const brainColumns = {
+  voice: "voiceBrain",
+  interests: "interestBrain",
+  goals: "goalBrain",
+} as const;
+
+/** Adds or removes one item in a brain list, recorded as a user edit. */
+export async function updateBrainListEdit(
+  profileId: string,
+  brain: BrainName,
+  list: string,
+  op: "add" | "remove",
+  value: string,
+): Promise<void> {
+  const profile = await getProfileById(profileId);
+  const column = brainColumns[brain];
+  const stored = profile?.[column];
+  if (!stored) throw new Error("Analyze the Scout Brain before editing it.");
+
+  const edits: Record<string, BrainListEdits> = { ...stored.edits };
+  const current = edits[list] ?? { added: [], removed: [] };
+  const key = value.toLowerCase();
+  const without = (items: string[]) =>
+    items.filter((item) => item.toLowerCase() !== key);
+
+  edits[list] =
+    op === "add"
+      ? { added: [...without(current.added), value], removed: without(current.removed) }
+      : // Removing a user-added item just undoes the add
+        current.added.some((item) => item.toLowerCase() === key)
+        ? { added: without(current.added), removed: current.removed }
+        : { added: current.added, removed: [...without(current.removed), value] };
+
+  await db
+    .update(profilesTable)
+    .set({ [column]: { ...stored, edits } })
+    .where(eq(profilesTable.id, profileId));
 }

@@ -3,12 +3,12 @@ import { accountViewPaths } from "@neondatabase/auth-ui/server";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
+import { updateProfile } from "@/actions/profile";
 import { AccountDataOverview } from "@/components/AccountDataOverview";
 import { AppHeader } from "@/components/AppHeader";
 import { ProfileForm } from "@/components/ProfileForm";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { requireProfile } from "@/lib/auth/session";
-import { updateProfile } from "@/lib/profile/actions";
 
 export function generateStaticParams() {
   return Object.values(accountViewPaths).map((path) => ({ path }));

@@ -2,16 +2,18 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { completeOnboarding } from "@/actions/profile";
 import { ProfileForm } from "@/components/ProfileForm";
 import { requireProfile } from "@/lib/auth/session";
-import { completeOnboarding } from "@/lib/profile/actions";
 
 export default function OnboardingPage() {
   return (
     <main className="onboarding-page">
       <div className="onboarding-nav shell">
         <Link href="/" className="brand">
-          <span className="brand-mark" aria-hidden="true">S</span>
+          <span className="brand-mark" aria-hidden="true">
+            S
+          </span>
           <span>Scout</span>
         </Link>
         <span>Profile setup</span>

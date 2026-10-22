@@ -4,8 +4,13 @@ import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { ScoutBrainPanel } from "@/components/ScoutBrainPanel";
+import { XAccountCard } from "@/components/XAccountCard";
 import { getWorkspaceData } from "@/db/queries/opportunities";
+import { countPostsBySocialAccount } from "@/db/queries/posts";
+import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
 import { requireProfile } from "@/lib/auth/session";
+import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact" });
 const dateFormat = new Intl.DateTimeFormat("en", {
@@ -29,7 +34,13 @@ async function Dashboard() {
   const { user, profile } = await requireProfile();
   if (!profile.onboardingCompleted) redirect("/onboarding");
 
-  const data = await getWorkspaceData(profile.id);
+  const [data, xAccount] = await Promise.all([
+    getWorkspaceData(profile.id),
+    profile.xHandle
+      ? getSocialAccountByHandle(profile.id, "x", profile.xHandle)
+      : undefined,
+  ]);
+  const xPostCount = xAccount ? await countPostsBySocialAccount(xAccount.id) : 0;
   const newOpportunities = data.opportunities.filter(
     (opportunity) => opportunity.status === "new",
   ).length;
@@ -64,6 +75,11 @@ async function Dashboard() {
           label="Total impressions"
         />
       </section>
+
+      <ScoutBrainPanel
+        brain={resolveScoutBrain(profile)}
+        postCount={data.posts.length}
+      />
 
       <div className="dashboard-grid">
         <section className="feed-section" aria-labelledby="opportunities-title">
@@ -143,6 +159,12 @@ async function Dashboard() {
         </section>
 
         <aside className="dashboard-aside" aria-label="Scout status">
+          <XAccountCard
+            handle={profile.xHandle}
+            account={xAccount}
+            postCount={xPostCount}
+          />
+
           <div className="aside-section">
             <p className="eyebrow">Scout status</p>
             <div className="status-line">

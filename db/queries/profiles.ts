@@ -7,6 +7,7 @@ import { type Profile, profilesTable } from "@/db/schema";
 import type {
   BrainListEdits,
   BrainName,
+  MeasuredVoice,
   ScoutBrainAnalysis,
 } from "@/lib/ai/schemas/scoutBrain";
 
@@ -86,13 +87,26 @@ export async function updateProfileBrain(
   {
     analysis,
     postCount,
+    holdoutPostIds,
     model,
-  }: { analysis: ScoutBrainAnalysis; postCount: number; model: string },
+    measured,
+  }: {
+    analysis: ScoutBrainAnalysis;
+    measured: MeasuredVoice;
+    postCount: number;
+    holdoutPostIds: string[];
+    model: string;
+  },
 ): Promise<void> {
   const profile = await getProfileById(profileId);
   if (!profile) throw new Error(`Profile ${profileId} not found`);
 
-  const meta = { analyzedAt: new Date().toISOString(), postCount, model };
+  const meta = {
+    analyzedAt: new Date().toISOString(),
+    postCount,
+    holdoutPostIds,
+    model,
+  };
 
   await db
     .update(profilesTable)
@@ -100,6 +114,7 @@ export async function updateProfileBrain(
       voiceBrain: {
         data: analysis.voice,
         edits: profile.voiceBrain?.edits ?? {},
+        measured,
         ...meta,
       },
       interestBrain: {

@@ -56,7 +56,16 @@ export const voiceBrainSchema = z.object({
       "How replies differ from posts. Write 'Not enough replies to tell' if fewer than 3 replies.",
     ),
   signaturePhrases: z
-    .array(z.string())
+    .array(
+      z.object({
+        phrase: z.string().describe("Quoted exactly, in the original language. Emoji count as phrases."),
+        frequency: z
+          .enum(["rare", "occasional", "frequent"])
+          .describe(
+            "Share of posts that use it: rare = under 10%, occasional = 10–30%, frequent = over 30%. Count, don't guess.",
+          ),
+      }),
+    )
     .describe(
       "Phrases or rhetorical patterns that recur in at least 2 posts and would also fit in a conversation, quoted exactly in the original language. Exclude calls to action, link pointers and subscription or sales boilerplate. Empty if none.",
     ),
@@ -132,7 +141,9 @@ export const interestBrainSchema = z.object({
         examplePostIds: postIdsSchema,
       }),
     )
-    .describe("Clear, recurring opinions or takes, each backed by posts."),
+    .describe(
+      "Every clear stance or take the posts show, each backed by posts. Look in replies as well as original posts: replies often hold the sharpest opinions, even in one line. Usually 4–10 when the posts support them; never invent one.",
+    ),
   lowConfidenceTopics: z
     .array(
       z.object({
@@ -199,10 +210,28 @@ export type StoredBrain<TData, B extends BrainName> = {
   data: TData;
   edits: Partial<Record<EditableList<B>, BrainListEdits>>;
   analyzedAt: string;
+  /** Posts the analysis was trained on. */
   postCount: number;
+  /** Posts deliberately withheld from the model, for evals. */
+  holdoutPostIds: string[];
   model: string;
 };
 
-export type StoredVoiceBrain = StoredBrain<VoiceBrainData, "voice">;
+/** Style habits counted in code from the analyzed posts (not AI output). */
+export const measuredVoiceSchema = z.object({
+  postCount: z.number(),
+  emojiShare: z.number(),
+  exclamationShare: z.number(),
+  lowercaseStartShare: z.number(),
+  replyShare: z.number(),
+  medianPostLength: z.number(),
+  medianReplyLength: z.number().nullable(),
+});
+
+export type MeasuredVoice = z.infer<typeof measuredVoiceSchema>;
+
+export type StoredVoiceBrain = StoredBrain<VoiceBrainData, "voice"> & {
+  measured?: MeasuredVoice;
+};
 export type StoredInterestBrain = StoredBrain<InterestBrainData, "interests">;
 export type StoredGoalBrain = StoredBrain<GoalBrainData, "goals">;

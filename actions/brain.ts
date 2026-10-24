@@ -29,7 +29,7 @@ export async function analyzeBrainAction(): Promise<BrainActionState> {
     refresh();
     return {
       status: "success",
-      message: `Analyzed ${result.postCount} posts.`,
+      message: `Analyzed ${result.postCount} posts · ${result.holdoutCount} held out for evaluation.`,
     };
   } catch (error) {
     console.error("Scout Brain analysis failed", error);

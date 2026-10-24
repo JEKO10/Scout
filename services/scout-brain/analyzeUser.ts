@@ -10,6 +10,8 @@ import {
   scoutBrainAnalysisSchema,
 } from "@/lib/ai/schemas/scoutBrain";
 
+import { splitHoldout } from "./holdout";
+import { measureVoice, phraseFrequency } from "./measureVoice";
 import {
   buildScoutBrainInput,
   hasTextBeyondLinks,
@@ -21,7 +23,7 @@ export const MIN_POSTS_FOR_ANALYSIS = 5;
 
 export type AnalyzeUserResult =
   | { status: "not_enough_posts"; postCount: number }
-  | { status: "analyzed"; postCount: number };
+  | { status: "analyzed"; postCount: number; holdoutCount: number };
 
 /**
  * profile + recent X posts → OpenAI structured output → Zod → profile brains.
@@ -36,16 +38,19 @@ export async function analyzeUser(
   ]);
   if (!profile) throw new Error(`Profile ${profileId} not found`);
 
-  const posts = recentPosts.filter((post) => hasTextBeyondLinks(post.content));
+  const { training, holdout } = splitHoldout(
+    recentPosts.filter((post) => hasTextBeyondLinks(post.content)),
+  );
 
-  if (posts.length < MIN_POSTS_FOR_ANALYSIS) {
-    return { status: "not_enough_posts", postCount: posts.length };
+  if (training.length < MIN_POSTS_FOR_ANALYSIS) {
+    return { status: "not_enough_posts", postCount: training.length };
   }
 
+  // Holdout posts never reach the model; evals compare against them later
   const response = await getOpenAI().responses.parse({
     model: OPENAI_MODEL,
     instructions: SCOUT_BRAIN_INSTRUCTIONS,
-    input: buildScoutBrainInput(profile, posts),
+    input: buildScoutBrainInput(profile, training),
     text: { format: zodTextFormat(scoutBrainAnalysisSchema, "scout_brain") },
   });
 
@@ -55,14 +60,25 @@ export async function analyzeUser(
     throw new Error("OpenAI returned no structured Scout Brain output.");
   }
 
-  const knownPostIds = new Set(posts.map((post) => post.platformPostId));
+  // The model picks the phrases; code counts how often they're really used
+  analysis.voice.signaturePhrases = analysis.voice.signaturePhrases.map(
+    ({ phrase }) => ({ phrase, frequency: phraseFrequency(phrase, training) }),
+  );
+
+  const knownPostIds = new Set(training.map((post) => post.platformPostId));
   await updateProfileBrain(profileId, {
     analysis: dropUnknownPostIds(analysis, knownPostIds),
-    postCount: posts.length,
+    measured: measureVoice(training),
+    postCount: training.length,
+    holdoutPostIds: holdout.map((post) => post.platformPostId),
     model: response.model,
   });
 
-  return { status: "analyzed", postCount: posts.length };
+  return {
+    status: "analyzed",
+    postCount: training.length,
+    holdoutCount: holdout.length,
+  };
 }
 
 /** The model can hallucinate IDs; keep only ones that were actually sent. */

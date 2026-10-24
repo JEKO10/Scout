@@ -5,6 +5,7 @@ import {
   type BrainListEdits,
   goalBrainSchema,
   interestBrainSchema,
+  measuredVoiceSchema,
   voiceBrainSchema,
 } from "@/lib/ai/schemas/scoutBrain";
 
@@ -26,10 +27,15 @@ const storedSchema = <T extends z.ZodType>(data: T) =>
     edits: editsSchema,
     analyzedAt: z.string(),
     postCount: z.number(),
+    // Brains analyzed before holdouts existed have none
+    holdoutPostIds: z.array(z.string()).default([]),
     model: z.string(),
   });
 
-const storedVoice = storedSchema(voiceBrainSchema);
+const storedVoice = storedSchema(voiceBrainSchema).extend({
+  // Missing on brains analyzed before style was measured
+  measured: measuredVoiceSchema.optional(),
+});
 const storedInterests = storedSchema(interestBrainSchema);
 const storedGoals = storedSchema(goalBrainSchema);
 
@@ -73,13 +79,21 @@ export function resolveScoutBrain(profile: Profile) {
   return {
     analyzedAt: new Date(v.analyzedAt),
     postCount: v.postCount,
+    holdoutPostIds: v.holdoutPostIds,
     model: v.model,
     voice: {
       ...v.data,
+      measured: v.measured ?? null,
       tone: applyEdits(aiItems(v.data.tone), v.edits.tone),
+      // detail carries the phrase's frequency (rare / occasional / frequent)
       signaturePhrases: applyEdits(
-        aiItems(v.data.signaturePhrases),
+        v.data.signaturePhrases.map(({ phrase, frequency }) => ({
+          label: phrase,
+          source: "ai" as const,
+          detail: frequency,
+        })),
         v.edits.signaturePhrases,
+        (label) => ({ label, source: "user", detail: "occasional" }),
       ),
       avoid: applyEdits(aiItems(v.data.avoid), v.edits.avoid),
     },

@@ -12,6 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type { EngagementDecision } from "../lib/ai/schemas/brainEval";
 import type {
   StoredGoalBrain,
   StoredInterestBrain,
@@ -210,6 +211,75 @@ export const repliesTable = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// Day 6 Brain eval: hand-picked posts by other people, rated by the user.
+// ---------------------------------------------------------------------------
+
+export const evalCaseCategoryEnum = pgEnum("eval_case_category", [
+  "very_relevant",
+  "somewhat_relevant",
+  "knows_little_to_add",
+  "irrelevant",
+]);
+
+export const evalCasesTable = pgTable(
+  "eval_cases",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    authorHandle: text().notNull(),
+    content: text().notNull(),
+    // The user's own expectation; never shown to the model
+    category: evalCaseCategoryEnum().notNull(),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId, t.createdAt)],
+);
+
+export const evalRunsTable = pgTable(
+  "eval_runs",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    // Which Scout Brain version was evaluated
+    brainAnalyzedAt: timestamp({ withTimezone: true }).notNull(),
+    model: text().notNull(),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId, t.createdAt.desc())],
+);
+
+export const evalResultsTable = pgTable(
+  "eval_results",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    runId: uuid()
+      .notNull()
+      .references(() => evalRunsTable.id, { onDelete: "cascade" }),
+    caseId: uuid()
+      .notNull()
+      .references(() => evalCasesTable.id, { onDelete: "cascade" }),
+    decision: jsonb().$type<EngagementDecision>().notNull(),
+    reply: text().notNull(),
+    // The user's old posts given to the model as voice examples
+    contextPostIds: jsonb().$type<string[]>().notNull(),
+
+    // User ratings; null until rated
+    voiceScore: integer(),
+    wouldPost: boolean(),
+    tooGeneric: boolean(),
+    decisionCorrect: boolean(),
+    notes: text(),
+    ratedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.runId, t.caseId)],
+);
+
 export type Profile = typeof profilesTable.$inferSelect;
 export type NewProfile = typeof profilesTable.$inferInsert;
 export type SocialAccount = typeof socialAccountsTable.$inferSelect;
@@ -224,3 +294,6 @@ export type Opportunity = typeof opportunitiesTable.$inferSelect;
 export type NewOpportunity = typeof opportunitiesTable.$inferInsert;
 export type Reply = typeof repliesTable.$inferSelect;
 export type NewReply = typeof repliesTable.$inferInsert;
+export type EvalCase = typeof evalCasesTable.$inferSelect;
+export type EvalRun = typeof evalRunsTable.$inferSelect;
+export type EvalResult = typeof evalResultsTable.$inferSelect;

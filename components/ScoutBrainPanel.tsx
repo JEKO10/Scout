@@ -34,7 +34,7 @@ export function ScoutBrainPanel({
           <h2 id="brain-title">Your Scout Brain</h2>
           <p className="brain-meta">
             {brain
-              ? `Based on ${brain.postCount} posts · Analyzed ${dateFormat.format(brain.analyzedAt)}. Remove anything that's wrong; your edits survive re-analysis.`
+              ? `Based on ${brain.postCount} posts${brain.holdoutPostIds.length ? ` (${brain.holdoutPostIds.length} held out for evaluation)` : ""} · Analyzed ${dateFormat.format(brain.analyzedAt)}. Remove anything that's wrong; your edits survive re-analysis.`
               : postCount
                 ? `Scout will read your ${postCount} imported posts and your onboarding answers.`
                 : "Sync your X account first so Scout has posts to learn from."}
@@ -57,7 +57,20 @@ export function ScoutBrainPanel({
               <Fact label="Speaks as" value={perspectiveLabels[brain.voice.perspective]} />
               <Fact label="Sentences" value={humanize(brain.voice.sentenceLength)} />
               <Fact label="Directness" value={humanize(brain.voice.directness)} />
-              <Fact label="Emoji" value={humanize(brain.voice.emojiUsage)} />
+              <Fact
+                label="Emoji"
+                value={
+                  brain.voice.measured
+                    ? `In ${Math.round(brain.voice.measured.emojiShare * 100)}% of posts`
+                    : humanize(brain.voice.emojiUsage)
+                }
+              />
+              {brain.voice.measured?.medianReplyLength != null && (
+                <Fact
+                  label="Typical reply"
+                  value={`${brain.voice.measured.medianReplyLength} characters`}
+                />
+              )}
               <Fact label="Capitalization" value={humanize(brain.voice.capitalization)} />
               <Fact label="Languages" value={brain.voice.languages.join(", ")} />
               <Fact label="Humor" value={brain.voice.humor} />

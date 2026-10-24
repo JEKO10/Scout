@@ -22,7 +22,9 @@ Rules:
 9. Scout uses this brain to write replies in other people's conversations. Keep promotion apart from voice: calls to action, link pointers and subscription or sales boilerplate go in promotionalPatterns, never in signaturePhrases.
 10. Operational posts (customer support, shipping, billing, checkout help, access announcements) inform replyStyle and promotionalPatterns only. They are not topics, opinions or expertise.
 11. Judge low confidence at the level of subject areas, not individual items. If "military history" is a topic, a single post about Frederick the Great supports that topic; it is not a low-confidence topic.
-12. Record perspective: whether the account speaks as a person ("I") or as an organization ("we").`;
+12. Record perspective: whether the account speaks as a person ("I") or as an organization ("we").
+13. For every signature phrase, count how many posts actually use it and record its frequency. A writer who uses a phrase in 1 of 5 posts sounds wrong if it appears in every reply.
+14. Mine replies for opinions. A short reply like "we never discount annual plans, it just trains customers to wait" is a clear stance on discounting.`;
 
 const URL_PATTERN = /https?:\/\/\S+/g;
 

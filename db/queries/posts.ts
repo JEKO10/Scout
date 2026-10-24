@@ -1,6 +1,6 @@
 import "server-only";
 
-import { count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 
 import db from "@/db";
 import { type Post, postsTable, socialAccountsTable } from "@/db/schema";
@@ -55,5 +55,29 @@ export async function getRecentPostsForProfile(
     .where(eq(socialAccountsTable.profileId, profileId))
     .orderBy(desc(postsTable.publishedAt))
     .limit(limit);
+  return rows.map((row) => row.post);
+}
+
+/** A profile's posts by platform ID, e.g. a Scout Brain's holdout set. */
+export async function getProfilePostsByPlatformIds(
+  profileId: string,
+  platformPostIds: string[],
+): Promise<Post[]> {
+  if (platformPostIds.length === 0) return [];
+
+  const rows = await db
+    .select({ post: postsTable })
+    .from(postsTable)
+    .innerJoin(
+      socialAccountsTable,
+      eq(postsTable.socialAccountId, socialAccountsTable.id),
+    )
+    .where(
+      and(
+        eq(socialAccountsTable.profileId, profileId),
+        inArray(postsTable.platformPostId, platformPostIds),
+      ),
+    )
+    .orderBy(desc(postsTable.publishedAt));
   return rows.map((row) => row.post);
 }

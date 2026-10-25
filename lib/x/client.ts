@@ -1,10 +1,19 @@
 import "server-only";
 
-import { normalizeXPost, normalizeXUser } from "./normalize";
 import type {
+  NormalizedCandidatePost,
   NormalizedPost,
   NormalizedProfile,
+} from "@/lib/posts/types";
+
+import {
+  normalizeXCandidatePost,
+  normalizeXPost,
+  normalizeXUser,
+} from "./normalize";
+import type {
   XApiTimelineResponse,
+  XApiTweet,
   XApiUserResponse,
 } from "./types";
 
@@ -71,36 +80,53 @@ export async function getXUserByHandle(
 }
 
 /**
- * Fetches a user's recent original posts and replies (no retweets), newest
- * first, following pagination until `limit` is reached.
- * Every post read is billed, so keep `limit` small.
+ * A user's recent original posts, replies and quotes (no retweets), newest
+ * first, following pagination until `limit` is reached. With `since`, only
+ * posts after that moment are requested. Every post read is billed.
  */
-export async function getXUserPosts(
+async function fetchUserTweets(
   platformUserId: string,
-  handle: string,
-  { limit = 100 }: { limit?: number } = {},
-): Promise<NormalizedPost[]> {
-  const posts: NormalizedPost[] = [];
+  { limit, since }: { limit: number; since?: Date | null },
+): Promise<XApiTweet[]> {
+  const tweets: XApiTweet[] = [];
   let paginationToken: string | undefined;
 
   do {
-    const remaining = limit - posts.length;
+    const remaining = limit - tweets.length;
     const body = await xFetch<XApiTimelineResponse>(
       `/users/${encodeURIComponent(platformUserId)}/tweets`,
       {
         // X requires 5–100 results per page
         max_results: String(Math.min(Math.max(remaining, 5), 100)),
         exclude: "retweets",
-        "tweet.fields": "created_at,public_metrics,note_tweet",
+        "tweet.fields": "created_at,public_metrics,note_tweet,referenced_tweets",
+        start_time: since?.toISOString(),
         pagination_token: paginationToken,
       },
     );
 
-    for (const tweet of body.data ?? []) {
-      posts.push(normalizeXPost(tweet, handle));
-    }
+    tweets.push(...(body.data ?? []));
     paginationToken = body.meta?.next_token;
-  } while (paginationToken && posts.length < limit);
+  } while (paginationToken && tweets.length < limit);
 
-  return posts.slice(0, limit);
+  return tweets.slice(0, limit);
+}
+
+/** The user's own posts, for the Scout Brain. */
+export async function getXUserPosts(
+  platformUserId: string,
+  handle: string,
+  { limit = 100 }: { limit?: number } = {},
+): Promise<NormalizedPost[]> {
+  const tweets = await fetchUserTweets(platformUserId, { limit });
+  return tweets.map((tweet) => normalizeXPost(tweet, handle));
+}
+
+/** A watched account's posts, for the scan pipeline. */
+export async function getXUserCandidatePosts(
+  author: { platformUserId: string; handle: string },
+  { limit, since }: { limit: number; since: Date | null },
+): Promise<NormalizedCandidatePost[]> {
+  const tweets = await fetchUserTweets(author.platformUserId, { limit, since });
+  return tweets.map((tweet) => normalizeXCandidatePost(tweet, author));
 }

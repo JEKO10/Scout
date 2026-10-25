@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useId, useRef, useState } from "react";
 
 import { lookupXHandleAction, type XHandleLookup } from "@/actions/x";
-import type { NormalizedProfile } from "@/lib/x/types";
+import type { NormalizedProfile } from "@/lib/posts/types";
 
 const LOOKUP_DELAY_MS = 450;
 const HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;

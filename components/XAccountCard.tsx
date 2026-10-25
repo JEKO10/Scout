@@ -2,10 +2,9 @@ import Image from "next/image";
 import Link from "next/link";
 
 import type { SocialAccount } from "@/db/schema";
+import { formatRelative } from "@/lib/format";
 
 import { SyncXButton } from "./SyncXButton";
-
-const relativeTime = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
 export function XAccountCard({
   handle,
@@ -82,17 +81,4 @@ export function XAccountCard({
       )}
     </div>
   );
-}
-
-function formatRelative(date: Date) {
-  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
-  if (Math.abs(seconds) < 60) return "just now";
-
-  const minutes = Math.round(seconds / 60);
-  if (Math.abs(minutes) < 60) return relativeTime.format(minutes, "minute");
-
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return relativeTime.format(hours, "hour");
-
-  return relativeTime.format(Math.round(hours / 24), "day");
 }

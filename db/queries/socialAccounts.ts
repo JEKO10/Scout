@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import db from "@/db";
 import { type SocialAccount, socialAccountsTable } from "@/db/schema";
-import type { NormalizedProfile } from "@/lib/x/types";
+import type { NormalizedProfile } from "@/lib/posts/types";
 
 export async function upsertSocialAccount(
   profileId: string,

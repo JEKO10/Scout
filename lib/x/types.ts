@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------------------
-// Raw X API v2 shapes. Only lib/x should ever touch these.
+// Raw X API v2 shapes. Only lib/x should ever touch these; normalize.ts
+// converts them to the source-agnostic types in lib/posts/types.ts.
 // ---------------------------------------------------------------------------
 
 export type XApiError = {
@@ -35,35 +36,14 @@ export type XApiTweet = {
   };
   // Posts longer than 280 characters are truncated in `text`
   note_tweet?: { text: string };
+  referenced_tweets?: {
+    type: "replied_to" | "quoted" | "retweeted";
+    id: string;
+  }[];
 };
 
 export type XApiTimelineResponse = {
   data?: XApiTweet[];
   meta?: { result_count: number; next_token?: string };
   errors?: XApiError[];
-};
-
-// ---------------------------------------------------------------------------
-// Scout's internal format. The rest of the app only sees these.
-// Field names match the social_accounts / posts columns.
-// ---------------------------------------------------------------------------
-
-export type NormalizedProfile = {
-  platformUserId: string;
-  handle: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-};
-
-export type NormalizedPost = {
-  platformPostId: string;
-  content: string;
-  url: string;
-  publishedAt: Date;
-  metrics: {
-    likes: number;
-    replies: number;
-    reposts: number;
-    impressions?: number;
-  };
 };

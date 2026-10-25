@@ -5,10 +5,14 @@ import { getRecentPostsForProfile } from "@/db/queries/posts";
 import { getProfileById } from "@/db/queries/profiles";
 import type { EvalRun } from "@/db/schema";
 import { OPENAI_MODEL } from "@/lib/ai/client";
+import {
+  formatBrainForWriting,
+  topEmojis,
+} from "@/services/replies/voiceContext";
 import { hasTextBeyondLinks } from "@/services/scout-brain/prompt";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
+import { pickRelevantPosts } from "@/services/scout-brain/retrieval";
 
-import { formatBrainForPrompt, pickRelevantPosts, topEmojis } from "./context";
 import { decideEngagement, generateTestReply } from "./generate";
 
 // Parallel OpenAI calls per batch; keeps us clear of rate limits
@@ -40,7 +44,7 @@ export async function runBrainEval(
   const examplePool = recentPosts.filter(
     (post) => !holdout.has(post.platformPostId) && hasTextBeyondLinks(post.content),
   );
-  const brainJson = formatBrainForPrompt(brain);
+  const brainJson = formatBrainForWriting(brain);
   const emojiShare = brain.voice.measured?.emojiShare ?? 0;
   const emojis = topEmojis(examplePool);
 

@@ -1,6 +1,11 @@
 import type {
+  NormalizedCandidatePost,
   NormalizedPost,
   NormalizedProfile,
+  PostKind,
+} from "@/lib/posts/types";
+
+import type {
   XApiTweet,
   XApiUser,
 } from "./types";
@@ -29,5 +34,32 @@ export function normalizeXPost(tweet: XApiTweet, handle: string): NormalizedPost
         (tweet.public_metrics?.quote_count ?? 0),
       impressions: tweet.public_metrics?.impression_count,
     },
+  };
+}
+
+function tweetKind(tweet: XApiTweet): PostKind {
+  const types = new Set(tweet.referenced_tweets?.map((ref) => ref.type));
+  if (types.has("retweeted")) return "repost";
+  if (types.has("replied_to")) return "reply";
+  if (types.has("quoted")) return "quote";
+  return "post";
+}
+
+export function normalizeXCandidatePost(
+  tweet: XApiTweet,
+  author: { platformUserId: string; handle: string },
+): NormalizedCandidatePost {
+  const post = normalizeXPost(tweet, author.handle);
+
+  return {
+    platform: "x",
+    platformPostId: post.platformPostId,
+    authorPlatformUserId: author.platformUserId,
+    authorHandle: author.handle,
+    content: post.content,
+    url: post.url,
+    postedAt: post.publishedAt,
+    kind: tweetKind(tweet),
+    metrics: post.metrics,
   };
 }

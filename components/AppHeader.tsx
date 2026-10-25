@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/opportunities", label: "Opportunities" },
+  { href: "/watchlist", label: "Watchlist" },
   { href: "/eval", label: "Brain eval" },
   { href: "/account/settings", label: "Settings" },
 ];
@@ -40,6 +42,8 @@ export function AppHeader() {
         </nav>
 
         <UserButton
+          // Explicit: the default changed upstream; this keeps avatar + name + email
+          size="default"
           align="end"
           additionalLinks={[
             { href: "/dashboard", label: "Dashboard" },

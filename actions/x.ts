@@ -3,8 +3,8 @@
 import { refresh } from "next/cache";
 
 import { requireProfile, requireUser } from "@/lib/auth/session";
+import type { NormalizedProfile } from "@/lib/posts/types";
 import { XApiRequestError } from "@/lib/x/client";
-import type { NormalizedProfile } from "@/lib/x/types";
 import { xHandleSchema } from "@/schemas/onboarding";
 import { lookupXHandle } from "@/services/x/lookupHandle";
 import { syncXAccount } from "@/services/x/syncAccount";
@@ -23,19 +23,17 @@ export async function lookupXHandleAction(
   const parsed = xHandleSchema.safeParse(handle);
   if (!parsed.success) return { status: "invalid" };
 
-  try {
-    const profile = await lookupXHandle(parsed.data);
-    return profile ? { status: "found", profile } : { status: "not_found" };
-  } catch (error) {
-    console.error("X handle lookup failed", error);
-    return {
-      status: "error",
-      message:
-        error instanceof XApiRequestError && error.status === 429
-          ? "X is rate limiting lookups. Try again shortly."
-          : "Couldn't reach X to check this handle.",
-    };
-  }
+  const result = await lookupXHandle(parsed.data);
+  if (result.status !== "error") return result;
+
+  console.error("X handle lookup failed", result.message);
+  return {
+    status: "error",
+    message:
+      result.httpStatus === 429
+        ? "X is rate limiting lookups. Try again shortly."
+        : "Couldn't reach X to check this handle.",
+  };
 }
 
 export type SyncXState = {

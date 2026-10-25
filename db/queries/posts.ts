@@ -4,7 +4,7 @@ import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 
 import db from "@/db";
 import { type Post, postsTable, socialAccountsTable } from "@/db/schema";
-import type { NormalizedPost } from "@/lib/x/types";
+import type { NormalizedPost } from "@/lib/posts/types";
 
 /**
  * Idempotent: posts are keyed by the UNIQUE platformPostId, so syncing the

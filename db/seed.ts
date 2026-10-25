@@ -329,26 +329,34 @@ async function seed() {
   // 7. REPLIES
   // --------------------------------------------------
 
-  await db.insert(repliesTable).values([
+  const seedReplies = [
     {
       opportunityId: opportunities[0].id,
       content:
         "The interesting part is that AI makes writing code cheaper, but understanding what should be built doesn't get 10x easier.",
-      status: "draft",
+      status: "draft" as const,
     },
     {
       opportunityId: opportunities[1].id,
       content:
         "10 conversations with real users are probably worth more than another month polishing an MVP nobody has seen.",
-      status: "approved",
+      status: "approved" as const,
     },
     {
       opportunityId: opportunities[4].id,
       content:
         "Building in public feels less like marketing when the audience is actually influencing what gets built.",
-      status: "draft",
+      status: "draft" as const,
     },
-  ]);
+  ];
+  // Seeded replies are unedited AI drafts
+  await db.insert(repliesTable).values(
+    seedReplies.map((reply) => ({
+      ...reply,
+      variant: "natural" as const,
+      originalContent: reply.content,
+    })),
+  );
 
   console.log("✓ Replies created");
 

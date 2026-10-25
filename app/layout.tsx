@@ -30,6 +30,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       // next-themes (via NeonAuthUIProvider) sets the theme class/style before hydration
       suppressHydrationWarning
+      // globals.css sets smooth scrolling; this lets Next turn it off during
+      // route changes so navigation doesn't animate-scroll
+      data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">

@@ -4,10 +4,14 @@ import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
+import { toDraftPair } from "@/components/opportunities/toDraftPair";
 import { ScoutBrainPanel } from "@/components/ScoutBrainPanel";
+import { RunScoutButton } from "@/components/watchlist/RunScoutButton";
 import { XAccountCard } from "@/components/XAccountCard";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countPostsBySocialAccount } from "@/db/queries/posts";
+import { getCurrentReplies } from "@/db/queries/replies";
 import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
 import { requireProfile } from "@/lib/auth/session";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
@@ -49,6 +53,15 @@ async function Dashboard() {
     0,
   );
   const latestRun = data.scoutRuns[0];
+  // getWorkspaceData sorts by score, so these are the best open ones
+  const topOpportunities = data.opportunities
+    .filter((opportunity) => opportunity.status === "new")
+    .slice(0, 3);
+  const activeAccounts = data.watchlist.filter((account) => account.isActive).length;
+  const topReplies = await getCurrentReplies(
+    profile.id,
+    topOpportunities.map((opportunity) => opportunity.id),
+  );
   const firstName = (profile.displayName ?? user.name ?? "there").split(" ")[0];
 
   return (
@@ -61,9 +74,12 @@ async function Dashboard() {
             Every relevant conversation and every post, in one calm place.
           </p>
         </div>
-        <Link href="/account/settings" className="secondary-button">
-          Tune Scout
-        </Link>
+        <div className="workspace-actions">
+          <Link href="/account/settings" className="secondary-button">
+            Tune Scout
+          </Link>
+          <RunScoutButton disabled={activeAccounts === 0} />
+        </div>
       </section>
 
       <section className="metrics-strip" aria-label="Workspace summary">
@@ -85,75 +101,33 @@ async function Dashboard() {
         <section className="feed-section" aria-labelledby="opportunities-title">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Ranked by relevance</p>
-              <h2 id="opportunities-title">Opportunity feed</h2>
+              <p className="eyebrow">Best first</p>
+              <h2 id="opportunities-title">Top opportunities</h2>
             </div>
-            <span className="count-label">{data.opportunities.length} total</span>
+            <Link href="/opportunities" className="text-link">
+              View all {newOpportunities} <span aria-hidden="true">→</span>
+            </Link>
           </div>
 
-          {data.opportunities.length ? (
-            <div className="opportunity-list">
-              {data.opportunities.map((opportunity, index) => (
-                <article
-                  className="opportunity-row"
+          {topOpportunities.length ? (
+            <div className="opportunity-feed">
+              {topOpportunities.map((opportunity) => (
+                <OpportunityCard
                   key={opportunity.id}
-                  style={{ "--item-index": index } as React.CSSProperties}
-                >
-                  <div className="opportunity-meta">
-                    <span className="avatar-placeholder" aria-hidden="true">
-                      {(opportunity.authorHandle ?? "S").charAt(0).toUpperCase()}
-                    </span>
-                    <div>
-                      <p className="author-name">
-                        @{opportunity.authorHandle ?? "unknown"}
-                      </p>
-                      <p className="metadata-line">
-                        {opportunity.platform.toUpperCase()} · {formatDate(opportunity.postedAt)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="opportunity-copy">
-                    <p>{opportunity.content}</p>
-                    {opportunity.reason && (
-                      <p className="match-reason">
-                        <span aria-hidden="true">↗</span> {opportunity.reason}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="opportunity-actions">
-                    <span
-                      className="status-label"
-                      data-status={opportunity.status}
-                    >
-                      {opportunity.status}
-                    </span>
-                    <span className="score">
-                      <strong>{Math.round(opportunity.score ?? 0)}</strong>
-                      <span>match</span>
-                    </span>
-                    {opportunity.postUrl && (
-                      <a
-                        href={opportunity.postUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="icon-link"
-                        aria-label={`Open post by ${opportunity.authorHandle ?? "author"}`}
-                        title="Open original post"
-                      >
-                        ↗
-                      </a>
-                    )}
-                  </div>
-                </article>
+                  opportunity={opportunity}
+                  replies={toDraftPair(topReplies.get(opportunity.id))}
+                />
               ))}
             </div>
           ) : (
             <EmptyState
-              title="No opportunities yet"
-              description="Add accounts to your watchlist and run Scout to find conversations worth joining."
-              action={{ href: "/account/settings", label: "Set up your sources" }}
+              title="No strong opportunities right now."
+              description={
+                activeAccounts
+                  ? `Scout only surfaces posts worth your time. Run Scout to scan your ${activeAccounts} watched accounts again.`
+                  : "Add accounts to your watchlist and run Scout to find conversations worth joining."
+              }
+              action={{ href: "/watchlist", label: activeAccounts ? "Review your watchlist" : "Build your watchlist" }}
             />
           )}
         </section>
@@ -209,8 +183,8 @@ async function Dashboard() {
             ) : (
               <p className="aside-empty">No monitored accounts yet.</p>
             )}
-            <Link href="/account/settings" className="text-link">
-              Manage data <span aria-hidden="true">→</span>
+            <Link href="/watchlist" className="text-link">
+              Manage watchlist <span aria-hidden="true">→</span>
             </Link>
           </div>
         </aside>

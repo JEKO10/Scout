@@ -41,6 +41,11 @@ export const candidateJudgmentSchema = z.object({
     .describe(
       "Why THIS user should join, in one or two sentences addressed to them ('You've written…'). Cite their Scout Brain. If they shouldn't, say why not.",
     ),
+  topic: z
+    .string()
+    .describe(
+      "What the post is about in 1–3 words. Use the exact name of a Scout Brain topic when one fits; otherwise a short, general label (e.g. 'Fundraising', 'Crypto').",
+    ),
   suggestedAngle: z
     .string()
     .describe(

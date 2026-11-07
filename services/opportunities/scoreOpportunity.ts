@@ -26,6 +26,7 @@ Calibration:
 - Popularity, big accounts and hot topics earn nothing by themselves. A viral AI tweet the user has nothing specific to say about scores low.
 - Topics in lowConfidenceTopics, or outside the user's topics entirely, get low relevance and expertiseFit.
 - Never invent expertise or opinions that are not in the Scout Brain or their past posts.
+- Some users are new and have no posting history: "history" may then be replies they wrote during onboarding, or empty. Missing history is never a reason to lower a score. Judge "stated" interests and expertise at face value; the score reflects the opportunity, not the age of their account.
 
 shouldEngage is true only when the user has something specific to add that serves their goal.
 reason: speak to the user ("You've written about…") and cite their brain or past posts.

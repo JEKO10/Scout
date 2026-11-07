@@ -14,7 +14,10 @@ type ProfileFieldName =
   | "bio"
   | "targetAudience"
   | "primaryGoal"
-  | "knownFor";
+  | "knownFor"
+  | "topics"
+  | "avoidTopics"
+  | "voiceDescription";
 
 type ProfileField = {
   name: ProfileFieldName;
@@ -37,9 +40,10 @@ const fields: readonly ProfileField[] = [
   {
     name: "xHandle",
     label: "What's your X handle?",
-    hint: "Your username on X, with or without the @.",
+    hint: "Optional. No X account yet? Leave it empty; Scout still works.",
     placeholder: "e.g. @martinbuilds",
     multiline: false,
+    optional: true,
   },
   {
     name: "occupation",
@@ -84,6 +88,28 @@ const fields: readonly ProfileField[] = [
     placeholder: "AI products, SaaS, product strategy…",
     multiline: true,
     optional: true,
+  },
+  {
+    name: "topics",
+    label: "What topics do you know?",
+    hint: "Subjects you can talk about with real substance. Scout looks for these.",
+    placeholder: "AI, startups, software, design…",
+    multiline: true,
+  },
+  {
+    name: "avoidTopics",
+    label: "What don't you want to comment on?",
+    hint: "Optional. Scout keeps these out of your feed.",
+    placeholder: "Politics, crypto, fundraising…",
+    multiline: true,
+    optional: true,
+  },
+  {
+    name: "voiceDescription",
+    label: "How do you want to sound?",
+    hint: "A few words about your tone. Your calibration replies refine this.",
+    placeholder: "Direct, casual, analytical",
+    multiline: false,
   },
 ];
 

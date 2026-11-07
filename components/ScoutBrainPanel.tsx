@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { ResolvedScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 import { AnalyzeBrainButton } from "./AnalyzeBrainButton";
@@ -22,10 +24,17 @@ const humanize = (value: string) =>
 export function ScoutBrainPanel({
   brain,
   postCount,
+  sampleCount,
+  interactionCount,
 }: {
   brain: ResolvedScoutBrain | null;
   postCount: number;
+  /** Onboarding voice calibration replies */
+  sampleCount: number;
+  /** Accepted, edited, rejected and skipped so far (Memory) */
+  interactionCount: number;
 }) {
+  const fromOnboarding = brain?.basis === "onboarding";
   return (
     <section className="brain-section" aria-labelledby="brain-title">
       <div className="section-heading">
@@ -33,15 +42,50 @@ export function ScoutBrainPanel({
           <p className="eyebrow">What Scout learned</p>
           <h2 id="brain-title">Your Scout Brain</h2>
           <p className="brain-meta">
-            {brain
+            {brain && fromOnboarding
+              ? `Built from your onboarding answers and ${sampleCount} calibration replies · ${dateFormat.format(brain.analyzedAt)}. It sharpens as you use Scout.`
+              : brain
               ? `Based on ${brain.postCount} posts${brain.holdoutPostIds.length ? ` (${brain.holdoutPostIds.length} held out for evaluation)` : ""} · Analyzed ${dateFormat.format(brain.analyzedAt)}. Remove anything that's wrong; your edits survive re-analysis.`
               : postCount
                 ? `Scout will read your ${postCount} imported posts and your onboarding answers.`
                 : "Sync your X account first so Scout has posts to learn from."}
           </p>
         </div>
-        <AnalyzeBrainButton analyzed={Boolean(brain)} />
+        {fromOnboarding && postCount < 5 ? (
+          <Link href="/onboarding?step=answers&mode=scratch" className="secondary-button">
+            Recalibrate
+          </Link>
+        ) : (
+          <AnalyzeBrainButton analyzed={Boolean(brain)} />
+        )}
       </div>
+
+      {brain && (
+        <dl className="brain-confidence">
+          <Fact
+            label="Voice profile"
+            value={
+              fromOnboarding
+                ? sampleCount
+                  ? `Initial · from ${sampleCount} replies you wrote`
+                  : "Initial · from your description"
+                : `Learned from ${brain.postCount} posts`
+            }
+          />
+          <Fact label="Interests" value={fromOnboarding ? "User-defined" : "Observed in your posts"} />
+          <Fact label="Goals" value="User-defined" />
+          <Fact
+            label="Personalization"
+            value={
+              interactionCount === 0
+                ? "Not started · use Scout to teach it"
+                : interactionCount < 10
+                  ? `Starting · ${interactionCount} interactions`
+                  : `Improving · ${interactionCount} interactions`
+            }
+          />
+        </dl>
+      )}
 
       {brain && (
         <div className="brain-grid">

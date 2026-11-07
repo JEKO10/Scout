@@ -29,6 +29,10 @@ export type OpportunityScoreBreakdown = {
   freshness: number; // 0–15, code
   audienceValue: number; // 0–10, AI
   novelty: number; // 0–10, AI
+  /** Day 13: learned nudge, -10 to +10, applied after the base score */
+  learning?: number;
+  /** Why the learning nudge happened, e.g. "+4 you often engage with AI coding" */
+  learningNotes?: string[];
 };
 
 export type ScoringStats = {

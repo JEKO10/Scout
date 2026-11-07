@@ -215,6 +215,8 @@ export type StoredBrain<TData, B extends BrainName> = {
   /** Posts deliberately withheld from the model, for evals. */
   holdoutPostIds: string[];
   model: string;
+  /** Learned from X posts, or built from onboarding answers (Day 14) */
+  basis?: "posts" | "onboarding";
 };
 
 /** Style habits counted in code from the analyzed posts (not AI output). */

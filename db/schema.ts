@@ -20,6 +20,7 @@ import type {
   StoredInterestBrain,
   StoredVoiceBrain,
 } from "../lib/ai/schemas/scoutBrain";
+import type { LearningProfile } from "../lib/scout/learning";
 import type {
   OpportunityScoreBreakdown,
   ScoutRunStats,
@@ -77,10 +78,16 @@ export const profilesTable = pgTable("profiles", {
   targetAudience: text(),
   primaryGoal: text(),
   knownFor: text(),
+  // Day 14 guided onboarding (cold start)
+  topics: text(),
+  avoidTopics: text(),
+  voiceDescription: text(),
 
   voiceBrain: jsonb().$type<StoredVoiceBrain>(),
   interestBrain: jsonb().$type<StoredInterestBrain>(),
   goalBrain: jsonb().$type<StoredGoalBrain>(),
+  // Day 13: conclusions from repeated behavior; null until first learned
+  learningProfile: jsonb().$type<LearningProfile>(),
 
   onboardingCompleted: boolean().notNull().default(false),
   ...timestamps,
@@ -199,6 +206,8 @@ export const opportunitiesTable = pgTable(
     reason: text(),
     // What this user specifically has to add
     suggestedAngle: text(),
+    // What the post is about, named after a Scout Brain topic when one fits
+    topic: text(),
     status: opportunityStatusEnum().notNull().default("new"),
     postedAt: timestamp({ withTimezone: true }),
     ...timestamps,
@@ -380,6 +389,7 @@ export const scoutCandidatesTable = pgTable(
     shouldEngage: boolean(),
     reason: text(),
     suggestedAngle: text(),
+    topic: text(),
     scoredAt: timestamp({ withTimezone: true }),
 
     // The user's own blind judgment, compared with Scout's score in the
@@ -394,6 +404,27 @@ export const scoutCandidatesTable = pgTable(
     index().on(t.runId),
     index().on(t.profileId, t.scoredAt),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Day 14 cold start: the user's own writing, before they have any X history
+// ---------------------------------------------------------------------------
+
+export const voiceSampleSourceEnum = pgEnum("voice_sample_source", ["onboarding"]);
+
+export const voiceSamplesTable = pgTable(
+  "voice_samples",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    promptPost: text().notNull(),
+    userReply: text().notNull(),
+    source: voiceSampleSourceEnum().notNull().default("onboarding"),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId, t.createdAt)],
 );
 
 export type Profile = typeof profilesTable.$inferSelect;
@@ -415,3 +446,4 @@ export type EvalRun = typeof evalRunsTable.$inferSelect;
 export type EvalResult = typeof evalResultsTable.$inferSelect;
 export type ImportedPost = typeof importedPostsTable.$inferSelect;
 export type ScoutCandidate = typeof scoutCandidatesTable.$inferSelect;
+export type VoiceSample = typeof voiceSamplesTable.$inferSelect;

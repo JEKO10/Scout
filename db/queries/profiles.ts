@@ -10,6 +10,7 @@ import type {
   MeasuredVoice,
   ScoutBrainAnalysis,
 } from "@/lib/ai/schemas/scoutBrain";
+import type { LearningProfile } from "@/lib/scout/learning";
 
 export async function getProfileByUserId(
   userId: string,
@@ -68,6 +69,9 @@ export async function updateProfileByUserId(
       | "targetAudience"
       | "primaryGoal"
       | "knownFor"
+      | "topics"
+      | "avoidTopics"
+      | "voiceDescription"
       | "onboardingCompleted"
     >
   >,
@@ -90,9 +94,11 @@ export async function updateProfileBrain(
     holdoutPostIds,
     model,
     measured,
+    basis = "posts",
   }: {
     analysis: ScoutBrainAnalysis;
     measured: MeasuredVoice;
+    basis?: "posts" | "onboarding";
     postCount: number;
     holdoutPostIds: string[];
     model: string;
@@ -106,6 +112,7 @@ export async function updateProfileBrain(
     postCount,
     holdoutPostIds,
     model,
+    basis,
   };
 
   await db
@@ -167,5 +174,15 @@ export async function updateBrainListEdit(
   await db
     .update(profilesTable)
     .set({ [column]: { ...stored, edits } })
+    .where(eq(profilesTable.id, profileId));
+}
+
+export async function saveLearningProfile(
+  profileId: string,
+  learningProfile: LearningProfile,
+): Promise<void> {
+  await db
+    .update(profilesTable)
+    .set({ learningProfile })
     .where(eq(profilesTable.id, profileId));
 }

@@ -112,6 +112,9 @@ export async function runScoutAction(): Promise<WatchlistActionState> {
           `Scan complete: ${candidates} new ${candidates === 1 ? "candidate" : "candidates"}, ` +
           `${surfaced} worth your time.` +
           (scoring?.skippedReason ? ` ${scoring.skippedReason}` : "") +
+          (scoring && !scoring.skippedReason && scoring.unscored > 0
+            ? ` ${scoring.unscored} more are queued for scoring; run Scout again.`
+            : "") +
           (accountsFailed ? ` ${accountsFailed} account(s) failed; they retry next run.` : ""),
         run: { analyzed: scoring?.scored ?? 0, opportunities: surfaced },
       };

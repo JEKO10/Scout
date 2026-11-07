@@ -8,7 +8,7 @@ const STOPWORDS = new Set(
   ),
 );
 
-function keywords(text: string): Set<string> {
+export function keywords(text: string): Set<string> {
   return new Set(
     text
       .toLowerCase()
@@ -38,4 +38,28 @@ export function pickRelevantPosts(
     .sort((a, b) => b.overlap - a.overlap || b.likes - a.likes)
     .slice(0, count)
     .map(({ post }) => post);
+}
+
+/**
+ * Items whose text shares at least `minOverlap` keywords with `text`, most
+ * overlap first. Unlike pickRelevantPosts there is no fallback: unrelated
+ * items are left out rather than padded in.
+ */
+export function pickRelated<T>(
+  items: T[],
+  getText: (item: T) => string,
+  text: string,
+  { count, minOverlap = 2 }: { count: number; minOverlap?: number },
+): T[] {
+  const target = keywords(text);
+  return items
+    .map((item) => {
+      let overlap = 0;
+      for (const word of keywords(getText(item))) if (target.has(word)) overlap++;
+      return { item, overlap };
+    })
+    .filter(({ overlap }) => overlap >= minOverlap)
+    .sort((a, b) => b.overlap - a.overlap)
+    .slice(0, count)
+    .map(({ item }) => item);
 }

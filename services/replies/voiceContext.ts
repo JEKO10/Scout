@@ -70,7 +70,7 @@ export function formatBrainForWriting(brain: ResolvedScoutBrain): string {
 const EMOJI = /\p{Extended_Pictographic}(‍\p{Extended_Pictographic}|️)*/gu;
 
 /** The emoji this person actually uses, most used first. */
-export function topEmojis(posts: Post[], count = 3): string[] {
+export function topEmojis(posts: Pick<Post, "content">[], count = 3): string[] {
   const tally = new Map<string, number>();
   for (const post of posts) {
     for (const emoji of new Set(post.content.match(EMOJI) ?? [])) {

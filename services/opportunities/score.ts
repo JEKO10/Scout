@@ -34,11 +34,28 @@ export function scoreBreakdown(
   };
 }
 
+/** Base factors plus the learning nudge, kept within 0–100 */
 export const totalScore = (breakdown: OpportunityScoreBreakdown) =>
-  Object.values(breakdown).reduce((sum, points) => sum + points, 0);
+  Math.max(
+    0,
+    Math.min(
+      100,
+      breakdown.relevance +
+        breakdown.goalAlignment +
+        breakdown.expertiseFit +
+        breakdown.freshness +
+        breakdown.audienceValue +
+        breakdown.novelty +
+        (breakdown.learning ?? 0),
+    ),
+  );
 
-/** Starting threshold; tune it later from real data. */
-export const SURFACE_THRESHOLD = 75;
+/**
+ * Lowered from 75 after the first ranking check (13 labeled posts): the
+ * user's YES averaged 60 and no NO scored above 18, while 75 hid wanted posts.
+ * Re-tune as more labels come in.
+ */
+export const SURFACE_THRESHOLD = 60;
 
 export const shouldSurface = (score: number, shouldEngage: boolean) =>
   shouldEngage && score >= SURFACE_THRESHOLD;

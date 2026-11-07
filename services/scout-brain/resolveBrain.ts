@@ -30,6 +30,8 @@ const storedSchema = <T extends z.ZodType>(data: T) =>
     // Brains analyzed before holdouts existed have none
     holdoutPostIds: z.array(z.string()).default([]),
     model: z.string(),
+    // Brains from before Day 14 were all learned from posts
+    basis: z.enum(["posts", "onboarding"]).default("posts"),
   });
 
 const storedVoice = storedSchema(voiceBrainSchema).extend({
@@ -81,6 +83,7 @@ export function resolveScoutBrain(profile: Profile) {
     postCount: v.postCount,
     holdoutPostIds: v.holdoutPostIds,
     model: v.model,
+    basis: v.basis,
     voice: {
       ...v.data,
       measured: v.measured ?? null,

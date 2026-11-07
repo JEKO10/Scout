@@ -13,7 +13,9 @@ import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countPostsBySocialAccount } from "@/db/queries/posts";
 import { getCurrentReplies } from "@/db/queries/replies";
 import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
+import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
+import { buildUserMemory } from "@/services/memory/buildUserMemory";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact" });
@@ -53,6 +55,10 @@ async function Dashboard() {
     0,
   );
   const latestRun = data.scoutRuns[0];
+  const [voiceSamples, memory] = await Promise.all([
+    getVoiceSamples(profile.id),
+    buildUserMemory(profile.id),
+  ]);
   // getWorkspaceData sorts by score, so these are the best open ones
   const topOpportunities = data.opportunities
     .filter((opportunity) => opportunity.status === "new")
@@ -95,6 +101,8 @@ async function Dashboard() {
       <ScoutBrainPanel
         brain={resolveScoutBrain(profile)}
         postCount={data.posts.length}
+        sampleCount={voiceSamples.length}
+        interactionCount={memory.interactionCount}
       />
 
       <div className="dashboard-grid">

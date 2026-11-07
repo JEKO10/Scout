@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 
 import db from "@/db";
 import { type ScoutCandidate, scoutCandidatesTable } from "@/db/schema";
@@ -110,7 +110,12 @@ export async function saveCandidateScore(
   candidateId: string,
   score: Pick<
     ScoutCandidate,
-    "score" | "scoreBreakdown" | "shouldEngage" | "reason" | "suggestedAngle"
+    | "score"
+    | "scoreBreakdown"
+    | "shouldEngage"
+    | "reason"
+    | "suggestedAngle"
+    | "topic"
   >,
 ): Promise<void> {
   await db
@@ -122,4 +127,17 @@ export async function saveCandidateScore(
         eq(scoutCandidatesTable.profileId, profileId),
       ),
     );
+}
+
+export async function countUnscoredCandidates(profileId: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(scoutCandidatesTable)
+    .where(
+      and(
+        eq(scoutCandidatesTable.profileId, profileId),
+        isNull(scoutCandidatesTable.scoredAt),
+      ),
+    );
+  return row.value;
 }

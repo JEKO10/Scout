@@ -84,9 +84,6 @@ export function XHandleField({
       <label className="field-label" htmlFor={inputId}>
         <strong>
           {label}
-          <span className="required-mark" aria-hidden="true">
-            *
-          </span>
         </strong>
         <small>{hint}</small>
       </label>
@@ -99,7 +96,6 @@ export function XHandleField({
             name={name}
             value={value}
             placeholder={placeholder}
-            required
             autoComplete="off"
             autoCapitalize="none"
             autoCorrect="off"

@@ -27,7 +27,19 @@ Both drafts:
 - Write in the original post's language if they write in it; otherwise their main language.
 
 natural: what they would most likely write on first instinct.
-strongerTake: the same person, firmer: a clearer stance or sharper argument with a different structure from natural, not a paraphrase of it. Bolder, never ruder, and still true to their opinions.`;
+strongerTake: the same person, firmer: a clearer stance or sharper argument with a different structure from natural, not a paraphrase of it. Bolder, never ruder, and still true to their opinions.
+
+Learned preferences (when given) come from the user's own repeated edits and choices, each with its evidence. They outrank the Scout Brain's style guidance:
+- replyLength is a hard limit: every draft must fit it.
+- avoid and do are rules, not suggestions.
+- overusedArguments: never make these points again.
+
+New creator (when marked): they have little or no posting history. Write conservatively: general, well-reasoned points from their stated interests, and no personal anecdotes, numbers, projects or experiences unless their own replies contain them.
+
+Memory (when given) is what has actually happened with this user:
+- recentEdits show how they rewrote Scout drafts. Write the way they ended up writing.
+- alreadyUsedArguments: do not make the same point again; find a different angle on the subject.
+- thisPerson: they have replied to this account before. Don't repeat their last reply's wording.`;
 
 const emojiInstruction = (emoji: string | null) =>
   emoji ? `exactly one emoji, ${emoji}, where it fits naturally` : "no emoji";
@@ -39,18 +51,26 @@ function buildInput(
   return [
     `## Scout Brain\n${context.brainJson}`,
     [
-      "## Their past posts (voice examples)",
-      ...context.examples.map((post, index) => `${index + 1}. ${post.content}`),
+      context.newCreator
+        ? "## Their own replies from onboarding (voice examples)"
+        : "## Their past posts (voice examples)",
+      ...context.examples.map((text, index) => `${index + 1}. ${text}`),
     ].join("\n"),
+    context.newCreator &&
+      "## New creator\nLittle or no posting history: write conservatively and invent no personal experience.",
     `## Post to reply to (by @${opportunity.authorHandle ?? "unknown"})\n${opportunity.content}`,
     `## Why they should join\n${opportunity.reason ?? "-"}`,
     `## Suggested angle\n${opportunity.suggestedAngle ?? "-"}`,
+    context.learning && `## Learned preferences\n${context.learning}`,
+    context.memory && `## Memory\n${context.memory}`,
     [
       "## Emoji",
       `natural: ${emojiInstruction(context.emoji.natural)}`,
       `strongerTake: ${emojiInstruction(context.emoji.strongerTake)}`,
     ].join("\n"),
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export type GenerateRepliesResult =

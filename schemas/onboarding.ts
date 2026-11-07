@@ -8,6 +8,9 @@ export const onboardingFieldNames = [
   "targetAudience",
   "primaryGoal",
   "knownFor",
+  "topics",
+  "avoidTopics",
+  "voiceDescription",
 ] as const;
 
 export const xHandleSchema = z
@@ -18,6 +21,17 @@ export const xHandleSchema = z
     (value) => /^[A-Za-z0-9_]{1,15}$/.test(value),
     "Enter a valid X handle.",
   );
+
+/** No X account is fine (Day 14 cold start): empty means none */
+const optionalXHandle = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/^@+/, ""))
+  .refine(
+    (value) => value === "" || /^[A-Za-z0-9_]{1,15}$/.test(value),
+    "Enter a valid X handle, or leave it empty.",
+  )
+  .transform((value) => value || null);
 
 const optionalText = (maxLength: number, label: string) =>
   z
@@ -35,12 +49,15 @@ const requiredText = (maxLength: number, label: string) =>
 
 export const onboardingSchema = z.object({
   displayName: requiredText(80, "Display name"),
-  xHandle: xHandleSchema,
+  xHandle: optionalXHandle,
   occupation: requiredText(120, "Occupation"),
   bio: optionalText(500, "Bio"),
   targetAudience: requiredText(300, "Target audience"),
   primaryGoal: requiredText(120, "Primary goal"),
   knownFor: optionalText(300, "Known for"),
+  topics: requiredText(300, "Topics you know"),
+  avoidTopics: optionalText(300, "Topics to avoid"),
+  voiceDescription: requiredText(200, "How you want to sound"),
 });
 
 export type OnboardingValues = z.output<typeof onboardingSchema>;

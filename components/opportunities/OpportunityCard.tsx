@@ -33,6 +33,7 @@ export function OpportunityCard({
     | "reason"
     | "suggestedAngle"
     | "status"
+    | "scoreBreakdown"
   >;
   replies?: DraftPair;
 }) {
@@ -79,6 +80,12 @@ export function OpportunityCard({
         {status === "saved" && <span className="opportunity-saved">Saved</span>}
         {status === "replied" && <span className="opportunity-saved">Replied</span>}
       </header>
+
+      {opportunity.scoreBreakdown?.learningNotes?.length ? (
+        <p className="opportunity-learning">
+          Learned: {opportunity.scoreBreakdown.learningNotes.join(" · ")}
+        </p>
+      ) : null}
 
       <p className="opportunity-author">
         {opportunity.postUrl ? (

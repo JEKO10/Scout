@@ -4,7 +4,31 @@ export type CandidateFilterReason =
   | "too_old"
   | "already_seen"
   // Replies lack the post they answer, so they carry no usable context
-  | "reply";
+  | "reply"
+  // A quote whose quoted post the source didn't include
+  | "quote_without_context";
+
+/**
+ * Where an account's X timeline was read up to, by post ID. Every post with an
+ * ID ≤ sinceId is handled. With untilId set there is a gap: posts between
+ * sinceId and untilId are still unread (more arrived than one scan reads), and
+ * newestId is the newest post already handled.
+ */
+export type XScanCursor = {
+  sinceId: string;
+  untilId?: string;
+  newestId?: string;
+};
+
+/** X API usage of one run; requests include failed attempts and retries. */
+export type XRunUsage = {
+  requests: number;
+  failed: number;
+  retried: number;
+  postsReturned: number;
+  /** Why the run stopped calling X, e.g. out of credits; later accounts used imports */
+  stoppedReason?: string;
+};
 
 export type ScoutRunStats = {
   accountsTotal: number;
@@ -17,6 +41,8 @@ export type ScoutRunStats = {
   /** Accounts scanned per post source, e.g. { x_api: 3, import: 9 } */
   sources: Record<string, number>;
   failures: { handle: string; reason: string }[];
+  /** Absent on runs from before usage tracking */
+  xApi?: XRunUsage;
   /** Day 9 Opportunity Engine; absent on runs from before it existed */
   scoring?: ScoringStats;
 };

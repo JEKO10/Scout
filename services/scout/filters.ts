@@ -26,15 +26,30 @@ export function dedupePosts<T extends NormalizedCandidatePost>(
   return { unique, duplicates: posts.length - unique.length };
 }
 
+type FilterContext = {
+  now: Date;
+  alreadySeen: Set<string>;
+  /** Testing mode drops quotes whose quoted post wasn't fetched */
+  allowQuotesWithoutContext?: boolean;
+};
+
 export function rejectionReason(
   post: NormalizedCandidatePost,
-  { now, alreadySeen }: { now: Date; alreadySeen: Set<string> },
+  { now, alreadySeen, allowQuotesWithoutContext = true }: FilterContext,
 ): CandidateFilterReason | null {
   if (alreadySeen.has(post.platformPostId)) return "already_seen";
+  // Decided by the source's metadata (X: referenced_tweets), never by the text
   if (post.kind === "repost") return "repost";
   // MVP: a reply only shows one side of a conversation; the post it answers
-  // would cost an extra API call and isn't in imports. Quotes include theirs.
+  // would cost an extra API call and isn't in imports
   if (post.kind === "reply") return "reply";
+  if (
+    post.kind === "quote" &&
+    post.quotedPostIncluded === false &&
+    !allowQuotesWithoutContext
+  ) {
+    return "quote_without_context";
+  }
 
   const text = ownText(post);
   if (text.length === 0) return "empty";
@@ -46,7 +61,7 @@ export function rejectionReason(
 
 export function filterCandidates<T extends NormalizedCandidatePost>(
   posts: T[],
-  context: { now: Date; alreadySeen: Set<string> },
+  context: FilterContext,
 ): { candidates: T[]; filtered: Record<CandidateFilterReason, number> } {
   const filtered: Record<CandidateFilterReason, number> = {
     already_seen: 0,
@@ -54,6 +69,7 @@ export function filterCandidates<T extends NormalizedCandidatePost>(
     empty: 0,
     too_old: 0,
     reply: 0,
+    quote_without_context: 0,
   };
   const candidates = posts.filter((post) => {
     const reason = rejectionReason(post, context);

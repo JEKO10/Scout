@@ -10,7 +10,9 @@ import {
   setWatchlistAccountActive,
 } from "@/db/queries/watchlist";
 import { requireProfile } from "@/lib/auth/session";
+import { formatRelative } from "@/lib/format";
 import { parseTwExtractCsv } from "@/lib/import/twExtractCsv";
+import { getScoutLimits } from "@/lib/scout/testLimits";
 import { xHandleSchema } from "@/schemas/onboarding";
 import { runScout } from "@/services/scout/runScout";
 import {
@@ -51,9 +53,14 @@ export async function addWatchlistAccountAction(
         refresh();
         return {
           status: "success",
-          message: result.verified
-            ? `Added @${result.account.handle}.`
-            : `Added @${result.account.handle}. X is unavailable right now, so Scout will verify it before the first scan.`,
+          message:
+            `Added @${result.account.handle}` +
+            (result.paused
+              ? `, paused: testing mode scans at most ${getScoutLimits().maxWatchlistAccounts} active accounts. Pause another to resume it.`
+              : ".") +
+            (result.verified
+              ? ""
+              : " X is unavailable right now, so Scout will verify it before the first scan."),
         };
     }
   } catch (error) {
@@ -64,17 +71,25 @@ export async function addWatchlistAccountAction(
 
 const accountIdSchema = z.uuid();
 
+/** Returns an error message when the account can't be resumed. */
 export async function setWatchlistAccountActiveAction(
   accountId: string,
   isActive: boolean,
-): Promise<void> {
+): Promise<{ ok: boolean; message?: string }> {
   const { profile } = await requireProfile();
-  await setWatchlistAccountActive(
+  const { maxWatchlistAccounts } = getScoutLimits();
+  const changed = await setWatchlistAccountActive(
     profile.id,
     accountIdSchema.parse(accountId),
     isActive,
+    { maxActive: maxWatchlistAccounts },
   );
   refresh();
+  if (changed || !isActive) return { ok: true };
+  return {
+    ok: false,
+    message: `Testing mode scans at most ${maxWatchlistAccounts} active accounts. Pause one first.`,
+  };
 }
 
 export async function removeWatchlistAccountAction(
@@ -101,6 +116,17 @@ export async function runScoutAction(): Promise<WatchlistActionState> {
         status: "error",
         message: "A scan is already running. Wait for it to finish.",
       };
+    case "limited": {
+      const { gate } = result;
+      const next = gate.nextEligibleAt ? ` Next scan ${formatRelative(gate.nextEligibleAt)}.` : "";
+      return {
+        status: "error",
+        message:
+          gate.blockedBy === "daily_limit"
+            ? `Testing mode allows ${getScoutLimits().maxRunsPerDay} scans per 24 hours.${next}`
+            : `Testing mode waits ${getScoutLimits().minMinutesBetweenRuns} minutes between scans.${next}`,
+      };
+    }
     case "failed":
       return { status: "error", message: `Scan failed: ${result.error}` };
     case "completed": {
@@ -115,7 +141,8 @@ export async function runScoutAction(): Promise<WatchlistActionState> {
           (scoring && !scoring.skippedReason && scoring.unscored > 0
             ? ` ${scoring.unscored} more are queued for scoring; run Scout again.`
             : "") +
-          (accountsFailed ? ` ${accountsFailed} account(s) failed; they retry next run.` : ""),
+          (accountsFailed ? ` ${accountsFailed} account(s) failed; they retry next run.` : "") +
+          (result.stats.xApi?.stoppedReason ? ` X stopped: ${result.stats.xApi.stoppedReason}` : ""),
         run: { analyzed: scoring?.scored ?? 0, opportunities: surfaced },
       };
     }

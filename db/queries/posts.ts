@@ -7,8 +7,8 @@ import { type Post, postsTable, socialAccountsTable } from "@/db/schema";
 import type { NormalizedPost } from "@/lib/posts/types";
 
 /**
- * Idempotent: posts are keyed by the UNIQUE platformPostId, so syncing the
- * same account twice updates existing rows instead of duplicating them.
+ * Idempotent: UNIQUE(socialAccountId, platformPostId) means syncing the same
+ * account twice updates existing rows instead of duplicating them.
  */
 export async function savePosts(
   socialAccountId: string,
@@ -20,7 +20,7 @@ export async function savePosts(
     .insert(postsTable)
     .values(posts.map((post) => ({ socialAccountId, ...post })))
     .onConflictDoUpdate({
-      target: postsTable.platformPostId,
+      target: [postsTable.socialAccountId, postsTable.platformPostId],
       // Text can be edited and metrics keep growing; refresh both
       set: {
         content: sql`excluded."content"`,

@@ -1,12 +1,14 @@
 import "server-only";
 
 import {
+  countActiveWatchlist,
   countWatchlist,
   findWatchlistAccountByHandle,
   insertWatchlistAccount,
 } from "@/db/queries/watchlist";
 import type { WatchlistAccount } from "@/db/schema";
 import type { NormalizedProfile } from "@/lib/posts/types";
+import { getScoutLimits } from "@/lib/scout/testLimits";
 import { PostSourceUnavailableError } from "@/services/post-sources/types";
 import { xApiSource } from "@/services/post-sources/xApi";
 
@@ -23,7 +25,8 @@ export function isUnverified(account: Pick<WatchlistAccount, "platformUserId">) 
 }
 
 export type AddWatchlistAccountResult =
-  | { status: "added"; account: WatchlistAccount; verified: boolean }
+  /** paused: added inactive because the active-account limit is reached */
+  | { status: "added"; account: WatchlistAccount; verified: boolean; paused: boolean }
   | { status: "duplicate"; handle: string }
   | { status: "not_found"; handle: string }
   | { status: "limit_reached" };
@@ -58,8 +61,12 @@ export async function addWatchlistAccount(
 
   // The UNIQUE(profileId, platform, platformUserId) constraint is the final
   // guard, e.g. when the same X account was saved under its old handle
-  const account = await insertWatchlistAccount(profileId, "x", profile);
+  const { maxWatchlistAccounts } = getScoutLimits();
+  const paused =
+    maxWatchlistAccounts !== null &&
+    (await countActiveWatchlist(profileId)) >= maxWatchlistAccounts;
+  const account = await insertWatchlistAccount(profileId, "x", profile, { isActive: !paused });
   if (!account) return { status: "duplicate", handle: profile.handle };
 
-  return { status: "added", account, verified };
+  return { status: "added", account, verified, paused };
 }

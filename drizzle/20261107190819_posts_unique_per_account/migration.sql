@@ -1,0 +1,2 @@
+ALTER TABLE "posts" DROP CONSTRAINT "posts_platformPostId_key";--> statement-breakpoint
+ALTER TABLE "posts" ADD CONSTRAINT "posts_socialAccountId_platformPostId_unique" UNIQUE("socialAccountId","platformPostId");

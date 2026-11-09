@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -24,6 +25,7 @@ import type { LearningProfile } from "../lib/scout/learning";
 import type {
   OpportunityScoreBreakdown,
   ScoutRunStats,
+  XScanCursor,
 } from "../lib/scout/types";
 
 const timestamps = {
@@ -119,7 +121,7 @@ export const postsTable = pgTable(
     socialAccountId: uuid()
       .notNull()
       .references(() => socialAccountsTable.id, { onDelete: "cascade" }),
-    platformPostId: text().notNull().unique(),
+    platformPostId: text().notNull(),
     content: text().notNull(),
     url: text(),
     metrics: jsonb().$type<{
@@ -131,7 +133,11 @@ export const postsTable = pgTable(
     publishedAt: timestamp({ withTimezone: true }).notNull(),
     ...timestamps,
   },
-  (t) => [index().on(t.socialAccountId, t.publishedAt.desc())],
+  (t) => [
+    // Per account, not global: two Scout profiles can hold the same X post
+    unique().on(t.socialAccountId, t.platformPostId),
+    index().on(t.socialAccountId, t.publishedAt.desc()),
+  ],
 );
 
 // Other people's accounts the user wants to monitor
@@ -150,6 +156,8 @@ export const watchlistAccountsTable = pgTable(
     notes: text(),
     isActive: boolean().notNull().default(true),
     lastScannedAt: timestamp({ withTimezone: true }),
+    // X timeline position by post ID; null until the first X scan
+    xCursor: jsonb().$type<XScanCursor>(),
     ...timestamps,
   },
   (t) => [
@@ -447,3 +455,19 @@ export type EvalResult = typeof evalResultsTable.$inferSelect;
 export type ImportedPost = typeof importedPostsTable.$inferSelect;
 export type ScoutCandidate = typeof scoutCandidatesTable.$inferSelect;
 export type VoiceSample = typeof voiceSamplesTable.$inferSelect;
+
+// X API usage per UTC day, across all of Scout (one token, one credit balance).
+// Request counts estimate usage; they are not X's billing.
+export const xApiUsageTable = pgTable("x_api_usage", {
+  day: date({ mode: "string" }).primaryKey(),
+  /** Attempted requests, including failed ones and retries */
+  requests: integer().notNull().default(0),
+  failedRequests: integer().notNull().default(0),
+  retriedRequests: integer().notNull().default(0),
+  postsReturned: integer().notNull().default(0),
+  postsAccepted: integer().notNull().default(0),
+  runsCompleted: integer().notNull().default(0),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+export type XApiUsage = typeof xApiUsageTable.$inferSelect;

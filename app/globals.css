@@ -1488,6 +1488,62 @@ textarea {
   }
 }
 
+.connect-form {
+  display: grid;
+  gap: 8px;
+}
+
+.connect-form > label {
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.connect-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.connect-row .x-handle-input {
+  flex: 1 1 260px;
+}
+
+.connect-row .watchlist-file {
+  flex: 1 1 260px;
+  width: auto;
+}
+
+.connect-row button {
+  gap: 8px;
+}
+
+.connect-result {
+  border-left: 2px solid var(--blue);
+  color: var(--muted-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 2px 0 2px 14px;
+}
+
+.connect-scratch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  font-size: 13px;
+}
+
+.connect-scratch p {
+  margin-top: 2px;
+  color: var(--muted-ink);
+  font-size: 12px;
+}
+
 /* What Scout has learned (/memory) */
 .learned-panel {
   margin-top: 48px;

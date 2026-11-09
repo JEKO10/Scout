@@ -1,10 +1,13 @@
 import "server-only";
 
+import { recordXUsage, reserveXRequest } from "@/db/queries/xApiUsage";
 import type {
   NormalizedCandidatePost,
   NormalizedPost,
   NormalizedProfile,
 } from "@/lib/posts/types";
+import { getScoutLimits } from "@/lib/scout/testLimits";
+import type { XRunUsage } from "@/lib/scout/types";
 
 import {
   normalizeXCandidatePost,
@@ -18,10 +21,15 @@ import type {
 } from "./types";
 
 const X_API_BASE_URL = "https://api.x.com/2";
+const REQUEST_TIMEOUT_MS = 15_000;
+/** Waiting longer than this for a rate limit would hold the whole scan */
+const MAX_RETRY_WAIT_MS = 10_000;
+const RETRY_DELAY_MS = 1_000;
 
 export class XApiRequestError extends Error {
   constructor(
     message: string,
+    /** 0 when the request never got a response (network error, timeout) */
     readonly status: number,
     readonly rateLimitResetAt?: Date,
   ) {
@@ -30,38 +38,96 @@ export class XApiRequestError extends Error {
   }
 }
 
+/** Today's request budget is used up; nothing was sent. */
+export class XApiBudgetError extends Error {
+  constructor(limit: number) {
+    super(`Daily X API request limit reached (${limit}). Scout stops calling X until tomorrow (UTC).`);
+    this.name = "XApiBudgetError";
+  }
+}
+
+/** Per-run counters a caller can pass in; the daily totals live in the database. */
+export type XRequestStats = Omit<XRunUsage, "stoppedReason">;
+
+async function toRequestError(res: Response): Promise<XApiRequestError> {
+  if (res.status === 429) {
+    const reset = res.headers.get("x-rate-limit-reset");
+    const retryAfter = res.headers.get("retry-after");
+    const resetAt = retryAfter
+      ? new Date(Date.now() + Number(retryAfter) * 1000)
+      : reset
+        ? new Date(Number(reset) * 1000)
+        : undefined;
+    return new XApiRequestError("X API rate limit reached.", 429, resetAt);
+  }
+  const body = await res.json().catch(() => null);
+  const detail = body?.detail ?? body?.title ?? res.statusText;
+  return new XApiRequestError(`X API error (${res.status}): ${detail}`, res.status);
+}
+
+/**
+ * How long to wait before retrying, or null when retrying can't help: bad
+ * token, no credits, no access, bad request, or a long rate-limit window.
+ */
+function retryDelay(error: XApiRequestError): number | null {
+  if (error.status === 429) {
+    if (!error.rateLimitResetAt) return null;
+    const wait = error.rateLimitResetAt.getTime() - Date.now();
+    return wait <= MAX_RETRY_WAIT_MS ? Math.max(wait, 0) : null;
+  }
+  if (error.status === 0 || error.status >= 500) return RETRY_DELAY_MS;
+  return null;
+}
+
+/**
+ * The only place Scout talks to X. Every attempt, retries included, is
+ * reserved in the daily budget before it is sent and counted even if it fails.
+ */
 async function xFetch<T>(
   path: string,
   params: Record<string, string | undefined> = {},
+  stats?: XRequestStats,
 ): Promise<T> {
   const token = process.env.X_BEARER_TOKEN;
   if (!token) throw new Error("X_BEARER_TOKEN is not set.");
+  const { maxXRetries, maxXRequestsPerDay } = getScoutLimits();
 
   const url = new URL(`${X_API_BASE_URL}${path}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) url.searchParams.set(key, value);
   }
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  for (let attempt = 0; ; attempt++) {
+    const retry = attempt > 0;
+    if (!(await reserveXRequest(maxXRequestsPerDay, { retry }))) {
+      throw new XApiBudgetError(maxXRequestsPerDay ?? 0);
+    }
+    if (stats) {
+      stats.requests++;
+      if (retry) stats.retried++;
+    }
 
-  if (res.status === 429) {
-    const reset = res.headers.get("x-rate-limit-reset");
-    throw new XApiRequestError(
-      "X API rate limit reached.",
-      429,
-      reset ? new Date(Number(reset) * 1000) : undefined,
-    );
+    let error: XApiRequestError;
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (res.ok) return (await res.json()) as T;
+      error = await toRequestError(res);
+    } catch (cause) {
+      error = new XApiRequestError(
+        `X API unreachable: ${cause instanceof Error ? cause.message : String(cause)}`,
+        0,
+      );
+    }
+
+    await recordXUsage({ failedRequests: 1 });
+    if (stats) stats.failed++;
+    const wait = retryDelay(error);
+    if (wait === null || attempt >= maxXRetries) throw error;
+    await new Promise((resolve) => setTimeout(resolve, wait));
   }
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const detail = body?.detail ?? body?.title ?? res.statusText;
-    throw new XApiRequestError(`X API error: ${detail}`, res.status);
-  }
-
-  return res.json() as Promise<T>;
 }
 
 /**
@@ -79,37 +145,48 @@ export async function getXUserByHandle(
   return body.data ? normalizeXUser(body.data) : null;
 }
 
+export type XTimelineQuery = {
+  /** One page, never paginated: every post read is billed */
+  limit: number;
+  /** Only posts with a larger ID */
+  sinceId?: string;
+  /** Only posts with a smaller ID */
+  untilId?: string;
+  /** Only posts after this moment; not sent together with sinceId */
+  startTime?: Date;
+  excludeReplies?: boolean;
+};
+
 /**
- * A user's recent original posts, replies and quotes (no retweets), newest
- * first, following pagination until `limit` is reached. With `since`, only
- * posts after that moment are requested. Every post read is billed.
+ * One page of a user's posts, newest first, never reposts. `hasMore` means X
+ * has more matching posts than this page holds.
  */
 async function fetchUserTweets(
   platformUserId: string,
-  { limit, since }: { limit: number; since?: Date | null },
-): Promise<XApiTweet[]> {
-  const tweets: XApiTweet[] = [];
-  let paginationToken: string | undefined;
+  query: XTimelineQuery,
+  stats?: XRequestStats,
+): Promise<{ tweets: XApiTweet[]; hasMore: boolean }> {
+  const body = await xFetch<XApiTimelineResponse>(
+    `/users/${encodeURIComponent(platformUserId)}/tweets`,
+    {
+      // X requires 5–100 results per page
+      max_results: String(Math.min(Math.max(query.limit, 5), 100)),
+      exclude: query.excludeReplies ? "retweets,replies" : "retweets",
+      "tweet.fields": "created_at,public_metrics,note_tweet,referenced_tweets",
+      since_id: query.sinceId,
+      until_id: query.untilId,
+      start_time: query.sinceId ? undefined : query.startTime?.toISOString(),
+    },
+    stats,
+  );
 
-  do {
-    const remaining = limit - tweets.length;
-    const body = await xFetch<XApiTimelineResponse>(
-      `/users/${encodeURIComponent(platformUserId)}/tweets`,
-      {
-        // X requires 5–100 results per page
-        max_results: String(Math.min(Math.max(remaining, 5), 100)),
-        exclude: "retweets",
-        "tweet.fields": "created_at,public_metrics,note_tweet,referenced_tweets",
-        start_time: since?.toISOString(),
-        pagination_token: paginationToken,
-      },
-    );
-
-    tweets.push(...(body.data ?? []));
-    paginationToken = body.meta?.next_token;
-  } while (paginationToken && tweets.length < limit);
-
-  return tweets.slice(0, limit);
+  const tweets = (body.data ?? []).slice(0, query.limit);
+  if (stats) stats.postsReturned += tweets.length;
+  await recordXUsage({ postsReturned: tweets.length });
+  return {
+    tweets,
+    hasMore: Boolean(body.meta?.next_token) || (body.data?.length ?? 0) > query.limit,
+  };
 }
 
 /** The user's own posts, for the Scout Brain. */
@@ -118,15 +195,16 @@ export async function getXUserPosts(
   handle: string,
   { limit = 100 }: { limit?: number } = {},
 ): Promise<NormalizedPost[]> {
-  const tweets = await fetchUserTweets(platformUserId, { limit });
+  const { tweets } = await fetchUserTweets(platformUserId, { limit });
   return tweets.map((tweet) => normalizeXPost(tweet, handle));
 }
 
 /** A watched account's posts, for the scan pipeline. */
 export async function getXUserCandidatePosts(
   author: { platformUserId: string; handle: string },
-  { limit, since }: { limit: number; since: Date | null },
-): Promise<NormalizedCandidatePost[]> {
-  const tweets = await fetchUserTweets(author.platformUserId, { limit, since });
-  return tweets.map((tweet) => normalizeXCandidatePost(tweet, author));
+  query: XTimelineQuery,
+  stats?: XRequestStats,
+): Promise<{ posts: NormalizedCandidatePost[]; hasMore: boolean }> {
+  const { tweets, hasMore } = await fetchUserTweets(author.platformUserId, query, stats);
+  return { posts: tweets.map((tweet) => normalizeXCandidatePost(tweet, author)), hasMore };
 }

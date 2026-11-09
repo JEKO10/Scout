@@ -5,6 +5,7 @@ import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import db from "@/db";
 import { type WatchlistAccount, watchlistAccountsTable } from "@/db/schema";
 import type { NormalizedProfile } from "@/lib/posts/types";
+import type { XScanCursor } from "@/lib/scout/types";
 
 // Every query filters by profileId, so one user can never read or change
 // another user's watchlist, even with a guessed account ID.
@@ -47,15 +48,29 @@ export async function findWatchlistAccountByHandle(
   return account;
 }
 
+export async function countActiveWatchlist(profileId: string): Promise<number> {
+  const [result] = await db
+    .select({ value: count() })
+    .from(watchlistAccountsTable)
+    .where(
+      and(
+        eq(watchlistAccountsTable.profileId, profileId),
+        eq(watchlistAccountsTable.isActive, true),
+      ),
+    );
+  return result.value;
+}
+
 /** Returns null when the account is already on the watchlist. */
 export async function insertWatchlistAccount(
   profileId: string,
   platform: WatchlistAccount["platform"],
   profile: NormalizedProfile,
+  { isActive = true }: { isActive?: boolean } = {},
 ): Promise<WatchlistAccount | null> {
   const [account] = await db
     .insert(watchlistAccountsTable)
-    .values({ profileId, platform, ...profile })
+    .values({ profileId, platform, ...profile, isActive })
     .onConflictDoNothing({
       target: [
         watchlistAccountsTable.profileId,
@@ -67,11 +82,25 @@ export async function insertWatchlistAccount(
   return account ?? null;
 }
 
+/**
+ * Returns false when nothing changed: unknown account, or resuming it would go
+ * past maxActive. The limit is checked in the same statement as the update.
+ */
 export async function setWatchlistAccountActive(
   profileId: string,
   accountId: string,
   isActive: boolean,
+  { maxActive = null }: { maxActive?: number | null } = {},
 ): Promise<boolean> {
+  const underLimit =
+    isActive && maxActive !== null
+      ? sql`(
+          select count(*) from ${watchlistAccountsTable} as active
+          where active."profileId" = ${profileId}::uuid
+            and active."isActive" = true
+            and active."id" <> ${accountId}::uuid
+        ) < ${maxActive}`
+      : undefined;
   const updated = await db
     .update(watchlistAccountsTable)
     .set({ isActive })
@@ -79,6 +108,7 @@ export async function setWatchlistAccountActive(
       and(
         eq(watchlistAccountsTable.id, accountId),
         eq(watchlistAccountsTable.profileId, profileId),
+        underLimit,
       ),
     )
     .returning({ id: watchlistAccountsTable.id });
@@ -168,4 +198,21 @@ function isUniqueViolation(error: unknown): boolean {
       : undefined;
   const cause = error instanceof Error ? error.cause : undefined;
   return code(error) === "23505" || code(cause) === "23505";
+}
+
+/** Where the next X scan of this account starts; set after its posts are stored. */
+export async function setWatchlistXCursor(
+  profileId: string,
+  accountId: string,
+  cursor: XScanCursor | null,
+): Promise<void> {
+  await db
+    .update(watchlistAccountsTable)
+    .set({ xCursor: cursor })
+    .where(
+      and(
+        eq(watchlistAccountsTable.id, accountId),
+        eq(watchlistAccountsTable.profileId, profileId),
+      ),
+    );
 }

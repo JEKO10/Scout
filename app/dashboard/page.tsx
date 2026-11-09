@@ -9,6 +9,7 @@ import { toDraftPair } from "@/components/opportunities/toDraftPair";
 import { ScoutBrainPanel } from "@/components/ScoutBrainPanel";
 import { RunScoutButton } from "@/components/watchlist/RunScoutButton";
 import { XAccountCard } from "@/components/XAccountCard";
+import { XTestingPanel } from "@/components/XTestingPanel";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countPostsBySocialAccount } from "@/db/queries/posts";
 import { getCurrentReplies } from "@/db/queries/replies";
@@ -16,6 +17,7 @@ import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
 import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
 import { buildUserMemory } from "@/services/memory/buildUserMemory";
+import { getScoutTestStatus } from "@/services/scout/testStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact" });
@@ -55,9 +57,10 @@ async function Dashboard() {
     0,
   );
   const latestRun = data.scoutRuns[0];
-  const [voiceSamples, memory] = await Promise.all([
+  const [voiceSamples, memory, testStatus] = await Promise.all([
     getVoiceSamples(profile.id),
     buildUserMemory(profile.id),
+    getScoutTestStatus(profile.id),
   ]);
   // getWorkspaceData sorts by score, so these are the best open ones
   const topOpportunities = data.opportunities
@@ -141,6 +144,7 @@ async function Dashboard() {
         </section>
 
         <aside className="dashboard-aside" aria-label="Scout status">
+          <XTestingPanel status={testStatus} />
           <XAccountCard
             handle={profile.xHandle}
             account={xAccount}

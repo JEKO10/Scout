@@ -50,6 +50,7 @@ export function normalizeXCandidatePost(
   author: { platformUserId: string; handle: string },
 ): NormalizedCandidatePost {
   const post = normalizeXPost(tweet, author.handle);
+  const kind = tweetKind(tweet);
 
   return {
     platform: "x",
@@ -59,7 +60,10 @@ export function normalizeXCandidatePost(
     content: post.content,
     url: post.url,
     postedAt: post.publishedAt,
-    kind: tweetKind(tweet),
+    kind,
+    // Scout doesn't request the quoted post (it would be billed too), so a
+    // quote's text arrives without what it quotes
+    ...(kind === "quote" && { quotedPostIncluded: false }),
     metrics: post.metrics,
   };
 }

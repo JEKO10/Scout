@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { type OnboardingMode, saveOnboardingAnswersAction } from "@/actions/onboarding";
 import { BuildBrainStep } from "@/components/onboarding/BuildBrainStep";
+import { ConnectXStep } from "@/components/onboarding/ConnectXStep";
 import { SuggestedWatchlist } from "@/components/onboarding/SuggestedWatchlist";
 import { VoiceCalibration } from "@/components/onboarding/VoiceCalibration";
 import { ProfileForm } from "@/components/ProfileForm";
@@ -28,7 +29,7 @@ const STEPS: Record<OnboardingMode, Step[]> = {
 };
 
 const headings: Record<Step, { title: string; lede: string }> = {
-  mode: { title: "How should Scout get to know you?", lede: "Both paths build the same Scout Brain." },
+  mode: { title: "Let's find your posts.", lede: "If you have posts on X, Scout learns from them. If not, you can start from scratch." },
   answers: { title: "Tell Scout about you.", lede: "Your goals and topics shape every match." },
   voice: { title: "Show Scout how you write.", lede: "Three short replies teach Scout your voice better than any description." },
   brain: { title: "Build your Scout Brain.", lede: "Who you are, what you know and what you want." },
@@ -82,7 +83,7 @@ async function Onboarding({
         <h1>{heading.title}</h1>
         <p>{heading.lede}</p>
       </div>
-      {step === "mode" && <ModeStep profileId={profile.id} />}
+      {step === "mode" && <ConnectStep profile={profile} />}
       {step === "answers" && (
         <ProfileForm
           profile={profile}
@@ -99,45 +100,16 @@ async function Onboarding({
   );
 }
 
-async function ModeStep({ profileId }: { profileId: string }) {
-  const posts = (await getRecentPostsForProfile(profileId, 100)).filter((post) =>
+async function ConnectStep({ profile }: { profile: Profile }) {
+  const posts = (await getRecentPostsForProfile(profile.id, 100)).filter((post) =>
     hasTextBeyondLinks(post.content),
   );
-  const enough = posts.length >= ENOUGH_POSTS;
-
   return (
-    <div className="onboarding-modes">
-      <div className="onboarding-mode" data-disabled={!enough || undefined}>
-        <p className="eyebrow">Have posting history</p>
-        <h2>Learn from my posts</h2>
-        <p>
-          Scout reads your X posts to learn your voice, topics and opinions.{" "}
-          {enough
-            ? `${posts.length} posts ready.`
-            : `Needs at least ${ENOUGH_POSTS} posts; you have ${posts.length}. Sync X or start from scratch.`}
-        </p>
-        {enough ? (
-          <Link href="/onboarding?step=answers&mode=posts" className="primary-button">
-            Use my posts
-          </Link>
-        ) : (
-          <span className="secondary-button" aria-disabled="true">
-            Not enough posts yet
-          </span>
-        )}
-      </div>
-      <div className="onboarding-mode">
-        <p className="eyebrow">New, or no X account</p>
-        <h2>Start from scratch</h2>
-        <p>
-          Answer six questions and write three short replies. Scout builds your brain from
-          that and keeps learning as you use it.
-        </p>
-        <Link href="/onboarding?step=answers&mode=scratch" className="primary-button">
-          Start from scratch
-        </Link>
-      </div>
-    </div>
+    <ConnectXStep
+      handle={profile.xHandle}
+      postCount={posts.length}
+      enoughPosts={ENOUGH_POSTS}
+    />
   );
 }
 

@@ -1,22 +1,97 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import OpenAI from "openai";
 import { z } from "zod";
 
-import { updateProfileByUserId } from "@/db/queries/profiles";
+import { updateProfileByUserId, updateProfileXHandle } from "@/db/queries/profiles";
 import { replaceOnboardingSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
-import { onboardingFieldNames, onboardingSchema } from "@/schemas/onboarding";
+import {
+  onboardingFieldNames,
+  onboardingSchema,
+  xHandleSchema,
+} from "@/schemas/onboarding";
 import { analyzeUser } from "@/services/scout-brain/analyzeUser";
 import { buildColdStartBrain } from "@/services/scout-brain/buildColdStartBrain";
 import { addWatchlistAccount } from "@/services/watchlist/addAccount";
+import { importOwnPosts } from "@/services/x/importOwnPosts";
+import { syncXAccount } from "@/services/x/syncAccount";
 
 import type { ProfileFormState } from "./profile";
 
 export type OnboardingMode = "posts" | "scratch";
 
 const modeSchema = z.enum(["posts", "scratch"]);
+
+export type ConnectState = { status: "idle" | "success" | "error"; message?: string };
+
+/** Step 1: enter a handle and pull the user's posts, to see which path fits. */
+export async function connectXHandleAction(
+  _prev: ConnectState,
+  formData: FormData,
+): Promise<ConnectState> {
+  const { profile } = await requireProfile();
+  const handle = xHandleSchema.safeParse(String(formData.get("handle") ?? ""));
+  if (!handle.success) {
+    return { status: "error", message: handle.error.issues[0]?.message };
+  }
+
+  // Saved first: a CSV import can still use the handle if X can't be reached
+  await updateProfileXHandle(profile.id, handle.data);
+  try {
+    const result = await syncXAccount(profile.id);
+    if (result.status !== "synced") {
+      return { status: "error", message: `We couldn't find @${handle.data} on X.` };
+    }
+    refresh();
+    return { status: "success", message: `Found ${result.postCount} posts by @${result.account.handle}.` };
+  } catch (error) {
+    console.error("Onboarding X sync failed", error);
+    return {
+      status: "error",
+      message:
+        "We can't reach X right now. Import a CSV export of your posts below, or start from scratch.",
+    };
+  }
+}
+
+// Server Actions accept 1 MB bodies by default; that is hundreds of posts
+const MAX_IMPORT_BYTES = 1024 * 1024;
+
+/** Step 1 without X: the user's own posts from a CSV export. */
+export async function importOwnPostsAction(
+  _prev: ConnectState,
+  formData: FormData,
+): Promise<ConnectState> {
+  const { profile } = await requireProfile();
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { status: "error", message: "Choose a CSV export of your posts." };
+  }
+  if (file.size > MAX_IMPORT_BYTES) {
+    return { status: "error", message: "That file is too large (max 1 MB)." };
+  }
+
+  try {
+    const result = await importOwnPosts(profile.id, await file.text());
+    if (result.status === "no_posts") {
+      return { status: "error", message: "No posts found in that file." };
+    }
+    if (result.status === "wrong_author") {
+      return {
+        status: "error",
+        message: `This export is by @${result.found}, but your handle is @${result.handle}.`,
+      };
+    }
+    refresh();
+    return { status: "success", message: `Imported ${result.postCount} posts by @${result.handle}.` };
+  } catch (error) {
+    console.error("Own posts import failed", error);
+    return { status: "error", message: "Couldn't read that CSV. Is it a TwExtract export?" };
+  }
+}
 
 /** Step 2: the guided questions. Both modes answer them (goals come from here). */
 export async function saveOnboardingAnswersAction(

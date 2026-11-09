@@ -40,6 +40,8 @@ export type NormalizedCandidatePost = {
   url: string;
   postedAt: Date;
   kind: PostKind;
+  /** Quotes only: false when the source didn't include the quoted post's text */
+  quotedPostIncluded?: boolean;
   metrics?: {
     likes?: number;
     replies?: number;

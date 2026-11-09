@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useOptimistic, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 
 import {
   removeWatchlistAccountAction,
@@ -27,6 +27,7 @@ export function WatchlistList({ accounts }: { accounts: Account[] }) {
         ),
   );
   const [, startTransition] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
 
   if (items.length === 0) {
     return (
@@ -38,66 +39,77 @@ export function WatchlistList({ accounts }: { accounts: Account[] }) {
   }
 
   return (
-    <ul className="watchlist-list">
-      {items.map((account) => (
-        <li key={account.id} data-paused={!account.isActive || undefined}>
-          {account.avatarUrl ? (
-            <Image
-              src={account.avatarUrl}
-              alt=""
-              width={36}
-              height={36}
-              className="x-account-avatar"
-            />
-          ) : (
-            <span className="avatar-placeholder" aria-hidden="true">
-              {account.handle.charAt(0).toUpperCase()}
+    <>
+      {message && (
+        <p className="form-message" data-status="error" role="status">
+          {message}
+        </p>
+      )}
+      <ul className="watchlist-list">
+        {items.map((account) => (
+          <li key={account.id} data-paused={!account.isActive || undefined}>
+            {account.avatarUrl ? (
+              <Image
+                src={account.avatarUrl}
+                alt=""
+                width={36}
+                height={36}
+                className="x-account-avatar"
+              />
+            ) : (
+              <span className="avatar-placeholder" aria-hidden="true">
+                {account.handle.charAt(0).toUpperCase()}
+              </span>
+            )}
+
+            <div className="watchlist-identity">
+              <a href={`https://x.com/${account.handle}`} target="_blank" rel="noreferrer">
+                @{account.handle}
+              </a>
+              <span>
+                {account.displayName ??
+                  (account.unverified ? "Not verified yet" : "X account")}
+              </span>
+            </div>
+
+            <span className="watchlist-status" data-active={account.isActive || undefined}>
+              {account.isActive ? "Active" : "Paused"}
             </span>
-          )}
 
-          <div className="watchlist-identity">
-            <a href={`https://x.com/${account.handle}`} target="_blank" rel="noreferrer">
-              @{account.handle}
-            </a>
-            <span>
-              {account.displayName ??
-                (account.unverified ? "Not verified yet" : "X account")}
-            </span>
-          </div>
+            <button
+              type="button"
+              className="secondary-button watchlist-toggle"
+              onClick={() =>
+                startTransition(async () => {
+                  applyChange({ type: "toggle", id: account.id, isActive: !account.isActive });
+                  const result = await setWatchlistAccountActiveAction(
+                    account.id,
+                    !account.isActive,
+                  );
+                  setMessage(result.message ?? null);
+                })
+              }
+            >
+              {account.isActive ? "Pause" : "Resume"}
+            </button>
 
-          <span className="watchlist-status" data-active={account.isActive || undefined}>
-            {account.isActive ? "Active" : "Paused"}
-          </span>
-
-          <button
-            type="button"
-            className="secondary-button watchlist-toggle"
-            onClick={() =>
-              startTransition(async () => {
-                applyChange({ type: "toggle", id: account.id, isActive: !account.isActive });
-                await setWatchlistAccountActiveAction(account.id, !account.isActive);
-              })
-            }
-          >
-            {account.isActive ? "Pause" : "Resume"}
-          </button>
-
-          <button
-            type="button"
-            className="eval-delete"
-            aria-label={`Remove @${account.handle}`}
-            title="Remove"
-            onClick={() =>
-              startTransition(async () => {
-                applyChange({ type: "remove", id: account.id });
-                await removeWatchlistAccountAction(account.id);
-              })
-            }
-          >
-            ×
-          </button>
-        </li>
-      ))}
-    </ul>
+            <button
+              type="button"
+              className="eval-delete"
+              aria-label={`Remove @${account.handle}`}
+              title="Remove"
+              onClick={() =>
+                startTransition(async () => {
+                  applyChange({ type: "remove", id: account.id });
+                  await removeWatchlistAccountAction(account.id);
+                })
+              }
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

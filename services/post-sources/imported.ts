@@ -25,16 +25,18 @@ export const importedSource: PostSource = {
       limit: IMPORT_SCAN_CAP,
     });
 
-    return posts.map((post) => ({
-      platform: "x" as const,
-      platformPostId: post.platformPostId,
-      authorPlatformUserId: null,
-      authorHandle: post.authorHandle,
-      content: post.content,
-      url: post.url,
-      postedAt: post.postedAt,
-      kind: post.kind,
-      metrics: post.metrics ?? undefined,
-    }));
+    return {
+      posts: posts.map((post) => ({
+        platform: "x" as const,
+        platformPostId: post.platformPostId,
+        authorPlatformUserId: null,
+        authorHandle: post.authorHandle,
+        content: post.content,
+        url: post.url,
+        postedAt: post.postedAt,
+        kind: post.kind,
+        metrics: post.metrics ?? undefined,
+      })),
+    };
   },
 };

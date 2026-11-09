@@ -14,6 +14,7 @@ import { getRecentScoutRuns } from "@/db/queries/scoutRuns";
 import { getWatchlist } from "@/db/queries/watchlist";
 import { requireProfile } from "@/lib/auth/session";
 import { rankingCheck } from "@/services/opportunities/rankingCheck";
+import { getScoutTestStatus } from "@/services/scout/testStatus";
 import { isUnverified, WATCHLIST_LIMIT } from "@/services/watchlist/addAccount";
 
 const dateFormat = new Intl.DateTimeFormat("en", {
@@ -44,9 +45,10 @@ async function Watchlist() {
   const { profile } = await requireProfile();
   if (!profile.onboardingCompleted) redirect("/onboarding");
 
-  const [accounts, runs] = await Promise.all([
+  const [accounts, runs, testStatus] = await Promise.all([
     getWatchlist(profile.id),
     getRecentScoutRuns(profile.id),
+    getScoutTestStatus(profile.id),
   ]);
   const activeCount = accounts.filter((account) => account.isActive).length;
   const latestRun = runs[0];
@@ -69,7 +71,11 @@ async function Watchlist() {
         <section aria-labelledby="watchlist-title">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">{activeCount} active</p>
+              <p className="eyebrow">
+                {testStatus.maxActiveAccounts === null
+                  ? `${activeCount} active`
+                  : `${activeCount} / ${testStatus.maxActiveAccounts} active (testing mode)`}
+              </p>
               <h2 id="watchlist-title">Accounts</h2>
             </div>
             <span className="count-label">
@@ -134,7 +140,7 @@ async function Watchlist() {
           <RunScoutButton disabled={activeCount === 0} />
 
           {latestRun && latestRun.status !== "running" && (
-            <ScoutRunSummary run={latestRun} />
+            <ScoutRunSummary run={latestRun} testing={testStatus} />
           )}
 
           {runs.length > 0 && (

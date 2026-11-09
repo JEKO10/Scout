@@ -32,6 +32,32 @@ export async function upsertSocialAccount(
   return account;
 }
 
+/** Exports have no X user ID, so CSV imports use this until X confirms the real one. */
+export function csvPlatformUserId(handle: string): string {
+  return `csv:${handle.toLowerCase()}`;
+}
+
+/**
+ * Gives a CSV-imported account its real X user ID, so a later sync updates that
+ * account instead of creating a second one holding the same posts.
+ */
+export async function linkCsvSocialAccount(
+  profileId: string,
+  platform: SocialAccount["platform"],
+  profile: NormalizedProfile,
+): Promise<void> {
+  await db
+    .update(socialAccountsTable)
+    .set({ platformUserId: profile.platformUserId })
+    .where(
+      and(
+        eq(socialAccountsTable.profileId, profileId),
+        eq(socialAccountsTable.platform, platform),
+        eq(socialAccountsTable.platformUserId, csvPlatformUserId(profile.handle)),
+      ),
+    );
+}
+
 export async function markSocialAccountSynced(
   socialAccountId: string,
 ): Promise<void> {

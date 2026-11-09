@@ -3,6 +3,7 @@ import "server-only";
 import { countPostsBySocialAccount, savePosts } from "@/db/queries/posts";
 import { getProfileById, updateProfileXHandle } from "@/db/queries/profiles";
 import {
+  linkCsvSocialAccount,
   markSocialAccountSynced,
   upsertSocialAccount,
 } from "@/db/queries/socialAccounts";
@@ -30,6 +31,7 @@ export async function syncXAccount(
   const xUser = await getXUserByHandle(profile.xHandle);
   if (!xUser) return { status: "not_found", handle: profile.xHandle };
 
+  await linkCsvSocialAccount(profileId, "x", xUser);
   const account = await upsertSocialAccount(profileId, "x", xUser);
   const posts = await getXUserPosts(xUser.platformUserId, xUser.handle, {
     limit: SYNC_POST_LIMIT,

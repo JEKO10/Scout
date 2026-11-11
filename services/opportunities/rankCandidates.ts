@@ -10,6 +10,8 @@ import {
 } from "@/db/queries/scoutCandidates";
 import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import type { ScoutCandidate, VoiceSample } from "@/db/schema";
+import { splitQuotedPost } from "@/lib/posts/quotedPost";
+import { surfaceThreshold } from "@/lib/scout/sensitivity";
 import type { ScoringStats } from "@/lib/scout/types";
 import { learningAdjustment } from "@/services/learning/rankingAdjustment";
 import { refreshLearning } from "@/services/learning/refreshLearning";
@@ -76,6 +78,8 @@ export async function rankCandidates(
   const voiceSamples = history.length === 0 ? await getVoiceSamples(profileId) : [];
   const brainJson = formatBrainForRanking(brain);
   const now = new Date();
+  // Fewer / Balanced / More, from the user's settings
+  const threshold = surfaceThreshold(profile?.opportunitySensitivity);
 
   // Day 13: learned behavior nudges the base score (re-learned every ~10
   // new interactions, not on every run)
@@ -100,6 +104,7 @@ export async function rankCandidates(
     const judgments = await judgeCandidates(
       brainJson,
       batch.map((candidate) => toJudgmentInput(candidate, history, voiceSamples, now)),
+      { profileId, scoutRunId, operation: "opportunity_scoring" },
     );
     return { batch, judgments };
   });
@@ -137,7 +142,7 @@ export async function rankCandidates(
       });
       scored++;
 
-      if (shouldSurface(score, judgment.shouldEngage)) {
+      if (shouldSurface(score, judgment.shouldEngage, threshold)) {
         opportunities.push({
           platform: candidate.platform,
           platformPostId: candidate.platformPostId,
@@ -163,6 +168,12 @@ export async function rankCandidates(
   return { scored, unscored, surfaced };
 }
 
+/** The author's words and, for a quote, the quoted post apart from them. */
+function quoteParts(content: string): { content: string; quotedPost?: string } {
+  const { own, quoted } = splitQuotedPost(content);
+  return quoted ? { content: own, quotedPost: quoted } : { content: own };
+}
+
 function toJudgmentInput(
   candidate: ScoutCandidate,
   history: Parameters<typeof pickRelevantPosts>[0],
@@ -181,7 +192,7 @@ function toJudgmentInput(
     kind: candidate.kind,
     hoursAgo: Math.round((now.getTime() - candidate.postedAt.getTime()) / 3_600_000),
     replies: candidate.metrics?.replies ?? null,
-    content: candidate.content,
+    ...quoteParts(candidate.content),
     history: relatedWriting.map((text) => text.slice(0, HISTORY_MAX_CHARS)),
   };
 }

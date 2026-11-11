@@ -4,7 +4,7 @@ import { createEvalRun, getEvalCases } from "@/db/queries/eval";
 import { getRecentPostsForProfile } from "@/db/queries/posts";
 import { getProfileById } from "@/db/queries/profiles";
 import type { EvalRun } from "@/db/schema";
-import { OPENAI_MODEL } from "@/lib/ai/client";
+import { AI_MODELS } from "@/lib/ai/client";
 import {
   formatBrainForWriting,
   topEmojis,
@@ -45,6 +45,7 @@ export async function runBrainEval(
     (post) => !holdout.has(post.platformPostId) && hasTextBeyondLinks(post.content),
   );
   const brainJson = formatBrainForWriting(brain);
+  const evalUsage = { profileId, operation: "brain_eval" } as const;
   const emojiShare = brain.voice.measured?.emojiShare ?? 0;
   const emojis = topEmojis(examplePool);
 
@@ -56,7 +57,7 @@ export async function runBrainEval(
         batch.map(async (evalCase) => {
           const examples = pickRelevantPosts(examplePool, evalCase.content);
           const [decision, reply] = await Promise.all([
-            decideEngagement(brainJson, evalCase),
+            decideEngagement(brainJson, evalCase, evalUsage),
             generateTestReply(
               brainJson,
               evalCase,
@@ -65,6 +66,7 @@ export async function runBrainEval(
               emojis.length && Math.random() < emojiShare
                 ? emojis[Math.floor(Math.random() * emojis.length)]
                 : null,
+              evalUsage,
             ),
           ]);
           return {
@@ -80,7 +82,7 @@ export async function runBrainEval(
 
   const run = await createEvalRun(profileId, {
     brainAnalyzedAt: brain.analyzedAt,
-    model: OPENAI_MODEL,
+    model: AI_MODELS.eval,
     results,
   });
   return { status: "done", run, caseCount: results.length };

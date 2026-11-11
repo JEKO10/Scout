@@ -4,11 +4,12 @@ import { zodTextFormat } from "openai/helpers/zod";
 
 import { getRecentPostsForProfile } from "@/db/queries/posts";
 import { getProfileById, updateProfileBrain } from "@/db/queries/profiles";
-import { getOpenAI, OPENAI_MODEL } from "@/lib/ai/client";
+import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import {
   type ScoutBrainAnalysis,
   scoutBrainAnalysisSchema,
 } from "@/lib/ai/schemas/scoutBrain";
+import { recordAiUsage } from "@/services/ai/usage";
 
 import { splitHoldout } from "./holdout";
 import { measureVoice, phraseFrequency } from "./measureVoice";
@@ -48,13 +49,14 @@ export async function analyzeUser(
 
   // Holdout posts never reach the model; evals compare against them later
   const response = await getOpenAI().responses.parse({
-    model: OPENAI_MODEL,
+    model: AI_MODELS.brain,
     instructions: SCOUT_BRAIN_INSTRUCTIONS,
     input: buildScoutBrainInput(profile, training),
     text: { format: zodTextFormat(scoutBrainAnalysisSchema, "scout_brain") },
   });
 
   // zodTextFormat already validated the JSON against the schema
+  await recordAiUsage({ profileId, operation: "brain_creation" }, response);
   const analysis = response.output_parsed;
   if (!analysis) {
     throw new Error("OpenAI returned no structured Scout Brain output.");

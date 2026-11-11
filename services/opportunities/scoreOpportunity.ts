@@ -2,11 +2,12 @@ import "server-only";
 
 import { zodTextFormat } from "openai/helpers/zod";
 
-import { getOpenAI, OPENAI_MODEL } from "@/lib/ai/client";
+import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import {
   type CandidateJudgment,
   candidateJudgmentBatchSchema,
 } from "@/lib/ai/schemas/opportunity";
+import { type AiUsageContext, recordAiUsage } from "@/services/ai/usage";
 import type {
   BrainItem,
   ResolvedScoutBrain,
@@ -27,6 +28,8 @@ Calibration:
 - Topics in lowConfidenceTopics, or outside the user's topics entirely, get low relevance and expertiseFit.
 - Never invent expertise or opinions that are not in the Scout Brain or their past posts.
 - Some users are new and have no posting history: "history" may then be replies they wrote during onboarding, or empty. Missing history is never a reason to lower a score. Judge "stated" interests and expertise at face value; the score reflects the opportunity, not the age of their account.
+
+Quotes: content is what the candidate's author wrote; quotedPost is the post they quote, by another account, and only context. Judge the chance to reply to the candidate's author about their take, never as if the quoted words were theirs.
 
 shouldEngage is true only when the user has something specific to add that serves their goal.
 reason: speak to the user ("You've written about…") and cite their brain or past posts.
@@ -69,7 +72,10 @@ export type CandidateForJudgment = {
   kind: string;
   hoursAgo: number;
   replies: number | null;
+  /** What the candidate's author wrote */
   content: string;
+  /** Quotes only: the post they quote, by another account */
+  quotedPost?: string;
   /** The user's own past posts most related to this candidate */
   history: string[];
 };
@@ -81,9 +87,10 @@ export type CandidateForJudgment = {
 export async function judgeCandidates(
   brainJson: string,
   candidates: CandidateForJudgment[],
+  usage: AiUsageContext,
 ): Promise<Map<string, CandidateJudgment>> {
   const response = await getOpenAI().responses.parse({
-    model: OPENAI_MODEL,
+    model: AI_MODELS.scoring,
     instructions: INSTRUCTIONS,
     input: [
       `## Scout Brain\n${brainJson}`,
@@ -92,6 +99,7 @@ export async function judgeCandidates(
     ].join("\n\n"),
     text: { format: zodTextFormat(candidateJudgmentBatchSchema, "candidate_judgments") },
   });
+  await recordAiUsage(usage, response);
   if (!response.output_parsed) throw new Error("No candidate judgments returned.");
 
   const known = new Set(candidates.map((candidate) => candidate.candidateId));

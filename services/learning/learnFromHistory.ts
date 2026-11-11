@@ -1,3 +1,4 @@
+import { REPLY_STYLE_INFO, REPLY_STYLES } from "@/lib/replies/styles";
 import type {
   LearnedAccount,
   LearnedItem,
@@ -108,13 +109,12 @@ export function learnFromHistory(
     (rule.kind === "prefer" ? stylePreferences : styleAvoidances).push(item);
   }
 
-  // ---- Natural vs stronger take ----
-  const picked = memory.variants.natural + memory.variants.strongerTake;
+  // ---- Reply style they keep picking ----
+  const picked = REPLY_STYLES.reduce((sum, style) => sum + memory.variants[style], 0);
   let variantPreference: LearningProfile["variantPreference"] = null;
-  for (const [value, count, label] of [
-    ["natural", memory.variants.natural, "Natural, first-instinct replies"],
-    ["stronger_take", memory.variants.strongerTake, "Stronger takes"],
-  ] as const) {
+  for (const value of REPLY_STYLES) {
+    const count = memory.variants[value];
+    const label = `${REPLY_STYLE_INFO[value].label} replies`;
     if (count >= MIN_REPEATS + 1 && count >= picked * 0.7) {
       variantPreference = {
         key: `variant:${value}`,

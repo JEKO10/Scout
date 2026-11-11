@@ -8,48 +8,69 @@ import {
   markReplyCopiedAction,
 } from "@/actions/replies";
 import type { Reply } from "@/db/schema";
+import { REPLY_STYLE_INFO, REPLY_STYLES, type ReplyStyle } from "@/lib/replies/styles";
 
 export type DraftReply = Pick<Reply, "id" | "variant" | "content" | "originalContent" | "status">;
-export type DraftPair = { natural?: DraftReply; strongerTake?: DraftReply };
 
 const X_LIMIT = 280;
 
 /**
- * Generate Reply and the two drafts it produces. Copy puts the text on the
- * clipboard (the user posts on X themselves) and marks the opportunity replied.
+ * Generate Reply and the two drafts it produces, in two styles the user picks
+ * first (one AI call either way). Copy puts the text on the clipboard (the
+ * user posts on X themselves) and marks the opportunity replied.
  */
 export function ReplyDrafts({
   opportunityId,
   initial,
+  defaultStyles,
   onCopied,
 }: {
   opportunityId: string;
-  initial: DraftPair;
+  initial: DraftReply[];
+  /** The user's last pick, so they rarely need to choose again */
+  defaultStyles: ReplyStyle[];
   onCopied: () => void;
 }) {
-  const [pair, setPair] = useState<DraftPair>(initial);
+  const [drafts, setDrafts] = useState<DraftReply[]>(initial);
+  const [styles, setStyles] = useState<ReplyStyle[]>(
+    initial.length === 2 ? initial.map((draft) => draft.variant) : defaultStyles,
+  );
   const [error, setError] = useState<string | null>(null);
+  const [instruction, setInstruction] = useState("");
+  const [remember, setRemember] = useState(false);
   const [generating, startGenerating] = useTransition();
-  const hasDrafts = Boolean(pair.natural || pair.strongerTake);
+  const hasDrafts = drafts.length > 0;
 
   function generate() {
     setError(null);
     startGenerating(async () => {
-      const result = await generateRepliesAction(opportunityId);
-      if (result.ok) setPair(result.replies);
-      else setError(result.message);
+      const result = await generateRepliesAction(opportunityId, {
+        styles,
+        instruction,
+        remember,
+      });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setDrafts(result.replies);
+      setInstruction("");
+      setRemember(false);
     });
   }
+
+  const ready = styles.length === 2 && !generating;
+  const errorMessage = error && (
+    <p className="form-message" data-status="error" role="status">
+      {error}
+    </p>
+  );
 
   if (!hasDrafts) {
     return (
       <div className="reply-generate">
-        <button
-          type="button"
-          className="primary-button"
-          disabled={generating}
-          onClick={generate}
-        >
+        <StylePicker value={styles} onChange={setStyles} disabled={generating} />
+        <button type="button" className="primary-button" disabled={!ready} onClick={generate}>
           {generating ? (
             <>
               <span className="x-sync-spinner" aria-hidden="true" />
@@ -59,40 +80,38 @@ export function ReplyDrafts({
             "Generate Reply"
           )}
         </button>
-        {error && (
-          <p className="form-message" data-status="error" role="status">
-            {error}
-          </p>
-        )}
+        {errorMessage}
       </div>
     );
   }
 
   return (
     <div className="reply-drafts" aria-busy={generating}>
-      {pair.natural && (
+      {drafts.map((draft) => (
         <DraftVariant
-          key={pair.natural.id}
-          label="Natural"
-          reply={pair.natural}
+          key={draft.id}
+          label={REPLY_STYLE_INFO[draft.variant].label}
+          reply={draft}
           onCopied={onCopied}
         />
-      )}
-      {pair.strongerTake && (
-        <DraftVariant
-          key={pair.strongerTake.id}
-          label="Stronger take"
-          reply={pair.strongerTake}
-          onCopied={onCopied}
+      ))}
+      <form
+        className="reply-regenerate"
+        onSubmit={(event) => {
+          event.preventDefault();
+          generate();
+        }}
+      >
+        <StylePicker value={styles} onChange={setStyles} disabled={generating} />
+        <input
+          className="field-control"
+          value={instruction}
+          maxLength={300}
+          placeholder="What should change? e.g. shorter, no agreeing opener"
+          aria-label="What should change in the next drafts (optional)"
+          onChange={(event) => setInstruction(event.target.value)}
         />
-      )}
-      <div className="reply-regenerate">
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={generating}
-          onClick={generate}
-        >
+        <button type="submit" className="secondary-button" disabled={!ready}>
           {generating ? (
             <>
               <span className="x-sync-spinner" aria-hidden="true" />
@@ -102,13 +121,57 @@ export function ReplyDrafts({
             "Regenerate"
           )}
         </button>
-        {error && (
-          <p className="form-message" data-status="error" role="status">
-            {error}
-          </p>
+        {instruction.trim() && (
+          <label className="reply-remember">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(event) => setRemember(event.target.checked)}
+            />
+            Always do this (save as a rule for every reply)
+          </label>
         )}
-      </div>
+        {errorMessage}
+      </form>
     </div>
+  );
+}
+
+/** Pick exactly two styles; picking a third replaces the older pick. */
+function StylePicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ReplyStyle[];
+  onChange: (styles: ReplyStyle[]) => void;
+  disabled: boolean;
+}) {
+  function toggle(style: ReplyStyle) {
+    if (value.includes(style)) onChange(value.filter((picked) => picked !== style));
+    else onChange([...value, style].slice(-2));
+  }
+
+  return (
+    <fieldset className="reply-styles" disabled={disabled}>
+      <legend>
+        Pick 2 styles <span>({value.length}/2)</span>
+      </legend>
+      <div>
+        {REPLY_STYLES.map((style) => (
+          <button
+            key={style}
+            type="button"
+            className="reply-style"
+            aria-pressed={value.includes(style)}
+            title={REPLY_STYLE_INFO[style].hint}
+            onClick={() => toggle(style)}
+          >
+            {REPLY_STYLE_INFO[style].label}
+          </button>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 

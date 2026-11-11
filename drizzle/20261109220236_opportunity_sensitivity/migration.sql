@@ -1,0 +1,2 @@
+CREATE TYPE "opportunity_sensitivity" AS ENUM('fewer', 'balanced', 'more');--> statement-breakpoint
+ALTER TABLE "profiles" ADD COLUMN "opportunitySensitivity" "opportunity_sensitivity" DEFAULT 'balanced'::"opportunity_sensitivity" NOT NULL;

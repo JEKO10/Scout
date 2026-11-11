@@ -1,5 +1,4 @@
 import type { RankingCheck } from "@/services/opportunities/rankingCheck";
-import { SURFACE_THRESHOLD } from "@/services/opportunities/score";
 
 export function RankingCheckView({ check }: { check: RankingCheck }) {
   const ready = check.compared > 0 && check.unlabeled === 0;
@@ -52,7 +51,7 @@ export function RankingCheckView({ check }: { check: RankingCheck }) {
         </dl>
 
         <p className="scout-run-note">
-          Scout surfaces a post when it scores {SURFACE_THRESHOLD}+ and it thinks you should
+          Scout surfaces a post when it scores {check.threshold}+ and it thinks you should
           engage.
         </p>
 

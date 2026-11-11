@@ -1,3 +1,4 @@
+import { withQuotedPost } from "@/lib/posts/quotedPost";
 import type {
   NormalizedCandidatePost,
   NormalizedPost,
@@ -45,25 +46,33 @@ function tweetKind(tweet: XApiTweet): PostKind {
   return "post";
 }
 
+/**
+ * `included` holds the referenced posts X expanded in the same response. A
+ * quote's quoted text goes into its content, so scoring, replies and the feed
+ * all see what the author reacted to. A quote whose quoted post X didn't
+ * return (deleted, protected, or not requested) is marked as missing it.
+ */
 export function normalizeXCandidatePost(
   tweet: XApiTweet,
   author: { platformUserId: string; handle: string },
+  included: Map<string, XApiTweet> = new Map(),
 ): NormalizedCandidatePost {
   const post = normalizeXPost(tweet, author.handle);
   const kind = tweetKind(tweet);
+  const quotedId = tweet.referenced_tweets?.find((ref) => ref.type === "quoted")?.id;
+  const quoted = quotedId ? included.get(quotedId) : undefined;
+  const quotedText = quoted && (quoted.note_tweet?.text ?? quoted.text);
 
   return {
     platform: "x",
     platformPostId: post.platformPostId,
     authorPlatformUserId: author.platformUserId,
     authorHandle: author.handle,
-    content: post.content,
+    content: quotedText ? withQuotedPost(post.content, quotedText) : post.content,
     url: post.url,
     postedAt: post.publishedAt,
     kind,
-    // Scout doesn't request the quoted post (it would be billed too), so a
-    // quote's text arrives without what it quotes
-    ...(kind === "quote" && { quotedPostIncluded: false }),
+    ...(kind === "quote" && { quotedPostIncluded: Boolean(quotedText) }),
     metrics: post.metrics,
   };
 }

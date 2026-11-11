@@ -2,6 +2,8 @@
 // Separate from the Scout Brain (who the user is, from their posts) and from
 // Memory (raw history). It changes slowly: only on repeated evidence.
 
+import type { ReplyStyle } from "@/lib/replies/styles";
+
 export type Strength = "mild" | "strong";
 
 export type LearnedItem = {
@@ -30,7 +32,7 @@ export type LearningProfile = {
     value: "short" | "medium" | "long";
     targetChars: number;
   }) | null;
-  variantPreference: (LearnedItem & { value: "natural" | "stronger_take" }) | null;
+  variantPreference: (LearnedItem & { value: ReplyStyle }) | null;
 
   stylePreferences: LearnedItem[];
   styleAvoidances: LearnedItem[];

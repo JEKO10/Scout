@@ -2,20 +2,22 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { AiCostPanel } from "@/components/AiCostPanel";
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
-import { toDraftPair } from "@/components/opportunities/toDraftPair";
+import { toDrafts } from "@/components/opportunities/toDrafts";
 import { ScoutBrainPanel } from "@/components/ScoutBrainPanel";
 import { RunScoutButton } from "@/components/watchlist/RunScoutButton";
 import { XAccountCard } from "@/components/XAccountCard";
 import { XTestingPanel } from "@/components/XTestingPanel";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countPostsBySocialAccount } from "@/db/queries/posts";
-import { getCurrentReplies } from "@/db/queries/replies";
+import { getCurrentReplies, getLastReplyStyles } from "@/db/queries/replies";
 import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
 import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
+import { getAiCostSummary } from "@/services/ai/costSummary";
 import { buildUserMemory } from "@/services/memory/buildUserMemory";
 import { getScoutTestStatus } from "@/services/scout/testStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
@@ -57,20 +59,24 @@ async function Dashboard() {
     0,
   );
   const latestRun = data.scoutRuns[0];
-  const [voiceSamples, memory, testStatus] = await Promise.all([
+  const [voiceSamples, memory, testStatus, aiCost] = await Promise.all([
     getVoiceSamples(profile.id),
     buildUserMemory(profile.id),
     getScoutTestStatus(profile.id),
+    getAiCostSummary(profile.id),
   ]);
   // getWorkspaceData sorts by score, so these are the best open ones
   const topOpportunities = data.opportunities
     .filter((opportunity) => opportunity.status === "new")
     .slice(0, 3);
   const activeAccounts = data.watchlist.filter((account) => account.isActive).length;
-  const topReplies = await getCurrentReplies(
-    profile.id,
-    topOpportunities.map((opportunity) => opportunity.id),
-  );
+  const [topReplies, lastStyles] = await Promise.all([
+    getCurrentReplies(
+      profile.id,
+      topOpportunities.map((opportunity) => opportunity.id),
+    ),
+    getLastReplyStyles(profile.id),
+  ]);
   const firstName = (profile.displayName ?? user.name ?? "there").split(" ")[0];
 
   return (
@@ -126,7 +132,8 @@ async function Dashboard() {
                 <OpportunityCard
                   key={opportunity.id}
                   opportunity={opportunity}
-                  replies={toDraftPair(topReplies.get(opportunity.id))}
+                  replies={toDrafts(topReplies.get(opportunity.id))}
+                  defaultStyles={lastStyles ?? undefined}
                 />
               ))}
             </div>
@@ -145,6 +152,7 @@ async function Dashboard() {
 
         <aside className="dashboard-aside" aria-label="Scout status">
           <XTestingPanel status={testStatus} />
+          <AiCostPanel summary={aiCost} />
           <XAccountCard
             handle={profile.xHandle}
             account={xAccount}

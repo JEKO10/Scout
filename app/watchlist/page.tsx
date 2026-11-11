@@ -9,10 +9,12 @@ import { RankingCheckView } from "@/components/watchlist/RankingCheckView";
 import { RunScoutButton } from "@/components/watchlist/RunScoutButton";
 import { ScoutRunSummary } from "@/components/watchlist/ScoutRunSummary";
 import { WatchlistList } from "@/components/watchlist/WatchlistList";
+import { getRunAiCost } from "@/db/queries/aiUsage";
 import { getRecentCandidates } from "@/db/queries/scoutCandidates";
 import { getRecentScoutRuns } from "@/db/queries/scoutRuns";
 import { getWatchlist } from "@/db/queries/watchlist";
 import { requireProfile } from "@/lib/auth/session";
+import { surfaceThreshold } from "@/lib/scout/sensitivity";
 import { rankingCheck } from "@/services/opportunities/rankingCheck";
 import { getScoutTestStatus } from "@/services/scout/testStatus";
 import { isUnverified, WATCHLIST_LIMIT } from "@/services/watchlist/addAccount";
@@ -52,6 +54,7 @@ async function Watchlist() {
   ]);
   const activeCount = accounts.filter((account) => account.isActive).length;
   const latestRun = runs[0];
+  const latestRunCost = latestRun ? await getRunAiCost(profile.id, latestRun.id) : null;
   const candidates = await getRecentCandidates(profile.id);
 
   return (
@@ -125,7 +128,12 @@ async function Watchlist() {
                   }),
                 )}
               />
-              <RankingCheckView check={rankingCheck(candidates)} />
+              <RankingCheckView
+                check={rankingCheck(
+                  candidates,
+                  surfaceThreshold(profile.opportunitySensitivity),
+                )}
+              />
             </div>
           )}
         </section>
@@ -140,7 +148,11 @@ async function Watchlist() {
           <RunScoutButton disabled={activeCount === 0} />
 
           {latestRun && latestRun.status !== "running" && (
-            <ScoutRunSummary run={latestRun} testing={testStatus} />
+            <ScoutRunSummary
+              run={latestRun}
+              testing={testStatus}
+              aiCostUsd={latestRunCost?.costUsd}
+            />
           )}
 
           {runs.length > 0 && (

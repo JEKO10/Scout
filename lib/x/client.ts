@@ -155,17 +155,23 @@ export type XTimelineQuery = {
   /** Only posts after this moment; not sent together with sinceId */
   startTime?: Date;
   excludeReplies?: boolean;
+  /**
+   * Also return the posts these posts reference, in the same request. With
+   * replies excluded that means only what quotes quote; never parent posts.
+   */
+  includeReferenced?: boolean;
 };
 
 /**
  * One page of a user's posts, newest first, never reposts. `hasMore` means X
- * has more matching posts than this page holds.
+ * has more matching posts than this page holds. `included` holds expanded
+ * referenced posts by ID.
  */
 async function fetchUserTweets(
   platformUserId: string,
   query: XTimelineQuery,
   stats?: XRequestStats,
-): Promise<{ tweets: XApiTweet[]; hasMore: boolean }> {
+): Promise<{ tweets: XApiTweet[]; included: Map<string, XApiTweet>; hasMore: boolean }> {
   const body = await xFetch<XApiTimelineResponse>(
     `/users/${encodeURIComponent(platformUserId)}/tweets`,
     {
@@ -176,15 +182,20 @@ async function fetchUserTweets(
       since_id: query.sinceId,
       until_id: query.untilId,
       start_time: query.sinceId ? undefined : query.startTime?.toISOString(),
+      expansions: query.includeReferenced ? "referenced_tweets.id" : undefined,
     },
     stats,
   );
 
   const tweets = (body.data ?? []).slice(0, query.limit);
-  if (stats) stats.postsReturned += tweets.length;
-  await recordXUsage({ postsReturned: tweets.length });
+  const included = body.includes?.tweets ?? [];
+  // Expanded posts count too: X likely bills them as reads
+  const returned = tweets.length + included.length;
+  if (stats) stats.postsReturned += returned;
+  await recordXUsage({ postsReturned: returned });
   return {
     tweets,
+    included: new Map(included.map((tweet) => [tweet.id, tweet])),
     hasMore: Boolean(body.meta?.next_token) || (body.data?.length ?? 0) > query.limit,
   };
 }
@@ -205,6 +216,13 @@ export async function getXUserCandidatePosts(
   query: XTimelineQuery,
   stats?: XRequestStats,
 ): Promise<{ posts: NormalizedCandidatePost[]; hasMore: boolean }> {
-  const { tweets, hasMore } = await fetchUserTweets(author.platformUserId, query, stats);
-  return { posts: tweets.map((tweet) => normalizeXCandidatePost(tweet, author)), hasMore };
+  const { tweets, included, hasMore } = await fetchUserTweets(
+    author.platformUserId,
+    query,
+    stats,
+  );
+  return {
+    posts: tweets.map((tweet) => normalizeXCandidatePost(tweet, author, included)),
+    hasMore,
+  };
 }

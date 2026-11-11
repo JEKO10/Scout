@@ -3,8 +3,10 @@ import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
 import { LearnedPanel } from "@/components/memory/LearnedPanel";
+import { ReplyRules } from "@/components/memory/ReplyRules";
 import { requireProfile } from "@/lib/auth/session";
 import { formatRelative } from "@/lib/format";
+import { DEFAULT_REPLY_STYLES, REPLY_STYLE_INFO, REPLY_STYLES } from "@/lib/replies/styles";
 import { refreshLearning } from "@/services/learning/refreshLearning";
 import {
   type MemoryPreference,
@@ -53,6 +55,10 @@ async function Memory() {
 
       <LearnedPanel learning={learning} interactionCount={memory.interactionCount} />
 
+      <MemorySection title="Your rules" eyebrow="Written by you · used in every reply">
+        <ReplyRules rules={profile.replyRules} />
+      </MemorySection>
+
       <section className="metrics-strip" aria-label="Reply history">
         <Metric value={counts.generated} label="Replies generated" />
         <Metric value={counts.accepted} label="Accepted (copied)" />
@@ -64,8 +70,12 @@ async function Memory() {
         <MemorySection title="Reply preferences" eyebrow="From your edits and picks">
           <PreferenceList items={memory.preferences} empty="No repeated pattern yet." />
           <p className="memory-note">
-            Picked: Natural {memory.variants.natural} · Stronger take{" "}
-            {memory.variants.strongerTake}
+            Picked:{" "}
+            {REPLY_STYLES.filter(
+              (style) => memory.variants[style] > 0 || DEFAULT_REPLY_STYLES.includes(style),
+            )
+              .map((style) => `${REPLY_STYLE_INFO[style].label} ${memory.variants[style]}`)
+              .join(" · ")}
           </p>
         </MemorySection>
 

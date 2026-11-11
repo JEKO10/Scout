@@ -1,10 +1,10 @@
 import "server-only";
 
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 
 import db from "@/db";
 import { opportunitiesTable, repliesTable,type Reply } from "@/db/schema";
-import type { ReplyDrafts } from "@/lib/ai/schemas/reply";
+import type { ReplyStyle } from "@/lib/replies/styles";
 
 // Replies have no profileId; ownership always goes through their opportunity.
 
@@ -14,7 +14,8 @@ const ownedOpportunityIds = (profileId: string) =>
     .from(opportunitiesTable)
     .where(eq(opportunitiesTable.profileId, profileId));
 
-export type ReplyPair = { natural: Reply; strongerTake: Reply };
+/** One generation: the drafts in the styles the user picked, in that order. */
+export type ReplySet = Reply[];
 
 /**
  * Saves a fresh generation. Earlier drafts for the opportunity become
@@ -23,8 +24,9 @@ export type ReplyPair = { natural: Reply; strongerTake: Reply };
  */
 export async function saveReplyDrafts(
   opportunityId: string,
-  drafts: ReplyDrafts,
-): Promise<ReplyPair> {
+  drafts: { style: ReplyStyle; text: string }[],
+  instruction: string | null = null,
+): Promise<ReplySet> {
   const [, inserted] = await db.batch([
     db
       .update(repliesTable)
@@ -37,34 +39,30 @@ export async function saveReplyDrafts(
       ),
     db
       .insert(repliesTable)
-      .values([
-        {
+      .values(
+        drafts.map((draft) => ({
           opportunityId,
-          variant: "natural",
-          originalContent: drafts.natural,
-          content: drafts.natural,
-        },
-        {
-          opportunityId,
-          variant: "stronger_take",
-          originalContent: drafts.strongerTake,
-          content: drafts.strongerTake,
-        },
-      ])
+          variant: draft.style,
+          originalContent: draft.text,
+          content: draft.text,
+          instruction,
+        })),
+      )
       .returning(),
   ]);
 
-  return {
-    natural: inserted.find((reply) => reply.variant === "natural")!,
-    strongerTake: inserted.find((reply) => reply.variant === "stronger_take")!,
-  };
+  return drafts.map((draft) => inserted.find((reply) => reply.variant === draft.style)!);
 }
 
-/** The latest live (not discarded) pair per opportunity. */
+/**
+ * The latest live (not discarded) generation per opportunity: the newest
+ * replies saved together. A copied reply from an earlier generation stays
+ * live in the database but is no longer on screen.
+ */
 export async function getCurrentReplies(
   profileId: string,
   opportunityIds: string[],
-): Promise<Map<string, Partial<ReplyPair>>> {
+): Promise<Map<string, ReplySet>> {
   if (opportunityIds.length === 0) return new Map();
 
   const rows = await db
@@ -77,16 +75,30 @@ export async function getCurrentReplies(
         ne(repliesTable.status, "discarded"),
       ),
     )
-    .orderBy(desc(repliesTable.createdAt));
+    .orderBy(desc(repliesTable.createdAt), asc(repliesTable.variant));
 
-  const pairs = new Map<string, Partial<ReplyPair>>();
+  const sets = new Map<string, ReplySet>();
   for (const reply of rows) {
-    const pair = pairs.get(reply.opportunityId) ?? {};
-    const key = reply.variant === "natural" ? "natural" : "strongerTake";
-    pair[key] ??= reply; // rows are newest first
-    pairs.set(reply.opportunityId, pair);
+    const set = sets.get(reply.opportunityId);
+    // Rows are newest first; one generation shares its createdAt
+    if (!set) sets.set(reply.opportunityId, [reply]);
+    else if (set[0].createdAt.getTime() === reply.createdAt.getTime()) set.push(reply);
   }
-  return pairs;
+  return sets;
+}
+
+/** The styles of the profile's latest generation, as the default next time. */
+export async function getLastReplyStyles(profileId: string): Promise<ReplyStyle[] | null> {
+  const rows = await db
+    .select({ variant: repliesTable.variant, createdAt: repliesTable.createdAt })
+    .from(repliesTable)
+    .where(inArray(repliesTable.opportunityId, ownedOpportunityIds(profileId)))
+    .orderBy(desc(repliesTable.createdAt))
+    .limit(2);
+  if (rows.length < 2 || rows[0].createdAt.getTime() !== rows[1].createdAt.getTime()) {
+    return null;
+  }
+  return rows.map((row) => row.variant);
 }
 
 /** Keeps originalContent as the AI wrote it; only content changes. */

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -21,7 +22,9 @@ import type {
   StoredInterestBrain,
   StoredVoiceBrain,
 } from "../lib/ai/schemas/scoutBrain";
+import { REPLY_STYLES } from "../lib/replies/styles";
 import type { LearningProfile } from "../lib/scout/learning";
+import { OPPORTUNITY_SENSITIVITIES } from "../lib/scout/sensitivity";
 import type {
   OpportunityScoreBreakdown,
   ScoutRunStats,
@@ -57,10 +60,13 @@ export const opportunityStatusEnum = pgEnum("opportunity_status", [
   "replied",
 ]);
 
-export const replyVariantEnum = pgEnum("reply_variant", [
-  "natural",
-  "stronger_take",
-]);
+// Reply styles (lib/replies/styles.ts); new ones are appended, never reordered
+export const replyVariantEnum = pgEnum("reply_variant", REPLY_STYLES);
+
+export const opportunitySensitivityEnum = pgEnum(
+  "opportunity_sensitivity",
+  OPPORTUNITY_SENSITIVITIES,
+);
 
 export const replyStatusEnum = pgEnum("reply_status", [
   "draft",
@@ -90,6 +96,10 @@ export const profilesTable = pgTable("profiles", {
   goalBrain: jsonb().$type<StoredGoalBrain>(),
   // Day 13: conclusions from repeated behavior; null until first learned
   learningProfile: jsonb().$type<LearningProfile>(),
+  // Standing rules the user wrote for every reply, e.g. "never start with 'Exactly'"
+  replyRules: text().array().notNull().default(sql`'{}'::text[]`),
+  // How many opportunities they want; sets the score a post needs to surface
+  opportunitySensitivity: opportunitySensitivityEnum().notNull().default("balanced"),
 
   onboardingCompleted: boolean().notNull().default(false),
   ...timestamps,
@@ -243,6 +253,8 @@ export const repliesTable = pgTable(
     content: text().notNull(),
     // draft → approved when copied; discarded when regenerated over
     status: replyStatusEnum().notNull().default("draft"),
+    // What the user asked to change when regenerating ("shorter"); null otherwise
+    instruction: text(),
     platformReplyId: text(),
     postedAt: timestamp({ withTimezone: true }),
     ...timestamps,
@@ -471,3 +483,41 @@ export const xApiUsageTable = pgTable("x_api_usage", {
 });
 
 export type XApiUsage = typeof xApiUsageTable.$inferSelect;
+
+export const aiOperationEnum = pgEnum("ai_operation", [
+  "opportunity_scoring",
+  "reply_generation",
+  "brain_creation",
+  "memory_learning",
+  "brain_eval",
+]);
+
+// One row per OpenAI call: actual token usage from the API, and the cost
+// estimated from lib/ai/pricing.ts at the time of the call.
+export const aiUsageTable = pgTable(
+  "ai_usage",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    // Set for calls made during a Scout run (opportunity scoring)
+    scoutRunId: uuid().references(() => scoutRunsTable.id, { onDelete: "set null" }),
+    operation: aiOperationEnum().notNull(),
+    /** As the API reports it, e.g. "gpt-5.5-2026-04-23" */
+    model: text().notNull(),
+    /** All input tokens, cached ones included */
+    inputTokens: integer().notNull(),
+    cachedInputTokens: integer().notNull(),
+    /** All output tokens, reasoning ones included */
+    outputTokens: integer().notNull(),
+    reasoningTokens: integer().notNull(),
+    /** Null when the model has no configured price */
+    costUsd: doublePrecision(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.profileId, t.createdAt.desc()), index().on(t.scoutRunId)],
+);
+
+export type AiUsage = typeof aiUsageTable.$inferSelect;
+export type AiOperation = (typeof aiOperationEnum.enumValues)[number];

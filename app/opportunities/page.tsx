@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
-import { toDraftPair } from "@/components/opportunities/toDraftPair";
+import { toDrafts } from "@/components/opportunities/toDrafts";
 import { RunScoutButton } from "@/components/watchlist/RunScoutButton";
 import {
   countOpportunitiesByFilter,
@@ -14,12 +14,12 @@ import {
   OPPORTUNITY_FILTERS,
   type OpportunityFilter,
 } from "@/db/queries/opportunities";
-import { getCurrentReplies } from "@/db/queries/replies";
+import { getCurrentReplies, getLastReplyStyles } from "@/db/queries/replies";
 import { getRecentScoutRuns } from "@/db/queries/scoutRuns";
 import { getActiveWatchlist } from "@/db/queries/watchlist";
 import { requireProfile } from "@/lib/auth/session";
 import { formatRelative } from "@/lib/format";
-import { SURFACE_THRESHOLD } from "@/services/opportunities/score";
+import { surfaceThreshold } from "@/lib/scout/sensitivity";
 
 const filterLabels: Record<OpportunityFilter, string> = {
   all: "All",
@@ -67,10 +67,13 @@ async function Opportunities({
     getRecentScoutRuns(profile.id, 1),
     getActiveWatchlist(profile.id),
   ]);
-  const replies = await getCurrentReplies(
-    profile.id,
-    opportunities.map((opportunity) => opportunity.id),
-  );
+  const [replies, lastStyles] = await Promise.all([
+    getCurrentReplies(
+      profile.id,
+      opportunities.map((opportunity) => opportunity.id),
+    ),
+    getLastReplyStyles(profile.id),
+  ]);
   const latestRun = runs[0];
   const analyzed = latestRun?.stats?.scoring?.scored ?? 0;
 
@@ -109,7 +112,8 @@ async function Opportunities({
             <OpportunityCard
               key={opportunity.id}
               opportunity={opportunity}
-              replies={toDraftPair(replies.get(opportunity.id))}
+              replies={toDrafts(replies.get(opportunity.id))}
+              defaultStyles={lastStyles ?? undefined}
             />
           ))}
         </div>
@@ -119,6 +123,7 @@ async function Opportunities({
           hasWatchlist={activeAccounts.length > 0}
           hasRun={Boolean(latestRun)}
           analyzed={analyzed}
+          threshold={surfaceThreshold(profile.opportunitySensitivity)}
         />
       )}
     </main>
@@ -130,8 +135,10 @@ function FeedEmptyState({
   hasWatchlist,
   hasRun,
   analyzed,
+  threshold,
 }: {
   filter: OpportunityFilter;
+  threshold: number;
   hasWatchlist: boolean;
   hasRun: boolean;
   analyzed: number;
@@ -167,7 +174,7 @@ function FeedEmptyState({
       title="No strong opportunities right now."
       description={
         analyzed > 0
-          ? `Scout analyzed ${analyzed} posts in the last scan, but none passed your threshold (${filter === "high" ? HIGH_SCORE : SURFACE_THRESHOLD}+).`
+          ? `Scout analyzed ${analyzed} posts in the last scan, but none passed your threshold (${filter === "high" ? HIGH_SCORE : threshold}+). For more matches, choose "More" in settings.`
           : "The last scan found no new posts to analyze. Import fresh posts or run Scout again later."
       }
       action={{ href: "/watchlist", label: "Review your watchlist" }}

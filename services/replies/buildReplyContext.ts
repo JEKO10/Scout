@@ -23,11 +23,13 @@ export type ReplyContext = {
   /** Little or no writing history: write conservatively (Day 14) */
   newCreator: boolean;
   /** Decided in code per variant: one call can't follow "about 3 in 10" */
-  emoji: { natural: string | null; strongerTake: string | null };
+  emoji: [string | null, string | null];
   /** Relevant slice of the user's history; null until there is some */
   memory: string | null;
   /** Learned writing preferences with evidence; null until learned */
   learning: string | null;
+  /** Standing rules the user wrote themselves */
+  rules: string[];
 };
 
 /**
@@ -71,8 +73,9 @@ export async function buildReplyContext(
     brainJson: formatBrainForWriting(brain),
     examples,
     newCreator: pool.length === 0,
-    emoji: { natural: drawEmoji(), strongerTake: drawEmoji() },
+    emoji: [drawEmoji(), drawEmoji()],
     memory: formatMemoryForReply(memory, opportunity),
     learning: formatLearningForReply(learning),
+    rules: profile?.replyRules ?? [],
   };
 }

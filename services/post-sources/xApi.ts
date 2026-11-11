@@ -57,7 +57,7 @@ export const xApiSource = {
    * they're never billed; the candidate filters still check each post's kind.
    */
   async fetchPosts({ account, limit, notBefore, usage }) {
-    const { fetchReplies } = getScoutLimits();
+    const { fetchReplies, fetchQuotePostsWithoutContext } = getScoutLimits();
     try {
       const { posts, hasMore } = await getXUserCandidatePosts(
         account,
@@ -66,6 +66,9 @@ export const xApiSource = {
           ...cursorQuery(account.xCursor),
           startTime: account.xCursor ? undefined : notBefore,
           excludeReplies: !fetchReplies,
+          // Quotes need what they quote to be usable. Only with replies
+          // excluded, or X would expand every reply's parent post too
+          includeReferenced: !fetchQuotePostsWithoutContext && !fetchReplies,
         },
         usage,
       );

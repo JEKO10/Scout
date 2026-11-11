@@ -1816,9 +1816,116 @@ textarea {
 
 .reply-regenerate {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   grid-column: 1 / -1;
+}
+
+.reply-regenerate .field-control {
+  flex: 1 1 260px;
+}
+
+.reply-regenerate .form-message {
+  flex-basis: 100%;
+}
+
+.sensitivity-options {
+  display: grid;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.sensitivity-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.sensitivity-option span {
+  display: grid;
+  gap: 4px;
+}
+
+.sensitivity-option strong {
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.sensitivity-option small {
+  color: var(--muted-ink);
+  font-size: 11px;
+}
+
+.sensitivity-options:disabled .sensitivity-option {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.reply-styles {
+  display: grid;
+  flex-basis: 100%;
+  gap: 8px;
+  border: 0;
+}
+
+.reply-styles legend {
+  margin-bottom: 8px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reply-styles legend span {
+  font-weight: 400;
+}
+
+.reply-styles > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reply-style {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.reply-style[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.reply-styles:disabled .reply-style {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.reply-remember {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reply-rules-form {
+  margin-top: 14px;
+}
+
+.reply-rules-form .field-control {
+  flex: 1 1 260px;
 }
 
 .reply-regenerate button {

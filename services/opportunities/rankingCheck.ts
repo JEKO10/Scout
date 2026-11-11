@@ -1,6 +1,6 @@
 import type { ScoutCandidate } from "@/db/schema";
 
-import { shouldSurface } from "./score";
+import { shouldSurface, SURFACE_THRESHOLD } from "./score";
 
 // Day 9 test: the user's blind YES / MAYBE / NO against Scout's ranking.
 // Pure: no I/O.
@@ -24,15 +24,19 @@ export type RankingCheck = {
   /** How many of the user's YES sit in Scout's top N, N = number of YES */
   yesInTopN: number;
   averageScore: Record<"yes" | "maybe" | "no", number | null>;
+  /** Score a post needed to surface in this check */
+  threshold: number;
   /** YES that Scout didn't surface, and NO that it did */
   missed: Candidate[];
   wrong: Candidate[];
 };
 
-const surfaced = (candidate: Candidate) =>
-  shouldSurface(candidate.score ?? 0, candidate.shouldEngage ?? false);
-
-export function rankingCheck(candidates: Candidate[]): RankingCheck {
+export function rankingCheck(
+  candidates: Candidate[],
+  threshold: number = SURFACE_THRESHOLD,
+): RankingCheck {
+  const surfaced = (candidate: Candidate) =>
+    shouldSurface(candidate.score ?? 0, candidate.shouldEngage ?? false, threshold);
   const scored = candidates.filter((candidate) => candidate.score !== null);
   const both = scored.filter((candidate) => candidate.userLabel !== null);
   const byScore = [...both].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
@@ -62,6 +66,7 @@ export function rankingCheck(candidates: Candidate[]): RankingCheck {
       maybe: average(withLabel("maybe")),
       no: average(withLabel("no")),
     },
+    threshold,
     missed: yes.filter((candidate) => !surfaced(candidate)),
     wrong: withLabel("no").filter(surfaced),
   };

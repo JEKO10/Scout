@@ -8,6 +8,7 @@ import {
   type Opportunity,
   postsTable,
   repliesTable,
+  scoutCandidatesTable,
   scoutRunsTable,
   socialAccountsTable,
   watchlistAccountsTable,
@@ -188,4 +189,35 @@ export async function getOpportunityForProfile(
     )
     .limit(1);
   return opportunity;
+}
+
+/**
+ * After the user lowers their threshold: recent posts Scout already scored
+ * that pass it now join the feed, without scoring anything again. A post that
+ * is already an opportunity (even dismissed) is left alone.
+ */
+export async function surfaceScoredCandidates(
+  profileId: string,
+  threshold: number,
+  postedAfter: Date,
+): Promise<number> {
+  const result = await db.execute<{ id: string }>(sql`
+    insert into ${opportunitiesTable} (
+      "scoutRunId", "profileId", "platform", "platformPostId", "postUrl",
+      "authorPlatformUserId", "authorHandle", "content", "score", "scoreBreakdown",
+      "reason", "suggestedAngle", "topic", "postedAt"
+    )
+    select
+      "runId", "profileId", "platform", "platformPostId", "url",
+      "authorPlatformUserId", "authorHandle", "content", "score", "scoreBreakdown",
+      "reason", "suggestedAngle", "topic", "postedAt"
+    from ${scoutCandidatesTable}
+    where "profileId" = ${profileId}::uuid
+      and "shouldEngage" = true
+      and "score" >= ${threshold}
+      and "postedAt" > ${postedAfter.toISOString()}::timestamptz
+    on conflict do nothing
+    returning "id"
+  `);
+  return result.rows.length;
 }

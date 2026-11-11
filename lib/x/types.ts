@@ -44,6 +44,8 @@ export type XApiTweet = {
 
 export type XApiTimelineResponse = {
   data?: XApiTweet[];
+  /** Expanded referenced posts, e.g. what a quote quotes */
+  includes?: { tweets?: XApiTweet[] };
   meta?: { result_count: number; next_token?: string };
   errors?: XApiError[];
 };

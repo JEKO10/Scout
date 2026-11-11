@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import db from "@/db";
 import { type Profile, profilesTable } from "@/db/schema";
@@ -73,6 +73,7 @@ export async function updateProfileByUserId(
       | "avoidTopics"
       | "voiceDescription"
       | "onboardingCompleted"
+      | "opportunitySensitivity"
     >
   >,
 ): Promise<Profile> {
@@ -184,5 +185,34 @@ export async function saveLearningProfile(
   await db
     .update(profilesTable)
     .set({ learningProfile })
+    .where(eq(profilesTable.id, profileId));
+}
+
+/** Most standing rules a profile keeps; each one goes into every reply prompt. */
+export const MAX_REPLY_RULES = 20;
+
+/**
+ * Adds a standing reply rule. Returns false when it's already there or the
+ * profile has MAX_REPLY_RULES; both checks are part of the update itself.
+ */
+export async function addReplyRule(profileId: string, rule: string): Promise<boolean> {
+  const updated = await db
+    .update(profilesTable)
+    .set({ replyRules: sql`array_append(${profilesTable.replyRules}, ${rule})` })
+    .where(
+      and(
+        eq(profilesTable.id, profileId),
+        sql`not (${rule} = any(${profilesTable.replyRules}))`,
+        sql`cardinality(${profilesTable.replyRules}) < ${MAX_REPLY_RULES}`,
+      ),
+    )
+    .returning({ id: profilesTable.id });
+  return updated.length > 0;
+}
+
+export async function removeReplyRule(profileId: string, rule: string): Promise<void> {
+  await db
+    .update(profilesTable)
+    .set({ replyRules: sql`array_remove(${profilesTable.replyRules}, ${rule})` })
     .where(eq(profilesTable.id, profileId));
 }

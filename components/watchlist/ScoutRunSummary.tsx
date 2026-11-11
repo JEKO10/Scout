@@ -23,8 +23,11 @@ const of = (value: number, max: number | null) => (max === null ? `${value}` : `
 export function ScoutRunSummary({
   run,
   testing,
+  aiCostUsd,
 }: {
   run: ScoutRun;
+  /** Estimated OpenAI cost of this run's scoring */
+  aiCostUsd?: number;
   /** Daily totals, shown while testing mode is on */
   testing?: ScoutTestStatus;
 }) {
@@ -96,6 +99,12 @@ export function ScoutRunSummary({
               <dd>{stats.scoring.surfaced}</dd>
             </div>
           </>
+        )}
+        {aiCostUsd !== undefined && (
+          <div>
+            <dt>AI cost (estimated)</dt>
+            <dd>{aiCostUsd > 0 && aiCostUsd < 0.01 ? "<$0.01" : `$${aiCostUsd.toFixed(2)}`}</dd>
+          </div>
         )}
         {testing?.enabled && (
           <>

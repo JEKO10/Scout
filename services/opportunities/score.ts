@@ -1,4 +1,5 @@
 import type { CandidateJudgment } from "@/lib/ai/schemas/opportunity";
+import { SENSITIVITY_INFO } from "@/lib/scout/sensitivity";
 import type { OpportunityScoreBreakdown } from "@/lib/scout/types";
 
 // The deterministic half of opportunity scoring: "code where we can, AI where
@@ -51,14 +52,17 @@ export const totalScore = (breakdown: OpportunityScoreBreakdown) =>
   );
 
 /**
- * Lowered from 75 after the first ranking check (13 labeled posts): the
- * user's YES averaged 60 and no NO scored above 18, while 75 hid wanted posts.
- * Re-tune as more labels come in.
+ * The default ("Balanced"). Lowered from 75 after the first ranking check (13
+ * labeled posts): the user's YES averaged 60 and no NO scored above 18, while
+ * 75 hid wanted posts. Each user can pick Fewer or More in settings.
  */
-export const SURFACE_THRESHOLD = 60;
+export const SURFACE_THRESHOLD = SENSITIVITY_INFO.balanced.threshold;
 
-export const shouldSurface = (score: number, shouldEngage: boolean) =>
-  shouldEngage && score >= SURFACE_THRESHOLD;
+export const shouldSurface = (
+  score: number,
+  shouldEngage: boolean,
+  threshold: number = SURFACE_THRESHOLD,
+) => shouldEngage && score >= threshold;
 
 export type OpportunityTier = "exceptional" | "high" | "medium" | "low";
 

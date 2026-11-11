@@ -5,8 +5,9 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { getProfileById, updateProfileBrain } from "@/db/queries/profiles";
 import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import type { Profile, VoiceSample } from "@/db/schema";
-import { getOpenAI, OPENAI_MODEL } from "@/lib/ai/client";
+import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import { scoutBrainAnalysisSchema } from "@/lib/ai/schemas/scoutBrain";
+import { recordAiUsage } from "@/services/ai/usage";
 
 import { measureVoice, phraseFrequency } from "./measureVoice";
 
@@ -72,11 +73,12 @@ export async function buildColdStartBrain(profileId: string): Promise<{ sampleCo
   if (!profile) throw new Error(`Profile ${profileId} not found`);
 
   const response = await getOpenAI().responses.parse({
-    model: OPENAI_MODEL,
+    model: AI_MODELS.brain,
     instructions: INSTRUCTIONS,
     input: buildInput(profile, samples),
     text: { format: zodTextFormat(scoutBrainAnalysisSchema, "scout_brain") },
   });
+  await recordAiUsage({ profileId, operation: "brain_creation" }, response);
   const analysis = response.output_parsed;
   if (!analysis) throw new Error("OpenAI returned no structured Scout Brain output.");
 

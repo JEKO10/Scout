@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { updateProfile } from "@/actions/profile";
 import { AccountDataOverview } from "@/components/AccountDataOverview";
 import { AppHeader } from "@/components/AppHeader";
+import { OpportunitySensitivityForm } from "@/components/OpportunitySensitivityForm";
 import { ProfileForm } from "@/components/ProfileForm";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { requireProfile } from "@/lib/auth/session";
@@ -54,6 +55,7 @@ async function ScoutSettings() {
 
   return (
     <>
+      <OpportunitySensitivityForm initial={profile.opportunitySensitivity} />
       <ProfileForm profile={profile} action={updateProfile} />
       <AccountDataOverview profile={profile} data={data} />
     </>

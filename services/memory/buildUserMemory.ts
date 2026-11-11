@@ -6,6 +6,7 @@ import {
   getReplyHistory,
   type ReplyHistoryRow,
 } from "@/db/queries/memory";
+import { REPLY_STYLE_INFO, REPLY_STYLES, type ReplyStyle } from "@/lib/replies/styles";
 
 import {
   AGREEMENT_OPENER,
@@ -53,7 +54,8 @@ export type UserMemory = {
   /** Only patterns repeated at least MIN_REPEATS times */
   preferences: MemoryPreference[];
   rejectedStyles: MemoryPreference[];
-  variants: { natural: number; strongerTake: number };
+  /** Accepted (copied) replies per style */
+  variants: Record<ReplyStyle, number>;
   topics: { engaged: TopicCount[]; dismissed: TopicCount[] };
   /** Final text of replies the user accepted, newest first */
   arguments: { text: string; authorHandle: string | null; at: Date }[];
@@ -140,17 +142,20 @@ export function summarizeMemory(
       of: edited.length,
     }));
 
-  const variants = {
-    natural: accepted.filter((row) => row.reply.variant === "natural").length,
-    strongerTake: accepted.filter((row) => row.reply.variant === "stronger_take").length,
-  };
-  const totalPicked = variants.natural + variants.strongerTake;
-  for (const [key, label] of [
-    ["natural", "Usually picks the Natural reply"],
-    ["strongerTake", "Usually picks the Stronger take"],
-  ] as const) {
-    if (variants[key] >= MIN_REPEATS && variants[key] >= totalPicked * 0.7) {
-      preferences.push({ label, evidence: variants[key], of: totalPicked });
+  const variants = Object.fromEntries(
+    REPLY_STYLES.map((style) => [
+      style,
+      accepted.filter((row) => row.reply.variant === style).length,
+    ]),
+  ) as Record<ReplyStyle, number>;
+  const totalPicked = accepted.length;
+  for (const style of REPLY_STYLES) {
+    if (variants[style] >= MIN_REPEATS && variants[style] >= totalPicked * 0.7) {
+      preferences.push({
+        label: `Usually picks the ${REPLY_STYLE_INFO[style].label} reply`,
+        evidence: variants[style],
+        of: totalPicked,
+      });
     }
   }
 

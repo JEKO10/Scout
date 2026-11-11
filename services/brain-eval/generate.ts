@@ -3,12 +3,13 @@ import "server-only";
 import { zodTextFormat } from "openai/helpers/zod";
 
 import type { Post } from "@/db/schema";
-import { getOpenAI, OPENAI_MODEL } from "@/lib/ai/client";
+import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import {
   type EngagementDecision,
   engagementDecisionSchema,
   testReplySchema,
 } from "@/lib/ai/schemas/brainEval";
+import { type AiUsageContext, recordAiUsage } from "@/services/ai/usage";
 
 const DECISION_INSTRUCTIONS = `You decide whether a specific person should reply to a post on X. You are given their Scout Brain (voice, interests, goals) and the post.
 
@@ -53,13 +54,15 @@ function examplesBlock(examples: Post[]) {
 export async function decideEngagement(
   brainJson: string,
   post: { authorHandle: string; content: string },
+  usage: AiUsageContext,
 ): Promise<EngagementDecision> {
   const response = await getOpenAI().responses.parse({
-    model: OPENAI_MODEL,
+    model: AI_MODELS.eval,
     instructions: DECISION_INSTRUCTIONS,
     input: `## Scout Brain\n${brainJson}\n\n${postBlock(post.authorHandle, post.content)}`,
     text: { format: zodTextFormat(engagementDecisionSchema, "engagement_decision") },
   });
+  await recordAiUsage(usage, response);
   if (!response.output_parsed) throw new Error("No engagement decision returned.");
   return response.output_parsed;
 }
@@ -73,6 +76,7 @@ export async function generateTestReply(
   post: { authorHandle: string; content: string },
   examples: Post[],
   emoji: string | null,
+  usage: AiUsageContext,
 ): Promise<string> {
   // Decided by the caller: one call can't follow "about 3 replies in 10"
   const emojiDirective = emoji
@@ -80,7 +84,7 @@ export async function generateTestReply(
     : "## For this reply\nUse no emoji.";
 
   const response = await getOpenAI().responses.parse({
-    model: OPENAI_MODEL,
+    model: AI_MODELS.eval,
     instructions: REPLY_INSTRUCTIONS,
     input: [
       `## Scout Brain\n${brainJson}`,
@@ -90,6 +94,7 @@ export async function generateTestReply(
     ].join("\n\n"),
     text: { format: zodTextFormat(testReplySchema, "test_reply") },
   });
+  await recordAiUsage(usage, response);
   if (!response.output_parsed) throw new Error("No reply returned.");
   return response.output_parsed.reply.trim();
 }

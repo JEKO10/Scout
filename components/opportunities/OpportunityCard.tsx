@@ -5,9 +5,10 @@ import { useState, useTransition } from "react";
 import { setOpportunityStatusAction } from "@/actions/opportunities";
 import type { Opportunity } from "@/db/schema";
 import { formatRelative } from "@/lib/format";
+import { DEFAULT_REPLY_STYLES, type ReplyStyle } from "@/lib/replies/styles";
 import { opportunityTier } from "@/services/opportunities/score";
 
-import { type DraftPair, ReplyDrafts } from "./ReplyDrafts";
+import { type DraftReply, ReplyDrafts } from "./ReplyDrafts";
 
 type Status = Opportunity["status"];
 
@@ -20,7 +21,8 @@ const tierLabels = {
 
 export function OpportunityCard({
   opportunity,
-  replies = {},
+  replies = [],
+  defaultStyles = DEFAULT_REPLY_STYLES,
 }: {
   opportunity: Pick<
     Opportunity,
@@ -35,7 +37,8 @@ export function OpportunityCard({
     | "status"
     | "scoreBreakdown"
   >;
-  replies?: DraftPair;
+  replies?: DraftReply[];
+  defaultStyles?: ReplyStyle[];
 }) {
   // Local, not refreshed from the server: a dismissed or replied card stays in
   // place (with Undo) until the user navigates, instead of vanishing mid-read
@@ -121,6 +124,7 @@ export function OpportunityCard({
       <ReplyDrafts
         opportunityId={opportunity.id}
         initial={replies}
+        defaultStyles={defaultStyles}
         onCopied={() => setStatus("replied")}
       />
 

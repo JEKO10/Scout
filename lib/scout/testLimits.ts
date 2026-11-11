@@ -17,6 +17,13 @@ export type ScoutLimits = {
   maxScanDurationSeconds: number | null;
   /** Attempted requests per UTC day across all of Scout: one X token, one balance */
   maxXRequestsPerDay: number | null;
+  /**
+   * Post resources X may return per UTC day across all of Scout: the global
+   * spending cap. SCOUT_X_DAILY_POST_READ_LIMIT overrides it.
+   */
+  maxXPostReadsPerDay: number | null;
+  /** Scans (manual or automatic) running at once across all instances */
+  maxConcurrentScans: number;
   fetchReplies: boolean;
   fetchReposts: boolean;
   fetchQuotePostsWithoutContext: boolean;
@@ -34,6 +41,8 @@ export const SCOUT_TEST_LIMITS: ScoutLimits = {
   maxXRetries: 1,
   maxScanDurationSeconds: 120,
   maxXRequestsPerDay: 100,
+  maxXPostReadsPerDay: 1_000,
+  maxConcurrentScans: 1,
   fetchReplies: false,
   fetchReposts: false,
   fetchQuotePostsWithoutContext: false,
@@ -51,6 +60,8 @@ const SCOUT_DEFAULT_LIMITS: ScoutLimits = {
   maxXRetries: 1,
   maxScanDurationSeconds: null,
   maxXRequestsPerDay: null,
+  maxXPostReadsPerDay: null,
+  maxConcurrentScans: 3,
   fetchReplies: true,
   fetchReposts: false,
   fetchQuotePostsWithoutContext: true,
@@ -62,5 +73,9 @@ export function isScoutTestMode(): boolean {
 }
 
 export function getScoutLimits(): ScoutLimits {
-  return isScoutTestMode() ? SCOUT_TEST_LIMITS : SCOUT_DEFAULT_LIMITS;
+  const limits = isScoutTestMode() ? SCOUT_TEST_LIMITS : SCOUT_DEFAULT_LIMITS;
+  const dailyReads = Number(process.env.SCOUT_X_DAILY_POST_READ_LIMIT);
+  return Number.isFinite(dailyReads) && dailyReads > 0
+    ? { ...limits, maxXPostReadsPerDay: dailyReads }
+    : limits;
 }

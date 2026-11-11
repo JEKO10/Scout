@@ -14,11 +14,21 @@ export type UsageLimits = {
   maxCandidatesPerRun: number;
 };
 
+/** Automatic Scout (Day 18): how often a plan may scan on its own. */
+export type AutoScanSettings = {
+  /** Intervals the user can pick, in minutes; the first is the default */
+  intervalsMinutes: number[];
+  maxAutoRunsPerDay: number;
+};
+
 export const PLAN_IDS = ["free", "pro", "internal"] as const;
 
 export type PlanId = (typeof PLAN_IDS)[number];
 
-export const PLANS: Record<PlanId, { label: string; monthlyPriceUsd: number; limits: UsageLimits }> = {
+export const PLANS: Record<
+  PlanId,
+  { label: string; monthlyPriceUsd: number; limits: UsageLimits; autoScan: AutoScanSettings }
+> = {
   free: {
     label: "Free",
     monthlyPriceUsd: 0,
@@ -30,6 +40,7 @@ export const PLANS: Record<PlanId, { label: string; monthlyPriceUsd: number; lim
       maxActiveWatchlist: 10,
       maxCandidatesPerRun: 60,
     },
+    autoScan: { intervalsMinutes: [120, 240, 480], maxAutoRunsPerDay: 12 },
   },
   pro: {
     label: "Pro",
@@ -41,6 +52,7 @@ export const PLANS: Record<PlanId, { label: string; monthlyPriceUsd: number; lim
       maxActiveWatchlist: 30,
       maxCandidatesPerRun: 100,
     },
+    autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
   },
   // Development and dogfooding accounts
   internal: {
@@ -53,6 +65,7 @@ export const PLANS: Record<PlanId, { label: string; monthlyPriceUsd: number; lim
       maxActiveWatchlist: 50,
       maxCandidatesPerRun: 100,
     },
+    autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
   },
 };
 

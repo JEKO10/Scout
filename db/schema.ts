@@ -67,6 +67,9 @@ export const replyVariantEnum = pgEnum("reply_variant", REPLY_STYLES);
 
 export const planEnum = pgEnum("plan", PLAN_IDS);
 
+/** Who started a run: the Run Scout button or the Day 18 scheduler */
+export const runTriggerEnum = pgEnum("run_trigger", ["manual", "auto"]);
+
 export const opportunitySensitivityEnum = pgEnum(
   "opportunity_sensitivity",
   OPPORTUNITY_SENSITIVITIES,
@@ -107,6 +110,13 @@ export const profilesTable = pgTable("profiles", {
   // Usage limits come from the plan (lib/billing/plans.ts); overrides are per user
   plan: planEnum().notNull().default("free"),
   usageLimitOverrides: jsonb().$type<Partial<UsageLimits>>(),
+  // Day 18 Automatic Scout: off until the user turns it on
+  autoScanEnabled: boolean().notNull().default(false),
+  /** One of the plan's intervals; null: the plan's default */
+  autoScanIntervalMinutes: integer(),
+  /** When the scheduler should scan next; null while off */
+  nextScanAt: timestamp({ withTimezone: true }),
+  lastAutoScanAt: timestamp({ withTimezone: true }),
 
   onboardingCompleted: boolean().notNull().default(false),
   ...timestamps,
@@ -192,6 +202,7 @@ export const scoutRunsTable = pgTable(
       .notNull()
       .references(() => profilesTable.id, { onDelete: "cascade" }),
     status: scoutRunStatusEnum().notNull().default("pending"),
+    trigger: runTriggerEnum().notNull().default("manual"),
     opportunitiesFound: integer().notNull().default(0),
     error: text(),
     stats: jsonb().$type<ScoutRunStats>(),
@@ -590,3 +601,55 @@ export const xPostsTable = pgTable(
 
 export type XAccount = typeof xAccountsTable.$inferSelect;
 export type XPost = typeof xPostsTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Day 18: Automatic Scout. A durable job per scheduled scan, so any number of
+// instances can share the work, retries survive restarts and every skipped or
+// failed scan leaves a record.
+// ---------------------------------------------------------------------------
+
+export const scanJobStatusEnum = pgEnum("scan_job_status", [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "skipped",
+]);
+
+export const scanJobsTable = pgTable(
+  "scan_jobs",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    status: scanJobStatusEnum().notNull().default("pending"),
+    /** Why it was skipped, e.g. "budget_x_reads", "run_limit", "scan_running" */
+    skipReason: text(),
+    /** Runs attempted so far; failed attempts retry with backoff */
+    attempts: integer().notNull().default(0),
+    /** Not claimed before this moment (backoff after a failure) */
+    runAfter: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    /** The worker running it, and until when its claim holds */
+    lockedBy: text(),
+    lockedUntil: timestamp({ withTimezone: true }),
+    startedAt: timestamp({ withTimezone: true }),
+    finishedAt: timestamp({ withTimezone: true }),
+    durationMs: integer(),
+    scoutRunId: uuid().references(() => scoutRunsTable.id, { onDelete: "set null" }),
+    /** Watched accounts whose shared fetch another worker held (skipped this time) */
+    busyAccounts: integer().notNull().default(0),
+    error: text(),
+    ...timestamps,
+  },
+  (t) => [
+    // At most one open job per profile, whatever the number of schedulers
+    uniqueIndex("scan_jobs_one_open_per_profile")
+      .on(t.profileId)
+      .where(sql`${t.status} in ('pending', 'running')`),
+    index().on(t.status, t.runAfter),
+    index().on(t.profileId, t.createdAt.desc()),
+  ],
+);
+
+export type ScanJob = typeof scanJobsTable.$inferSelect;

@@ -60,6 +60,8 @@ type AccountScan = {
   imported: NormalizedCandidatePost[];
   /** This run refreshed the shared cache (true), found it fresh (false), or neither */
   refreshed?: boolean;
+  /** Another worker held the account's fetch; its cached posts were used as they are */
+  busy?: boolean;
 };
 
 /** Shared by one run's account scans. */
@@ -68,6 +70,7 @@ type ScanContext = {
   limits: ScoutLimits;
   /** Accounts not started by then are skipped (testing mode's scan time limit) */
   deadline: number | null;
+  lockWaitMs?: number;
   usage: XRunUsage;
 };
 
@@ -81,7 +84,20 @@ type ScanContext = {
  * by a filter), so nothing is delivered, charged or evaluated twice, and
  * nothing undelivered is ever marked as processed.
  */
-export async function runScout(profileId: string): Promise<RunScoutResult> {
+export type RunScoutOptions = {
+  /** Who started it; recorded on the run */
+  trigger?: ScoutRun["trigger"];
+  /**
+   * How long to wait for another worker's fetch of a watched account. The
+   * scheduler passes 0: busy accounts are skipped and served next time.
+   */
+  lockWaitMs?: number;
+};
+
+export async function runScout(
+  profileId: string,
+  { trigger = "manual", lockWaitMs }: RunScoutOptions = {},
+): Promise<RunScoutResult> {
   const limits = getScoutLimits();
   const profile = await getProfileById(profileId);
   if (!profile) throw new Error(`Profile ${profileId} not found`);
@@ -100,7 +116,7 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
     profileId,
     new Date(Date.now() - STALE_RUN_MINUTES * 60_000),
   );
-  const run = await startScoutRun(profileId, limits);
+  const run = await startScoutRun(profileId, limits, trigger);
   if (!run) {
     const gate = await getRunGate(profileId, limits);
     return gate.blockedBy === "daily_limit" || gate.blockedBy === "min_gap"
@@ -117,6 +133,7 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
     deadline: limits.maxScanDurationSeconds
       ? Date.now() + limits.maxScanDurationSeconds * 1000
       : null,
+    lockWaitMs,
     usage: {
       requests: 0,
       failed: 0,
@@ -199,6 +216,7 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
       sharedFetch: {
         fetched: scans.filter((scan) => scan.refreshed === true).length,
         reused: scans.filter((scan) => scan.refreshed === false).length,
+        busy: scans.filter((scan) => scan.busy).length,
       },
     };
     if (delivered.budgetReached) {
@@ -297,6 +315,7 @@ async function scanAccount(
       const result = await ensureFreshPosts(current, {
         firstLimit: limits.maxPostsPerAccountFirstScan,
         nextLimit: limits.maxPostsPerAccountSubsequentScan,
+        lockWaitMs: context.lockWaitMs,
         // Older posts are filtered as too old; not fetching them saves credits
         notBefore: new Date(Date.now() - MAX_POST_AGE_DAYS * 86_400_000),
         usage,
@@ -307,6 +326,7 @@ async function scanAccount(
         imported: [],
         // busy: another worker still fetching; neither refreshed nor reused
         refreshed: { fetched: true, fresh: false, waited: false, busy: undefined }[result.status],
+        busy: result.status === "busy",
       };
     } catch (error) {
       if (!(error instanceof PostSourceUnavailableError)) throw error;

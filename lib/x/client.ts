@@ -1,6 +1,6 @@
 import "server-only";
 
-import { recordXUsage, reserveXRequest } from "@/db/queries/xApiUsage";
+import { getXUsageToday, recordXUsage, reserveXRequest } from "@/db/queries/xApiUsage";
 import type {
   NormalizedCandidatePost,
   NormalizedPost,
@@ -40,8 +40,8 @@ export class XApiRequestError extends Error {
 
 /** Today's request budget is used up; nothing was sent. */
 export class XApiBudgetError extends Error {
-  constructor(limit: number) {
-    super(`Daily X API request limit reached (${limit}). Scout stops calling X until tomorrow (UTC).`);
+  constructor(limit: number, what: "request" | "post read" = "request") {
+    super(`Daily X API ${what} limit reached (${limit}). Scout stops calling X until tomorrow (UTC).`);
     this.name = "XApiBudgetError";
   }
 }
@@ -90,7 +90,15 @@ async function xFetch<T>(
 ): Promise<T> {
   const token = process.env.X_BEARER_TOKEN;
   if (!token) throw new Error("X_BEARER_TOKEN is not set.");
-  const { maxXRetries, maxXRequestsPerDay } = getScoutLimits();
+  const { maxXRetries, maxXRequestsPerDay, maxXPostReadsPerDay } = getScoutLimits();
+  // The global spending cap: posts X returned today across all of Scout. A
+  // response can still pass it by one page; every request after that stops.
+  if (maxXPostReadsPerDay !== null) {
+    const today = await getXUsageToday();
+    if ((today?.postsReturned ?? 0) >= maxXPostReadsPerDay) {
+      throw new XApiBudgetError(maxXPostReadsPerDay, "post read");
+    }
+  }
 
   const url = new URL(`${X_API_BASE_URL}${path}`);
   for (const [key, value] of Object.entries(params)) {

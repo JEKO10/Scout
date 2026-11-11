@@ -216,3 +216,23 @@ export async function removeReplyRule(profileId: string, rule: string): Promise<
     .set({ replyRules: sql`array_remove(${profilesTable.replyRules}, ${rule})` })
     .where(eq(profilesTable.id, profileId));
 }
+
+/**
+ * Automatic Scout on or off, and how often. Turning it on schedules a scan
+ * right away; turning it off clears the schedule (an open job then skips).
+ */
+export async function updateAutoScan(
+  profileId: string,
+  { enabled, intervalMinutes }: { enabled: boolean; intervalMinutes: number },
+): Promise<void> {
+  await db
+    .update(profilesTable)
+    .set({
+      autoScanEnabled: enabled,
+      autoScanIntervalMinutes: intervalMinutes,
+      nextScanAt: enabled
+        ? sql`case when ${profilesTable.autoScanEnabled} then coalesce(${profilesTable.nextScanAt}, now()) else now() end`
+        : null,
+    })
+    .where(eq(profilesTable.id, profileId));
+}

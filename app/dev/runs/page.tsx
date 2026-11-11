@@ -41,7 +41,16 @@ async function RunAnalyticsView() {
   if (process.env.NODE_ENV === "production" && !isScoutTestMode()) notFound();
   if (!profile.onboardingCompleted) redirect("/onboarding");
 
-  const { runs, budget } = await getRunAnalytics(profile);
+  const { runs, budget, autoScout } = await getRunAnalytics(profile);
+  const autoRuns = runs.filter((run) => run.trigger === "auto");
+  const autoTotals = autoRuns.reduce(
+    (sum, run) => ({
+      postReads: sum.postReads + (run.postResources ?? 0),
+      aiUsd: sum.aiUsd + run.scoringUsd + run.replyUsd,
+      opportunities: sum.opportunities + run.opportunities,
+    }),
+    { postReads: 0, aiUsd: 0, opportunities: 0 },
+  );
   const totals = runs.reduce(
     (sum, run) => ({
       totalUsd: sum.totalUsd + run.totalUsd,
@@ -90,12 +99,38 @@ async function RunAnalyticsView() {
         {usd(budget.scoringUsdPerCandidate)} per candidate.
       </p>
 
+      <section className="memory-section" aria-labelledby="auto-title">
+        <p className="eyebrow">Last 7 days</p>
+        <h2 id="auto-title">Automatic Scout</h2>
+        <section className="metrics-strip" aria-label="Automatic Scout">
+          <Metric value={String(autoScout.started)} label="Jobs started" />
+          <Metric value={String(autoScout.completed)} label="Completed" />
+          <Metric value={String(autoScout.failed)} label="Failed" />
+          <Metric value={String(autoScout.skippedForBudget)} label="Skipped: budget" />
+          <Metric value={String(autoScout.busyAccounts)} label="Accounts skipped: locked" />
+          <Metric
+            value={autoScout.avgDurationMs === null ? "–" : `${Math.round(autoScout.avgDurationMs / 1000)} s`}
+            label="Avg. scan duration"
+          />
+        </section>
+        <p className="memory-note">
+          Automatic runs below: {autoTotals.postReads.toLocaleString("en")} X post reads ·{" "}
+          {usd(autoTotals.aiUsd)} OpenAI · {autoTotals.opportunities} opportunities.
+          {autoScout.jobs.some((row) => row.status === "skipped") &&
+            ` Skips: ${autoScout.jobs
+              .filter((row) => row.status === "skipped")
+              .map((row) => `${row.skipReason} ${row.jobs}`)
+              .join(", ")}.`}
+        </p>
+      </section>
+
       {runs.length ? (
         <div className="analytics-table-wrap">
           <table className="analytics-table">
             <thead>
               <tr>
                 <th>Run</th>
+                <th>Trigger</th>
                 <th>Accounts</th>
                 <th title="Timeline requests (and account lookups)">X requests</th>
                 <th title="Post resources X returned and billed">Post reads</th>
@@ -135,6 +170,7 @@ function RunRow({ run }: { run: RunAnalytics }) {
         {run.status !== "completed" && <span className="analytics-status"> · {run.status}</span>}
         {run.note && <small>{run.note}</small>}
       </td>
+      <td>{run.trigger}</td>
       <td>{run.accounts}</td>
       <td>
         {value(run.xRequests)}

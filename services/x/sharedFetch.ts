@@ -14,10 +14,14 @@ import { xApiSource } from "@/services/post-sources/xApi";
 
 /** A shared fetch this recent is reused instead of asking X again */
 export const SHARED_FETCH_FRESH_MINUTES = 15;
-/** Longer than one fetch can take (15 s timeout, one retry); then it can be taken over */
-const LOCK_SECONDS = 60;
-/** How long a worker waits for another worker's fetch of the same account */
-const LOCK_WAIT_MS = 20_000;
+/**
+ * Longer than one fetch can ever take: two 15 s attempts, up to 10 s waiting
+ * on a rate limit, the cache write. After this a crashed worker's lock can be
+ * taken over; a slow worker that loses it can't move the cursor (token check).
+ */
+const LOCK_SECONDS = 120;
+/** Default wait for another worker's fetch; the scheduler passes 0 and moves on */
+const DEFAULT_LOCK_WAIT_MS = 10_000;
 const LOCK_POLL_MS = 300;
 
 export type SharedFetchResult =
@@ -44,6 +48,7 @@ export async function ensureFreshPosts(
     nextLimit,
     notBefore,
     usage,
+    lockWaitMs = DEFAULT_LOCK_WAIT_MS,
   }: {
     /** Page size for an account never fetched before */
     firstLimit: number;
@@ -52,6 +57,8 @@ export async function ensureFreshPosts(
     notBefore: Date;
     /** The triggering run's X counters: real requests count once, here */
     usage?: Omit<XRunUsage, "stoppedReason">;
+    /** How long to wait for another worker's fetch; 0: report "busy" at once */
+    lockWaitMs?: number;
   },
 ): Promise<SharedFetchResult> {
   await getOrCreateXAccount(account.platformUserId, account.handle);
@@ -60,7 +67,7 @@ export async function ensureFreshPosts(
 
   let locked = await acquireFetchLock(account.platformUserId, token, lockOptions);
   let waited = false;
-  const deadline = Date.now() + LOCK_WAIT_MS;
+  const deadline = Date.now() + lockWaitMs;
   while (!locked) {
     const state = await getFetchState(account.platformUserId, SHARED_FETCH_FRESH_MINUTES);
     if (state.fresh) return { status: waited ? "waited" : "fresh" };

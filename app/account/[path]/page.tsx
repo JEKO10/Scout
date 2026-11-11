@@ -6,10 +6,13 @@ import { Suspense } from "react";
 import { updateProfile } from "@/actions/profile";
 import { AccountDataOverview } from "@/components/AccountDataOverview";
 import { AppHeader } from "@/components/AppHeader";
+import { AutoScoutSettings } from "@/components/AutoScoutSettings";
 import { OpportunitySensitivityForm } from "@/components/OpportunitySensitivityForm";
 import { ProfileForm } from "@/components/ProfileForm";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { requireProfile } from "@/lib/auth/session";
+import { formatRelative } from "@/lib/format";
+import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
 
 export function generateStaticParams() {
   return Object.values(accountViewPaths).map((path) => ({ path }));
@@ -51,10 +54,27 @@ async function AccountContent({ params }: { params: Params }) {
 
 async function ScoutSettings() {
   const { profile } = await requireProfile();
-  const data = await getWorkspaceData(profile.id);
+  const [data, autoScout] = await Promise.all([
+    getWorkspaceData(profile.id),
+    getAutoScoutStatus(profile),
+  ]);
 
   return (
     <>
+      <AutoScoutSettings
+        data={{
+          enabled: autoScout.enabled,
+          intervalMinutes: autoScout.intervalMinutes,
+          intervals: autoScout.intervals,
+          lastScanLabel: autoScout.lastAutoScanAt ? formatRelative(autoScout.lastAutoScanAt) : "never",
+          nextScanLabel: autoScout.nextScanAt ? formatRelative(autoScout.nextScanAt) : "not scheduled",
+          lastJob: autoScout.lastJob && {
+            status: autoScout.lastJob.status,
+            skipReason: autoScout.lastJob.skipReason,
+            error: autoScout.lastJob.error,
+          },
+        }}
+      />
       <OpportunitySensitivityForm initial={profile.opportunitySensitivity} />
       <ProfileForm profile={profile} action={updateProfile} />
       <AccountDataOverview profile={profile} data={data} />

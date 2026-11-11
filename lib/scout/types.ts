@@ -58,8 +58,11 @@ export type ScoutRunStats = {
    * xApi.postsReturned was charged instead.
    */
   planXReads?: number;
-  /** Day 17: accounts whose shared cache this run refreshed, or reused as fresh */
-  sharedFetch?: { fetched: number; reused: number };
+  /**
+   * Day 17: accounts whose shared cache this run refreshed, reused as fresh,
+   * or skipped because another worker was fetching them (busy, Day 18)
+   */
+  sharedFetch?: { fetched: number; reused: number; busy?: number };
   /** Day 9 Opportunity Engine; absent on runs from before it existed */
   scoring?: ScoringStats;
 };

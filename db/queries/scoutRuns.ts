@@ -23,11 +23,12 @@ export type RunLimits = {
 export async function startScoutRun(
   profileId: string,
   limits: RunLimits = { maxRunsPerDay: null, minMinutesBetweenRuns: null },
+  trigger: ScoutRun["trigger"] = "manual",
 ): Promise<ScoutRun | null> {
   const { maxRunsPerDay, minMinutesBetweenRuns } = limits;
   const result = await db.execute<{ id: string }>(sql`
-    insert into ${scoutRunsTable} ("profileId", "status", "startedAt")
-    select ${profileId}::uuid, 'running'::scout_run_status, now()
+    insert into ${scoutRunsTable} ("profileId", "status", "startedAt", "trigger")
+    select ${profileId}::uuid, 'running'::scout_run_status, now(), ${trigger}::run_trigger
     where (
       ${maxRunsPerDay}::int is null
       or (

@@ -1,10 +1,12 @@
 import "server-only";
 
+import { getProfileById } from "@/db/queries/profiles";
 import { getRecentScoutRuns, getRunGate } from "@/db/queries/scoutRuns";
 import { countActiveWatchlist } from "@/db/queries/watchlist";
 import { getXUsageToday } from "@/db/queries/xApiUsage";
 import type { ScoutRun } from "@/db/schema";
 import { getScoutLimits, isScoutTestMode } from "@/lib/scout/testLimits";
+import { maxActiveWatchlist } from "@/services/billing/budget";
 
 export type ScoutTestStatus = {
   enabled: boolean;
@@ -26,11 +28,12 @@ export async function getScoutTestStatus(
   profileId: string,
 ): Promise<ScoutTestStatus> {
   const limits = getScoutLimits();
-  const [gate, usage, activeAccounts, runs] = await Promise.all([
+  const [gate, usage, activeAccounts, runs, profile] = await Promise.all([
     getRunGate(profileId, limits),
     getXUsageToday(),
     countActiveWatchlist(profileId),
     getRecentScoutRuns(profileId, 10),
+    getProfileById(profileId),
   ]);
   const lastSuccessful = runs.find((run) => run.status === "completed");
 
@@ -41,7 +44,7 @@ export async function getScoutTestStatus(
     requestsToday: usage?.requests ?? 0,
     maxRequests: limits.maxXRequestsPerDay,
     activeAccounts,
-    maxActiveAccounts: limits.maxWatchlistAccounts,
+    maxActiveAccounts: profile ? maxActiveWatchlist(profile) : limits.maxWatchlistAccounts,
     lastSuccessfulScanAt: lastSuccessful?.completedAt ?? null,
     nextEligibleAt: gate.nextEligibleAt,
     lastRun: runs[0],

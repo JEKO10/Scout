@@ -37,3 +37,22 @@ export async function replaceOnboardingSamples(
       .values(samples.map((sample) => ({ profileId, source: "onboarding" as const, ...sample }))),
   ]);
 }
+
+/** A take the user wrote down to teach Scout ("Teach Scout more"). */
+export async function addOpinionSample(
+  profileId: string,
+  promptPost: string,
+  userReply: string,
+): Promise<VoiceSample> {
+  const [sample] = await db
+    .insert(voiceSamplesTable)
+    .values({ profileId, source: "opinion", promptPost, userReply })
+    .returning();
+  return sample;
+}
+
+export async function deleteVoiceSample(profileId: string, sampleId: string): Promise<void> {
+  await db
+    .delete(voiceSamplesTable)
+    .where(and(eq(voiceSamplesTable.id, sampleId), eq(voiceSamplesTable.profileId, profileId)));
+}

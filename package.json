@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:seed": "tsx db/seed.ts"
+    "db:seed": "tsx db/seed.ts",
+    "test": "tsx --conditions react-server --require ./tests/setup/next-cache-stub.cjs --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {
     "@neondatabase/auth": "^0.6.0-beta",

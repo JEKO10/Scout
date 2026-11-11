@@ -4,6 +4,7 @@ import type { ResolvedScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 import { AnalyzeBrainButton } from "./AnalyzeBrainButton";
 import { BrainList } from "./BrainList";
+import { TeachScout, type TeachScoutData } from "./TeachScout";
 
 const dateFormat = new Intl.DateTimeFormat("en", {
   month: "short",
@@ -26,6 +27,7 @@ export function ScoutBrainPanel({
   postCount,
   sampleCount,
   interactionCount,
+  teach,
 }: {
   brain: ResolvedScoutBrain | null;
   postCount: number;
@@ -33,6 +35,8 @@ export function ScoutBrainPanel({
   sampleCount: number;
   /** Accepted, edited, rejected and skipped so far (Memory) */
   interactionCount: number;
+  /** "Teach Scout more", for a Brain built without posts */
+  teach?: TeachScoutData;
 }) {
   const fromOnboarding = brain?.basis === "onboarding";
   return (
@@ -226,6 +230,8 @@ export function ScoutBrainPanel({
           </article>
         </div>
       )}
+
+      {brain && fromOnboarding && teach && <TeachScout data={teach} />}
     </section>
   );
 }

@@ -14,6 +14,7 @@ import { formatRelative } from "@/lib/format";
 import { parseTwExtractCsv } from "@/lib/import/twExtractCsv";
 import { getScoutLimits } from "@/lib/scout/testLimits";
 import { xHandleSchema } from "@/schemas/onboarding";
+import { BUDGET_MESSAGES, maxActiveWatchlist } from "@/services/billing/budget";
 import { runScout } from "@/services/scout/runScout";
 import {
   addWatchlistAccount,
@@ -56,7 +57,7 @@ export async function addWatchlistAccountAction(
           message:
             `Added @${result.account.handle}` +
             (result.paused
-              ? `, paused: testing mode scans at most ${getScoutLimits().maxWatchlistAccounts} active accounts. Pause another to resume it.`
+              ? `, paused: your plan scans at most ${result.maxActive} active accounts. Pause another to resume it.`
               : ".") +
             (result.verified
               ? ""
@@ -77,18 +78,18 @@ export async function setWatchlistAccountActiveAction(
   isActive: boolean,
 ): Promise<{ ok: boolean; message?: string }> {
   const { profile } = await requireProfile();
-  const { maxWatchlistAccounts } = getScoutLimits();
+  const maxActive = maxActiveWatchlist(profile);
   const changed = await setWatchlistAccountActive(
     profile.id,
     accountIdSchema.parse(accountId),
     isActive,
-    { maxActive: maxWatchlistAccounts },
+    { maxActive },
   );
   refresh();
   if (changed || !isActive) return { ok: true };
   return {
     ok: false,
-    message: `Testing mode scans at most ${maxWatchlistAccounts} active accounts. Pause one first.`,
+    message: `Your plan scans at most ${maxActive} active accounts. Pause one first.`,
   };
 }
 
@@ -116,6 +117,8 @@ export async function runScoutAction(): Promise<WatchlistActionState> {
         status: "error",
         message: "A scan is already running. Wait for it to finish.",
       };
+    case "budget_exhausted":
+      return { status: "error", message: BUDGET_MESSAGES[result.reason] };
     case "limited": {
       const { gate } = result;
       const next = gate.nextEligibleAt ? ` Next scan ${formatRelative(gate.nextEligibleAt)}.` : "";

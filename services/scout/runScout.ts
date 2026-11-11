@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getProfileById } from "@/db/queries/profiles";
 import { getSeenPlatformPostIds, saveCandidates } from "@/db/queries/scoutCandidates";
 import {
   failStaleScoutRuns,
@@ -19,7 +20,13 @@ import { recordXUsage } from "@/db/queries/xApiUsage";
 import type { ScoutRun, WatchlistAccount } from "@/db/schema";
 import type { NormalizedCandidatePost } from "@/lib/posts/types";
 import { getScoutLimits, type ScoutLimits } from "@/lib/scout/testLimits";
-import type { ScoutRunStats, XRunUsage, XScanCursor } from "@/lib/scout/types";
+import type { BudgetExhausted, ScoutRunStats, XRunUsage, XScanCursor } from "@/lib/scout/types";
+import {
+  getUsageBudget,
+  maxActiveWatchlist,
+  scanBlockedBy,
+  scoringAllowance,
+} from "@/services/billing/budget";
 import { rankCandidates } from "@/services/opportunities/rankCandidates";
 import { importedSource } from "@/services/post-sources/imported";
 import {
@@ -40,6 +47,8 @@ export type RunScoutResult =
   | { status: "already_running"; run: ScoutRun | undefined }
   /** Testing mode: daily run limit or minimum time between runs */
   | { status: "limited"; gate: RunGate }
+  /** The plan's monthly X or scoring budget is used up; nothing was fetched */
+  | { status: "budget_exhausted"; reason: BudgetExhausted }
   | { status: "completed"; run: ScoutRun; stats: ScoutRunStats }
   | { status: "failed"; run: ScoutRun; error: string };
 
@@ -57,8 +66,15 @@ type ScanContext = {
   limits: ScoutLimits;
   /** Accounts not started by then are skipped (testing mode's scan time limit) */
   deadline: number | null;
+  /** X post resources this run may read: what's left of the monthly budget */
+  xReadBudget: number;
+  /** Reads promised to X requests still in flight */
+  xReadsReserved: number;
   usage: XRunUsage;
 };
+
+/** X returns at least this many posts per page and bills all of them */
+const X_MIN_PAGE = 5;
 
 /**
  * RUN SCOUT: active watchlist → fetch only new posts → normalize → dedupe →
@@ -66,13 +82,18 @@ type ScanContext = {
  */
 export async function runScout(profileId: string): Promise<RunScoutResult> {
   const limits = getScoutLimits();
+  const profile = await getProfileById(profileId);
+  if (!profile) throw new Error(`Profile ${profileId} not found`);
   // Also guards against more active accounts than the limit allows, e.g. two
   // accounts resumed at the same moment
-  const accounts = (await getActiveWatchlist(profileId)).slice(
-    0,
-    limits.maxWatchlistAccounts ?? undefined,
-  );
+  const accounts = (await getActiveWatchlist(profileId)).slice(0, maxActiveWatchlist(profile));
   if (accounts.length === 0) return { status: "no_active_accounts" };
+
+  // Checked before a run row exists: a refused scan costs and records nothing.
+  // Only one run per profile can be active, so this budget can't be spent twice.
+  const budget = await getUsageBudget(profile);
+  const blockedBy = scanBlockedBy(budget);
+  if (blockedBy) return { status: "budget_exhausted", reason: blockedBy };
 
   await failStaleScoutRuns(
     profileId,
@@ -96,7 +117,16 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
     deadline: limits.maxScanDurationSeconds
       ? Date.now() + limits.maxScanDurationSeconds * 1000
       : null,
-    usage: { requests: 0, failed: 0, retried: 0, postsReturned: 0 },
+    xReadBudget: budget.remaining.xPostReads,
+    xReadsReserved: 0,
+    usage: {
+      requests: 0,
+      failed: 0,
+      retried: 0,
+      postsReturned: 0,
+      includedReturned: 0,
+      userLookups: 0,
+    },
   };
 
   try {
@@ -173,7 +203,9 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
     // Day 9: rank this run's candidates plus any a previous run left unscored.
     // A scoring failure never fails the scan; unscored candidates retry later.
     try {
-      stats.scoring = await rankCandidates(profileId, run.id);
+      stats.scoring = await rankCandidates(profileId, run.id, {
+        maxCandidates: scoringAllowance(budget),
+      });
     } catch (error) {
       console.error("Opportunity scoring failed", run.id, error);
       stats.scoring = {
@@ -225,6 +257,7 @@ async function scanAccount(
   let current = account;
   if (isUnverified(current) && !usage.stoppedReason) {
     try {
+      usage.userLookups = (usage.userLookups ?? 0) + 1;
       const profile = await xApiSource.resolveAccount(current.handle);
       if (!profile) throw new Error(`@${current.handle} doesn't exist on X.`);
       const verified = await verifyWatchlistAccount(profileId, current.id, profile);
@@ -239,15 +272,27 @@ async function scanAccount(
     }
   }
 
+  // The monthly read budget, shared by this run's accounts. Each account
+  // reserves its page before the request, so accounts in flight together
+  // can't all spend the same reads. Only quoted posts can still go over.
+  const readsLeft = context.xReadBudget - usage.postsReturned - context.xReadsReserved;
+  if (readsLeft < X_MIN_PAGE && !usage.stoppedReason) {
+    usage.stoppedReason = "Monthly X read budget reached; the remaining accounts wait for next month.";
+  }
+
   if (!isUnverified(current) && !usage.stoppedReason) {
+    // A smaller page leaves the rest as a cursor gap, read on a later scan
+    const limit = Math.min(
+      readsLeft,
+      current.xCursor ? limits.maxPostsPerAccountSubsequentScan : limits.maxPostsPerAccountFirstScan,
+    );
+    context.xReadsReserved += limit;
     try {
       const result = await xApiSource.fetchPosts({
         profileId,
         account: current,
         since: current.lastScannedAt,
-        limit: current.xCursor
-          ? limits.maxPostsPerAccountSubsequentScan
-          : limits.maxPostsPerAccountFirstScan,
+        limit,
         // Older posts are filtered as too old; not fetching them saves credits
         notBefore: new Date(Date.now() - MAX_POST_AGE_DAYS * 86_400_000),
         usage,
@@ -256,6 +301,8 @@ async function scanAccount(
     } catch (error) {
       if (!(error instanceof PostSourceUnavailableError)) throw error;
       stopX(error);
+    } finally {
+      context.xReadsReserved -= limit;
     }
   }
 

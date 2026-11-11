@@ -22,6 +22,7 @@ import type {
   StoredInterestBrain,
   StoredVoiceBrain,
 } from "../lib/ai/schemas/scoutBrain";
+import { PLAN_IDS, type UsageLimits } from "../lib/billing/plans";
 import { REPLY_STYLES } from "../lib/replies/styles";
 import type { LearningProfile } from "../lib/scout/learning";
 import { OPPORTUNITY_SENSITIVITIES } from "../lib/scout/sensitivity";
@@ -63,6 +64,8 @@ export const opportunityStatusEnum = pgEnum("opportunity_status", [
 // Reply styles (lib/replies/styles.ts); new ones are appended, never reordered
 export const replyVariantEnum = pgEnum("reply_variant", REPLY_STYLES);
 
+export const planEnum = pgEnum("plan", PLAN_IDS);
+
 export const opportunitySensitivityEnum = pgEnum(
   "opportunity_sensitivity",
   OPPORTUNITY_SENSITIVITIES,
@@ -100,6 +103,9 @@ export const profilesTable = pgTable("profiles", {
   replyRules: text().array().notNull().default(sql`'{}'::text[]`),
   // How many opportunities they want; sets the score a post needs to surface
   opportunitySensitivity: opportunitySensitivityEnum().notNull().default("balanced"),
+  // Usage limits come from the plan (lib/billing/plans.ts); overrides are per user
+  plan: planEnum().notNull().default("free"),
+  usageLimitOverrides: jsonb().$type<Partial<UsageLimits>>(),
 
   onboardingCompleted: boolean().notNull().default(false),
   ...timestamps,
@@ -430,7 +436,8 @@ export const scoutCandidatesTable = pgTable(
 // Day 14 cold start: the user's own writing, before they have any X history
 // ---------------------------------------------------------------------------
 
-export const voiceSampleSourceEnum = pgEnum("voice_sample_source", ["onboarding"]);
+// onboarding: calibration replies; opinion: takes the user wrote down later
+export const voiceSampleSourceEnum = pgEnum("voice_sample_source", ["onboarding", "opinion"]);
 
 export const voiceSamplesTable = pgTable(
   "voice_samples",

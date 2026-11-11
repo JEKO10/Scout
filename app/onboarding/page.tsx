@@ -143,7 +143,7 @@ async function BrainStep({
       ? ["Your X posts (voice, topics, opinions)", "Your answers (goals, audience)"]
       : [
           "Your answers (topics, goals, audience, tone)",
-          `${(await getVoiceSamples(profile.id)).length} calibration replies you wrote`,
+          `${(await getVoiceSamples(profile.id)).filter((sample) => sample.source === "onboarding").length} calibration replies you wrote`,
         ];
   return <BuildBrainStep mode={mode} sources={sources} nextHref={nextHref} />;
 }

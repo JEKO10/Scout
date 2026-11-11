@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { AiOperation } from "@/db/schema";
 import { formatRelative } from "@/lib/format";
 import { AI_OPERATION_LABELS, type AiCostSummary } from "@/services/ai/costSummary";
@@ -70,6 +72,9 @@ export function AiCostPanel({ summary }: { summary: AiCostSummary }) {
           {unpriced} calls used a model with no configured price; they&apos;re not in the totals.
         </p>
       )}
+      <Link href="/dev/runs" className="text-link">
+        Run analytics <span aria-hidden="true">→</span>
+      </Link>
     </div>
   );
 }

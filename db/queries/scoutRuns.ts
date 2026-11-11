@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, sql } from "drizzle-orm";
 
 import db from "@/db";
 import { type ScoutRun, scoutRunsTable } from "@/db/schema";
@@ -177,4 +177,15 @@ export async function getRecentScoutRuns(
     .where(eq(scoutRunsTable.profileId, profileId))
     .orderBy(desc(scoutRunsTable.createdAt))
     .limit(limit);
+}
+
+/** X post resources read by the profile's runs since a moment (from run stats). */
+export async function sumRunXPostReads(profileId: string, since: Date): Promise<number> {
+  const [row] = await db
+    .select({
+      reads: sql<number>`coalesce(sum((${scoutRunsTable.stats} -> 'xApi' ->> 'postsReturned')::int), 0)::int`,
+    })
+    .from(scoutRunsTable)
+    .where(and(eq(scoutRunsTable.profileId, profileId), gte(scoutRunsTable.createdAt, since)));
+  return row.reads;
 }

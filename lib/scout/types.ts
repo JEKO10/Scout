@@ -25,10 +25,18 @@ export type XRunUsage = {
   requests: number;
   failed: number;
   retried: number;
+  /** Post resources X returned and billed, quoted/expanded posts included */
   postsReturned: number;
+  /** Of postsReturned: quoted/expanded posts (absent on older runs) */
+  includedReturned?: number;
+  /** Account lookups to verify watchlist entries (absent on older runs) */
+  userLookups?: number;
   /** Why the run stopped calling X, e.g. out of credits; later accounts used imports */
   stoppedReason?: string;
 };
+
+/** Why a run was refused before it started, or a reply wasn't generated. */
+export type BudgetExhausted = "x_reads" | "scoring" | "replies";
 
 export type ScoutRunStats = {
   accountsTotal: number;

@@ -13,7 +13,7 @@ import { XAccountCard } from "@/components/XAccountCard";
 import { XTestingPanel } from "@/components/XTestingPanel";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countPostsBySocialAccount } from "@/db/queries/posts";
-import { getCurrentReplies, getLastReplyStyles } from "@/db/queries/replies";
+import { getCurrentReplies, getLastReplyStyles, getPostedReplies } from "@/db/queries/replies";
 import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
 import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
@@ -21,6 +21,7 @@ import { getAiCostSummary } from "@/services/ai/costSummary";
 import { buildUserMemory } from "@/services/memory/buildUserMemory";
 import { getScoutTestStatus } from "@/services/scout/testStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
+import { teachPrompts } from "@/services/scout-brain/teachPrompts";
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact" });
 const dateFormat = new Intl.DateTimeFormat("en", {
@@ -59,12 +60,16 @@ async function Dashboard() {
     0,
   );
   const latestRun = data.scoutRuns[0];
-  const [voiceSamples, memory, testStatus, aiCost] = await Promise.all([
+  const [voiceSamples, memory, testStatus, aiCost, postedReplies] = await Promise.all([
     getVoiceSamples(profile.id),
     buildUserMemory(profile.id),
     getScoutTestStatus(profile.id),
     getAiCostSummary(profile.id),
+    getPostedReplies(profile.id, 20),
   ]);
+  const calibration = voiceSamples.filter((sample) => sample.source === "onboarding");
+  const opinions = voiceSamples.filter((sample) => sample.source === "opinion");
+  const brain = resolveScoutBrain(profile);
   // getWorkspaceData sorts by score, so these are the best open ones
   const topOpportunities = data.opportunities
     .filter((opportunity) => opportunity.status === "new")
@@ -108,9 +113,26 @@ async function Dashboard() {
       </section>
 
       <ScoutBrainPanel
-        brain={resolveScoutBrain(profile)}
+        brain={brain}
         postCount={data.posts.length}
-        sampleCount={voiceSamples.length}
+        sampleCount={calibration.length}
+        teach={
+          brain?.basis === "onboarding"
+            ? {
+                prompts: teachPrompts(
+                  brain,
+                  opinions.map((sample) => sample.promptPost),
+                ),
+                opinions: opinions.map((sample) => ({
+                  id: sample.id,
+                  prompt: sample.promptPost,
+                  text: sample.userReply,
+                })),
+                calibrationCount: calibration.length,
+                postedCount: postedReplies.length,
+              }
+            : undefined
+        }
         interactionCount={memory.interactionCount}
       />
 

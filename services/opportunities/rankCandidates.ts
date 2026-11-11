@@ -36,7 +36,7 @@ import {
 const BATCH_SIZE = 10;
 /** Parallel OpenAI calls */
 const CONCURRENCY = 2;
-/** Upper bound per run; the rest wait for the next run */
+/** Upper bound per run without a plan limit; the rest wait for the next run */
 const MAX_CANDIDATES_PER_RUN = 60;
 /** The user's own past posts sent with each candidate */
 const HISTORY_PER_CANDIDATE = 3;
@@ -52,10 +52,25 @@ const RECENT_ARGUMENT_DAYS = 14;
 export async function rankCandidates(
   profileId: string,
   scoutRunId: string,
+  {
+    maxCandidates = MAX_CANDIDATES_PER_RUN,
+  }: {
+    /** From the plan and the remaining scoring budget; 0 scores nothing */
+    maxCandidates?: number;
+  } = {},
 ): Promise<ScoringStats> {
+  if (maxCandidates <= 0) {
+    return {
+      scored: 0,
+      unscored: await countUnscoredCandidates(profileId),
+      surfaced: 0,
+      skippedReason:
+        "Your monthly AI scoring budget is used up; these candidates are scored when it resets.",
+    };
+  }
   const [profile, candidates] = await Promise.all([
     getProfileById(profileId),
-    getUnscoredCandidates(profileId, MAX_CANDIDATES_PER_RUN),
+    getUnscoredCandidates(profileId, maxCandidates),
   ]);
   const brain = profile ? resolveScoutBrain(profile) : null;
   if (!brain) {

@@ -189,9 +189,13 @@ async function fetchUserTweets(
 
   const tweets = (body.data ?? []).slice(0, query.limit);
   const included = body.includes?.tweets ?? [];
-  // Expanded posts count too: X likely bills them as reads
-  const returned = tweets.length + included.length;
-  if (stats) stats.postsReturned += returned;
+  // Everything X returned is billed: posts beyond `limit` (X's minimum page
+  // is 5) and expanded quoted posts too
+  const returned = (body.data?.length ?? 0) + included.length;
+  if (stats) {
+    stats.postsReturned += returned;
+    stats.includedReturned = (stats.includedReturned ?? 0) + included.length;
+  }
   await recordXUsage({ postsReturned: returned });
   return {
     tweets,

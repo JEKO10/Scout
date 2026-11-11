@@ -1830,6 +1830,122 @@ textarea {
   flex-basis: 100%;
 }
 
+.analytics-table-wrap {
+  margin-top: 32px;
+  overflow-x: auto;
+}
+
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-table th,
+.analytics-table td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.analytics-table th:first-child,
+.analytics-table td:first-child {
+  text-align: left;
+  white-space: normal;
+  min-width: 180px;
+}
+
+.analytics-table th {
+  color: var(--muted-ink);
+  font-weight: 600;
+}
+
+.analytics-table td small {
+  display: block;
+  max-width: 280px;
+  margin-top: 4px;
+  color: var(--muted-ink);
+  font-size: 11px;
+}
+
+.analytics-status {
+  color: #c42b1c;
+}
+
+.teach-scout {
+  display: grid;
+  gap: 18px;
+  margin-top: 40px;
+  border-top: 1px solid var(--line);
+  padding-top: 28px;
+}
+
+.teach-scout h3 {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.teach-scout-heading p:last-child {
+  max-width: 560px;
+  margin-top: 8px;
+  color: var(--muted-ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.teach-scout-form {
+  display: grid;
+  gap: 10px;
+  max-width: 720px;
+}
+
+.teach-scout-form label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.teach-scout-form label .text-link {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.teach-scout-actions,
+.teach-scout-rebuild {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.teach-scout-opinions {
+  max-width: 720px;
+}
+
+.teach-scout-opinions li strong {
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.teach-scout-rebuild p {
+  flex: 1 1 320px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .sensitivity-options {
   display: grid;
   border: 0;

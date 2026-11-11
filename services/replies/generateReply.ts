@@ -3,12 +3,14 @@ import "server-only";
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { getOpportunityForProfile } from "@/db/queries/opportunities";
+import { getProfileById } from "@/db/queries/profiles";
 import { getCurrentReplies, type ReplySet, saveReplyDrafts } from "@/db/queries/replies";
 import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import { replyDraftsSchema } from "@/lib/ai/schemas/reply";
 import { splitQuotedPost } from "@/lib/posts/quotedPost";
 import { REPLY_STYLE_INFO, type ReplyStyle } from "@/lib/replies/styles";
 import { recordAiUsage } from "@/services/ai/usage";
+import { getUsageBudget } from "@/services/billing/budget";
 
 import { buildReplyContext, type ReplyContext } from "./buildReplyContext";
 
@@ -113,6 +115,8 @@ function buildInput(
 export type GenerateRepliesResult =
   | { status: "not_found" }
   | { status: "no_brain" }
+  /** The plan's monthly reply generation budget is used up */
+  | { status: "budget_exhausted" }
   | { status: "generated"; replies: ReplySet };
 
 /**
@@ -128,8 +132,16 @@ export async function generateReplies(
     instruction = null,
   }: { styles: [ReplyStyle, ReplyStyle]; instruction?: string | null },
 ): Promise<GenerateRepliesResult> {
-  const opportunity = await getOpportunityForProfile(profileId, opportunityId);
-  if (!opportunity) return { status: "not_found" };
+  const [opportunity, profile] = await Promise.all([
+    getOpportunityForProfile(profileId, opportunityId),
+    getProfileById(profileId),
+  ]);
+  if (!opportunity || !profile) return { status: "not_found" };
+  // Checked before the AI call; two drafts generated at the same moment can
+  // overshoot the budget by at most those calls
+  if ((await getUsageBudget(profile)).remaining.replyUsd <= 0) {
+    return { status: "budget_exhausted" };
+  }
 
   const context = await buildReplyContext(profileId, opportunity);
   if (!context) return { status: "no_brain" };
@@ -151,7 +163,11 @@ export async function generateReplies(
     input: buildInput(context, opportunity, styles, revision),
     text: { format: zodTextFormat(replyDraftsSchema, "reply_drafts") },
   });
-  await recordAiUsage({ profileId, operation: "reply_generation" }, response);
+  // Tied to the run that found the opportunity, for per-run cost analytics
+  await recordAiUsage(
+    { profileId, operation: "reply_generation", scoutRunId: opportunity.scoutRunId },
+    response,
+  );
   const drafts = response.output_parsed;
   if (!drafts) throw new Error("OpenAI returned no reply drafts.");
 

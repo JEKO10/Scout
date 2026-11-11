@@ -12,6 +12,7 @@ import {
 } from "@/db/queries/replies";
 import { requireProfile } from "@/lib/auth/session";
 import { REPLY_STYLES } from "@/lib/replies/styles";
+import { BUDGET_MESSAGES } from "@/services/billing/budget";
 import { generateReplies } from "@/services/replies/generateReply";
 
 const idSchema = z.uuid();
@@ -61,6 +62,9 @@ export async function generateRepliesAction(
     });
     if (result.status === "not_found") {
       return { ok: false, message: "Opportunity not found." };
+    }
+    if (result.status === "budget_exhausted") {
+      return { ok: false, message: BUDGET_MESSAGES.replies };
     }
     if (result.status === "no_brain") {
       return { ok: false, message: "Analyze your profile first; replies need your Scout Brain." };

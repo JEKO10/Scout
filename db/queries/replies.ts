@@ -101,6 +101,32 @@ export async function getLastReplyStyles(profileId: string): Promise<ReplyStyle[
   return rows.map((row) => row.variant);
 }
 
+/**
+ * Replies the user copied to post (their final text, after edits) with the
+ * post they answered, newest first: real writing for the Scout Brain.
+ */
+export async function getPostedReplies(
+  profileId: string,
+  limit: number,
+): Promise<{ post: string; reply: string; authorHandle: string | null }[]> {
+  return db
+    .select({
+      post: opportunitiesTable.content,
+      reply: repliesTable.content,
+      authorHandle: opportunitiesTable.authorHandle,
+    })
+    .from(repliesTable)
+    .innerJoin(opportunitiesTable, eq(repliesTable.opportunityId, opportunitiesTable.id))
+    .where(
+      and(
+        eq(opportunitiesTable.profileId, profileId),
+        inArray(repliesTable.status, ["approved", "posted"]),
+      ),
+    )
+    .orderBy(desc(repliesTable.updatedAt))
+    .limit(limit);
+}
+
 /** Keeps originalContent as the AI wrote it; only content changes. */
 export async function updateReplyContent(
   profileId: string,

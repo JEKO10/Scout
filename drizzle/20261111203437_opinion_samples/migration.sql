@@ -1,0 +1,1 @@
+ALTER TYPE "voice_sample_source" ADD VALUE 'opinion';

@@ -26,7 +26,7 @@ export function ScoutRunSummary({
   aiCostUsd,
 }: {
   run: ScoutRun;
-  /** Estimated OpenAI cost of this run's scoring */
+  /** Estimated OpenAI cost of this run: scoring, and replies to its opportunities */
   aiCostUsd?: number;
   /** Daily totals, shown while testing mode is on */
   testing?: ScoutTestStatus;

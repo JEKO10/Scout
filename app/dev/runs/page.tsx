@@ -57,9 +57,11 @@ async function RunAnalyticsView() {
           <p className="eyebrow">Development · last {runs.length} runs</p>
           <h1>Run analytics</h1>
           <p className="lede">
-            What every scan read, found and cost. X cost is estimated at ${X_PRICING.postRead} per
-            post and ${X_PRICING.userRead} per account lookup; AI cost comes from recorded token
-            usage. Your X and OpenAI bills are the truth.
+            What every scan read, found and cost. X cost is the real X usage the run caused,
+            estimated at ${X_PRICING.postRead} per post and ${X_PRICING.userRead} per account
+            lookup; a run that reused the shared cache costs nothing on X. Plan reads are what
+            your plan is charged: posts delivered to you, whoever fetched them. AI cost comes from
+            recorded token usage. Your X and OpenAI bills are the truth.
           </p>
         </div>
       </section>
@@ -98,6 +100,10 @@ async function RunAnalyticsView() {
                 <th title="Timeline requests (and account lookups)">X requests</th>
                 <th title="Post resources X returned and billed">Post reads</th>
                 <th title="Of post reads: quoted posts read for context">Quoted</th>
+                <th title="Shared cache: accounts refreshed from X / reused as fresh">Cache</th>
+                <th title="Posts delivered to you from the shared cache: what your plan is charged">
+                  Plan reads
+                </th>
                 <th>Candidates</th>
                 <th>Opps</th>
                 <th>X cost</th>
@@ -136,6 +142,8 @@ function RunRow({ run }: { run: RunAnalytics }) {
       </td>
       <td>{value(run.postResources)}</td>
       <td>{value(run.quotedReads)}</td>
+      <td>{run.cache ? `${run.cache.fetched} / ${run.cache.reused}` : "–"}</td>
+      <td>{value(run.planReads)}</td>
       <td>
         {value(run.candidates)}
         {run.scored !== null && run.candidates !== null && run.scored !== run.candidates

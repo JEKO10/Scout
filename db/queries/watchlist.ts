@@ -5,7 +5,6 @@ import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import db from "@/db";
 import { type WatchlistAccount, watchlistAccountsTable } from "@/db/schema";
 import type { NormalizedProfile } from "@/lib/posts/types";
-import type { XScanCursor } from "@/lib/scout/types";
 
 // Every query filters by profileId, so one user can never read or change
 // another user's watchlist, even with a guessed account ID.
@@ -198,21 +197,4 @@ function isUniqueViolation(error: unknown): boolean {
       : undefined;
   const cause = error instanceof Error ? error.cause : undefined;
   return code(error) === "23505" || code(cause) === "23505";
-}
-
-/** Where the next X scan of this account starts; set after its posts are stored. */
-export async function setWatchlistXCursor(
-  profileId: string,
-  accountId: string,
-  cursor: XScanCursor | null,
-): Promise<void> {
-  await db
-    .update(watchlistAccountsTable)
-    .set({ xCursor: cursor })
-    .where(
-      and(
-        eq(watchlistAccountsTable.id, accountId),
-        eq(watchlistAccountsTable.profileId, profileId),
-      ),
-    );
 }

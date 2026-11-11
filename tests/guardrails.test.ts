@@ -21,8 +21,8 @@ import {
   newProfile,
   rememberXUsage,
   setOverrides,
+  sharedCursor,
   watch,
-  watchedCursor,
 } from "./helpers/db";
 import { addTweets, ai, installMocks, x } from "./helpers/mocks";
 
@@ -48,7 +48,7 @@ test("an exhausted X or scoring budget refuses the scan: no run, no X request", 
   assert.equal(runs.length, 0, "no run row");
 });
 
-test("the read budget stops mid-scan without skipping posts", async () => {
+test("the read budget caps delivery without skipping posts", async () => {
   const p = await newProfile({ monthlyXPostReads: 12 });
   const users = ["a", "b", "c"].map((name) => `g2${name}${Date.now()}`);
   const posts = users.flatMap((user) => addTweets(user, 10));
@@ -57,17 +57,24 @@ test("the read budget stops mid-scan without skipping posts", async () => {
   let r = await runScout(p.id);
   if (r.status !== "completed") throw new Error(r.status);
   assert.match(r.stats.xApi?.stoppedReason ?? "", /Monthly X read budget/);
-  assert.ok((r.stats.xApi?.postsReturned ?? 0) <= 12, `never over budget: ${r.stats.xApi?.postsReturned}`);
-  assert.equal((await watchedCursor(p.id, users[2]))?.sinceId, "1", "unread account keeps its cursor");
+  // Day 17: the shared fetch reads full pages; the user's plan is charged for
+  // what's delivered to them, never more than the budget
+  assert.equal(r.stats.planXReads, 12);
+  assert.equal((await candidateIds(p.id)).length, 12);
+  assert.equal((await getUsageBudget(await getProfile(p.id))).remaining.xPostReads, 0);
+  assert.equal((await runScout(p.id)).status, "budget_exhausted");
 
   await setOverrides(p.id, { monthlyXPostReads: 1000 });
   await ageRuns(p.id);
+  const calls = x.calls.length;
   r = await runScout(p.id);
   if (r.status !== "completed") throw new Error(r.status);
+  assert.equal(x.calls.length, calls, "the cache is fresh: no new X request");
   const ids = await candidateIds(p.id);
   for (const id of posts) assert.ok(ids.includes(id), `post ${id} processed`);
   assert.equal(ids.length, new Set(ids).size, "no duplicates");
-  assert.equal(r.stats.filtered.already_seen, 0, "nothing reread");
+  assert.equal(r.stats.planXReads, 18, "the 18 that waited, charged once");
+  assert.ok((await sharedCursor(users[2]))?.sinceId !== "1", "shared cursors moved");
 });
 
 test("partial scoring keeps the rest unscored, then scores them", async () => {
@@ -81,7 +88,7 @@ test("partial scoring keeps the rest unscored, then scores them", async () => {
   if (r.status !== "completed") throw new Error(r.status);
   assert.equal(r.stats.scoring?.scored, 5);
   assert.equal(r.stats.scoring?.unscored, 5);
-  assert.notEqual((await watchedCursor(p.id, user))?.sinceId, "1", "posts stored, cursor moved");
+  assert.notEqual((await sharedCursor(user))?.sinceId, "1", "posts stored, cursor moved");
 
   await setOverrides(p.id, { monthlyScoringUsd: 10 });
   await ageRuns(p.id);

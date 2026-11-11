@@ -42,6 +42,8 @@ export type NormalizedCandidatePost = {
   kind: PostKind;
   /** Quotes only: false when the source didn't include the quoted post's text */
   quotedPostIncluded?: boolean;
+  /** Posts this one replies to, quotes or reposts, when the source knows them */
+  referencedPostIds?: string[];
   metrics?: {
     likes?: number;
     replies?: number;

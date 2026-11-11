@@ -27,6 +27,7 @@ import { REPLY_STYLES } from "../lib/replies/styles";
 import type { LearningProfile } from "../lib/scout/learning";
 import { OPPORTUNITY_SENSITIVITIES } from "../lib/scout/sensitivity";
 import type {
+  CandidateFilterReason,
   OpportunityScoreBreakdown,
   ScoutRunStats,
   XScanCursor,
@@ -172,7 +173,8 @@ export const watchlistAccountsTable = pgTable(
     notes: text(),
     isActive: boolean().notNull().default(true),
     lastScannedAt: timestamp({ withTimezone: true }),
-    // X timeline position by post ID; null until the first X scan
+    // Deprecated (Day 17): the cursor lives on x_accounts, shared by all
+    // watchers. Kept as the starting point when an x_accounts row is created.
     xCursor: jsonb().$type<XScanCursor>(),
     ...timestamps,
   },
@@ -407,6 +409,9 @@ export const scoutCandidatesTable = pgTable(
     postedAt: timestamp({ withTimezone: true }).notNull(),
     // Which post source delivered it, e.g. "x_api" or "import"
     source: text().notNull(),
+    // Day 17: a delivered post the filters turned down (reply, too old…).
+    // Kept so it's never delivered, charged or evaluated again; never scored.
+    rejectedReason: text().$type<CandidateFilterReason>(),
 
     // Day 9 scoring, kept for every candidate (not only surfaced ones) so the
     // threshold can be tuned on real data. Null until scored.
@@ -528,3 +533,60 @@ export const aiUsageTable = pgTable(
 
 export type AiUsage = typeof aiUsageTable.$inferSelect;
 export type AiOperation = (typeof aiOperationEnum.enumValues)[number];
+
+// ---------------------------------------------------------------------------
+// Day 17: shared X fetching. An X account's posts are fetched once and cached
+// for every Scout user who watches it; what each user does with them (scoring,
+// opportunities, replies) stays per user in scout_candidates and beyond.
+// ---------------------------------------------------------------------------
+
+export const xFetchStatusEnum = pgEnum("x_fetch_status", ["ok", "failed"]);
+
+/** One row per X account anyone watches; the shared fetch state. */
+export const xAccountsTable = pgTable("x_accounts", {
+  platformUserId: text().primaryKey(),
+  handle: text().notNull(),
+  /** Where the shared timeline read stopped; moves only after posts are cached */
+  cursor: jsonb().$type<XScanCursor>(),
+  lastFetchedAt: timestamp({ withTimezone: true }),
+  lastFetchStatus: xFetchStatusEnum(),
+  lastFetchError: text(),
+  // Database lock so serverless instances don't fetch the same account twice;
+  // an expired lock can be taken over
+  fetchLockToken: uuid(),
+  fetchLockedUntil: timestamp({ withTimezone: true }),
+  ...timestamps,
+});
+
+/** Global cache of fetched X posts, one row per post. */
+export const xPostsTable = pgTable(
+  "x_posts",
+  {
+    platformPostId: text().primaryKey(),
+    authorPlatformUserId: text()
+      .notNull()
+      .references(() => xAccountsTable.platformUserId, { onDelete: "cascade" }),
+    authorHandle: text().notNull(),
+    /** The author's own text, without any quoted post */
+    content: text().notNull(),
+    url: text().notNull(),
+    kind: postKindEnum().notNull(),
+    /** Posts this one replies to, quotes or reposts */
+    referencedPostIds: text().array().notNull().default(sql`'{}'::text[]`),
+    /** Quotes: the quoted post's text when X returned it in the same response */
+    quotedContent: text(),
+    metrics: jsonb().$type<{
+      likes?: number;
+      replies?: number;
+      reposts?: number;
+      impressions?: number;
+    }>(),
+    postedAt: timestamp({ withTimezone: true }).notNull(),
+    /** When Scout first cached it */
+    fetchedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.authorPlatformUserId, t.postedAt.desc())],
+);
+
+export type XAccount = typeof xAccountsTable.$inferSelect;
+export type XPost = typeof xPostsTable.$inferSelect;

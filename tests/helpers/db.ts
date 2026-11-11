@@ -2,7 +2,7 @@
 // test file, plus a restore of the global X usage counter they touch.
 import { randomUUID } from "node:crypto";
 
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { eq, inArray, isNotNull } from "drizzle-orm";
 
 import db from "@/db";
 import { getXUsageToday } from "@/db/queries/xApiUsage";
@@ -10,6 +10,8 @@ import * as s from "@/db/schema";
 import type { UsageLimits } from "@/lib/billing/plans";
 
 const created: string[] = [];
+/** X user IDs the tests watched: their shared cache rows are deleted too */
+const xUsers = new Set<string>();
 let usageBefore: Awaited<ReturnType<typeof getXUsageToday>> | null | undefined;
 
 export async function rememberXUsage() {
@@ -45,8 +47,14 @@ export function setOverrides(profileId: string, overrides: Partial<UsageLimits>)
     .where(eq(s.profilesTable.id, profileId));
 }
 
+/** An X account a test fetched without watching it; deleted at cleanup. */
+export function trackXUser(id: string) {
+  xUsers.add(id);
+}
+
 /** Watched with a cursor already set, so each scan reads at most a page of new posts. */
 export async function watch(profileId: string, userIds: string[], { cursor = true } = {}) {
+  for (const id of userIds) xUsers.add(id);
   return db
     .insert(s.watchlistAccountsTable)
     .values(
@@ -78,22 +86,30 @@ export async function candidateIds(profileId: string) {
   return rows.map((row) => row.platformPostId);
 }
 
-export async function watchedCursor(profileId: string, userId: string) {
+/** The shared X cursor for an account; undefined before its first shared fetch. */
+export async function sharedCursor(userId: string) {
   const [row] = await db
     .select()
-    .from(s.watchlistAccountsTable)
-    .where(
-      and(
-        eq(s.watchlistAccountsTable.profileId, profileId),
-        eq(s.watchlistAccountsTable.platformUserId, userId),
-      ),
-    );
-  return row?.xCursor;
+    .from(s.xAccountsTable)
+    .where(eq(s.xAccountsTable.platformUserId, userId));
+  return row?.cursor;
+}
+
+export async function cachedPostIds(userId: string) {
+  const rows = await db
+    .select()
+    .from(s.xPostsTable)
+    .where(eq(s.xPostsTable.authorPlatformUserId, userId));
+  return rows.map((row) => row.platformPostId);
 }
 
 export async function cleanup() {
   if (created.length) {
     await db.delete(s.profilesTable).where(inArray(s.profilesTable.id, created));
+  }
+  if (xUsers.size) {
+    // Cascades to their cached posts
+    await db.delete(s.xAccountsTable).where(inArray(s.xAccountsTable.platformUserId, [...xUsers]));
   }
   const now = await getXUsageToday();
   if (now && usageBefore !== undefined) {

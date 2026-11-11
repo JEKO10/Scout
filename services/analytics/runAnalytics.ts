@@ -17,6 +17,10 @@ export type RunAnalytics = {
   postResources: number | null;
   /** Of postResources: quoted posts read for context */
   quotedReads: number | null;
+  /** Resources charged to the user's plan: delivered from the shared cache */
+  planReads: number | null;
+  /** Shared cache: accounts this run refreshed from X, and reused as fresh */
+  cache: { fetched: number; reused: number } | null;
   posts: number | null;
   candidates: number | null;
   scored: number | null;
@@ -73,6 +77,8 @@ export async function getRunAnalytics(
         userLookups: x?.userLookups ?? null,
         postResources: x?.postsReturned ?? null,
         quotedReads,
+        planReads: stats?.planXReads ?? x?.postsReturned ?? null,
+        cache: stats?.sharedFetch ?? null,
         posts: stats?.postsFetched ?? null,
         candidates: stats?.candidates ?? null,
         scored: stats?.scoring?.scored ?? null,

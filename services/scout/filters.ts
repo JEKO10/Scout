@@ -62,7 +62,12 @@ export function rejectionReason(
 export function filterCandidates<T extends NormalizedCandidatePost>(
   posts: T[],
   context: FilterContext,
-): { candidates: T[]; filtered: Record<CandidateFilterReason, number> } {
+): {
+  candidates: T[];
+  filtered: Record<CandidateFilterReason, number>;
+  /** Turned down for a reason other than already_seen, to record as delivered */
+  rejected: (T & { rejectedReason: CandidateFilterReason })[];
+} {
   const filtered: Record<CandidateFilterReason, number> = {
     already_seen: 0,
     repost: 0,
@@ -71,10 +76,12 @@ export function filterCandidates<T extends NormalizedCandidatePost>(
     reply: 0,
     quote_without_context: 0,
   };
+  const rejected: (T & { rejectedReason: CandidateFilterReason })[] = [];
   const candidates = posts.filter((post) => {
     const reason = rejectionReason(post, context);
     if (reason) filtered[reason]++;
+    if (reason && reason !== "already_seen") rejected.push({ ...post, rejectedReason: reason });
     return reason === null;
   });
-  return { candidates, filtered };
+  return { candidates, filtered, rejected };
 }

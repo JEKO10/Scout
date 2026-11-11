@@ -49,8 +49,17 @@ export type ScoutRunStats = {
   /** Accounts scanned per post source, e.g. { x_api: 3, import: 9 } */
   sources: Record<string, number>;
   failures: { handle: string; reason: string }[];
-  /** Absent on runs from before usage tracking */
+  /** Real X API usage this run caused; absent on runs from before usage tracking */
   xApi?: XRunUsage;
+  /**
+   * Day 17: X post resources delivered to this user from the shared cache
+   * (a quote with its quoted post counts 2). What the plan's monthly X budget
+   * is charged for, whoever fetched the posts. Absent on older runs, where
+   * xApi.postsReturned was charged instead.
+   */
+  planXReads?: number;
+  /** Day 17: accounts whose shared cache this run refreshed, or reused as fresh */
+  sharedFetch?: { fetched: number; reused: number };
   /** Day 9 Opportunity Engine; absent on runs from before it existed */
   scoring?: ScoringStats;
 };

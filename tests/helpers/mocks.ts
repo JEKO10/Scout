@@ -34,10 +34,15 @@ export function nextId(): string {
   return seq.toString();
 }
 
+/**
+ * Adds posts to a mocked timeline, newest last. `quoting`: they quote that
+ * post; `replyTo`: they're replies. The mock ignores `exclude`, so replies
+ * reach Scout and its own filters must catch them.
+ */
 export function addTweets(
   userId: string,
   count: number,
-  { quoting }: { quoting?: string } = {},
+  { quoting, replyTo }: { quoting?: string; replyTo?: string } = {},
 ): string[] {
   const list = x.timelines.get(userId) ?? [];
   const ids: string[] = [];
@@ -49,6 +54,7 @@ export function addTweets(
       text: `Post ${id} about AI products and startup marketing`,
       created_at: new Date(Date.now() - 3600_000).toISOString(),
       ...(quoting && { referenced_tweets: [{ type: "quoted" as const, id: quoting }] }),
+      ...(replyTo && { referenced_tweets: [{ type: "replied_to" as const, id: replyTo }] }),
     });
   }
   x.timelines.set(userId, list);

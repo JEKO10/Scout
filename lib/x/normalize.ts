@@ -73,6 +73,7 @@ export function normalizeXCandidatePost(
     postedAt: post.publishedAt,
     kind,
     ...(kind === "quote" && { quotedPostIncluded: Boolean(quotedText) }),
+    referencedPostIds: tweet.referenced_tweets?.map((ref) => ref.id) ?? [],
     metrics: post.metrics,
   };
 }

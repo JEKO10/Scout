@@ -5,6 +5,7 @@ import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import db from "@/db";
 import { type ScoutCandidate, scoutCandidatesTable } from "@/db/schema";
 import type { NormalizedCandidatePost } from "@/lib/posts/types";
+import type { CandidateFilterReason } from "@/lib/scout/types";
 
 /** Which of these posts earlier scans already turned into candidates. */
 export async function getSeenPlatformPostIds(
@@ -33,17 +34,37 @@ export type CandidateToSave = NormalizedCandidatePost & {
 /**
  * Returns how many were new. UNIQUE(profileId, platform, platformPostId) is
  * the last guard against processing a post twice, e.g. two overlapping runs.
+ * With `rejectedReason` the posts are stored as delivered but turned down by
+ * the filters: never scored, never delivered again.
  */
 export async function saveCandidates(
   runId: string,
   profileId: string,
-  candidates: CandidateToSave[],
+  candidates: (CandidateToSave & { rejectedReason?: CandidateFilterReason })[],
 ): Promise<number> {
   if (candidates.length === 0) return 0;
 
   const inserted = await db
     .insert(scoutCandidatesTable)
-    .values(candidates.map((candidate) => ({ runId, profileId, ...candidate })))
+    .values(
+      // Only the columns: normalized posts carry extra source details
+      candidates.map((candidate) => ({
+        runId,
+        profileId,
+        watchlistAccountId: candidate.watchlistAccountId,
+        source: candidate.source,
+        platform: candidate.platform,
+        platformPostId: candidate.platformPostId,
+        authorPlatformUserId: candidate.authorPlatformUserId,
+        authorHandle: candidate.authorHandle,
+        content: candidate.content,
+        url: candidate.url,
+        kind: candidate.kind,
+        metrics: candidate.metrics ?? null,
+        postedAt: candidate.postedAt,
+        rejectedReason: candidate.rejectedReason ?? null,
+      })),
+    )
     .onConflictDoNothing({
       target: [
         scoutCandidatesTable.profileId,
@@ -63,7 +84,9 @@ export async function getRecentCandidates(
   return db
     .select()
     .from(scoutCandidatesTable)
-    .where(eq(scoutCandidatesTable.profileId, profileId))
+    .where(
+      and(eq(scoutCandidatesTable.profileId, profileId), isNull(scoutCandidatesTable.rejectedReason)),
+    )
     .orderBy(desc(scoutCandidatesTable.postedAt))
     .limit(limit);
 }
@@ -99,6 +122,7 @@ export async function getUnscoredCandidates(
       and(
         eq(scoutCandidatesTable.profileId, profileId),
         isNull(scoutCandidatesTable.scoredAt),
+        isNull(scoutCandidatesTable.rejectedReason),
       ),
     )
     .orderBy(desc(scoutCandidatesTable.postedAt))
@@ -137,6 +161,7 @@ export async function countUnscoredCandidates(profileId: string): Promise<number
       and(
         eq(scoutCandidatesTable.profileId, profileId),
         isNull(scoutCandidatesTable.scoredAt),
+        isNull(scoutCandidatesTable.rejectedReason),
       ),
     );
   return row.value;

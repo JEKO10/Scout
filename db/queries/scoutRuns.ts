@@ -179,11 +179,18 @@ export async function getRecentScoutRuns(
     .limit(limit);
 }
 
-/** X post resources read by the profile's runs since a moment (from run stats). */
+/**
+ * X post resources charged to the profile's plan since a moment: what was
+ * delivered to them from the shared cache (Day 17), or for older runs what
+ * the run read from X.
+ */
 export async function sumRunXPostReads(profileId: string, since: Date): Promise<number> {
   const [row] = await db
     .select({
-      reads: sql<number>`coalesce(sum((${scoutRunsTable.stats} -> 'xApi' ->> 'postsReturned')::int), 0)::int`,
+      reads: sql<number>`coalesce(sum(coalesce(
+        (${scoutRunsTable.stats} ->> 'planXReads')::int,
+        (${scoutRunsTable.stats} -> 'xApi' ->> 'postsReturned')::int
+      )), 0)::int`,
     })
     .from(scoutRunsTable)
     .where(and(eq(scoutRunsTable.profileId, profileId), gte(scoutRunsTable.createdAt, since)));

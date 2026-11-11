@@ -13,14 +13,15 @@ import {
 import {
   getActiveWatchlist,
   markWatchlistAccountsScanned,
-  setWatchlistXCursor,
   verifyWatchlistAccount,
 } from "@/db/queries/watchlist";
 import { recordXUsage } from "@/db/queries/xApiUsage";
-import type { ScoutRun, WatchlistAccount } from "@/db/schema";
+import { getUndeliveredCachedPosts } from "@/db/queries/xCache";
+import type { ScoutRun, WatchlistAccount, XPost } from "@/db/schema";
+import { withQuotedPost } from "@/lib/posts/quotedPost";
 import type { NormalizedCandidatePost } from "@/lib/posts/types";
 import { getScoutLimits, type ScoutLimits } from "@/lib/scout/testLimits";
-import type { BudgetExhausted, ScoutRunStats, XRunUsage, XScanCursor } from "@/lib/scout/types";
+import type { BudgetExhausted, ScoutRunStats, XRunUsage } from "@/lib/scout/types";
 import {
   getUsageBudget,
   maxActiveWatchlist,
@@ -29,12 +30,10 @@ import {
 } from "@/services/billing/budget";
 import { rankCandidates } from "@/services/opportunities/rankCandidates";
 import { importedSource } from "@/services/post-sources/imported";
-import {
-  type PostSource,
-  PostSourceUnavailableError,
-} from "@/services/post-sources/types";
+import { PostSourceUnavailableError } from "@/services/post-sources/types";
 import { xApiSource } from "@/services/post-sources/xApi";
 import { isUnverified } from "@/services/watchlist/addAccount";
+import { ensureFreshPosts } from "@/services/x/sharedFetch";
 
 import { mapSettled } from "./concurrency";
 import { dedupePosts, filterCandidates, MAX_POST_AGE_DAYS } from "./filters";
@@ -52,12 +51,15 @@ export type RunScoutResult =
   | { status: "completed"; run: ScoutRun; stats: ScoutRunStats }
   | { status: "failed"; run: ScoutRun; error: string };
 
+/** What the fetch phase did for one watched account. */
 type AccountScan = {
   account: WatchlistAccount;
-  source: PostSource["id"];
-  posts: NormalizedCandidatePost[];
-  /** X only; undefined leaves the account's cursor as it is */
-  nextCursor?: XScanCursor | null;
+  /** Verified on X: its posts come from the shared cache */
+  fromCache: boolean;
+  /** Fell back to the user's imported posts (X unavailable or unverified) */
+  imported: NormalizedCandidatePost[];
+  /** This run refreshed the shared cache (true), found it fresh (false), or neither */
+  refreshed?: boolean;
 };
 
 /** Shared by one run's account scans. */
@@ -66,19 +68,18 @@ type ScanContext = {
   limits: ScoutLimits;
   /** Accounts not started by then are skipped (testing mode's scan time limit) */
   deadline: number | null;
-  /** X post resources this run may read: what's left of the monthly budget */
-  xReadBudget: number;
-  /** Reads promised to X requests still in flight */
-  xReadsReserved: number;
   usage: XRunUsage;
 };
 
-/** X returns at least this many posts per page and bills all of them */
-const X_MIN_PAGE = 5;
-
 /**
- * RUN SCOUT: active watchlist → fetch only new posts → normalize → dedupe →
- * basic filters → candidates for the Day 9 Opportunity Engine.
+ * RUN SCOUT, in two phases.
+ * 1. Fetch (shared): make sure each watched account's posts are in the shared
+ *    cache, asking X only when nobody fetched them recently (Day 17).
+ * 2. Process (this user): deliver the cached posts this user hasn't had yet →
+ *    filters → candidates → personal AI scoring → opportunities.
+ * Every delivered post gets a scout_candidates row (scored later, or rejected
+ * by a filter), so nothing is delivered, charged or evaluated twice, and
+ * nothing undelivered is ever marked as processed.
  */
 export async function runScout(profileId: string): Promise<RunScoutResult> {
   const limits = getScoutLimits();
@@ -107,9 +108,8 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
       : { status: "already_running", run: await getActiveScoutRun(profileId) };
   }
 
-  // The watermark is the scan's start, not its end: posts published while the
-  // scan runs are fetched again next time and deduplicated, never skipped
-  // (set by the database clock, so it compares cleanly with import times)
+  // The imports watermark is the scan's start, not its end: posts imported
+  // while the scan runs come next time (database clock, like import times)
   const scanStartedAt = run.startedAt ?? new Date();
   const context: ScanContext = {
     profileId,
@@ -117,8 +117,6 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
     deadline: limits.maxScanDurationSeconds
       ? Date.now() + limits.maxScanDurationSeconds * 1000
       : null,
-    xReadBudget: budget.remaining.xPostReads,
-    xReadsReserved: 0,
     usage: {
       requests: 0,
       failed: 0,
@@ -130,8 +128,7 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
   };
 
   try {
-    // Each account makes its X requests one after another, so this also caps
-    // concurrent X requests
+    // ---- 1. Fetch: shared cache, one account at a time per slot ----------
     const settled = await mapSettled(accounts, limits.maxConcurrentXRequests, (account) =>
       scanAccount(context, account),
     );
@@ -143,32 +140,36 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
       else failures.push({ handle: accounts[i].handle, reason: errorMessage(result.reason) });
     });
 
-    const fetched = scans.flatMap(({ account, source, posts }) =>
-      posts.map((post) => ({ ...post, watchlistAccountId: account.id, source })),
+    // ---- 2. Process: this user's undelivered cached posts ----------------
+    const cachedAccounts = scans.filter((scan) => scan.fromCache).map((scan) => scan.account);
+    const delivered = await deliverCachedPosts(
+      profileId,
+      cachedAccounts,
+      budget.remaining.xPostReads,
+      scanStartedAt,
     );
+    const imported = scans.flatMap(({ account, imported: posts }) =>
+      posts.map((post) => ({ ...post, watchlistAccountId: account.id, source: importedSource.id })),
+    );
+
+    const fetched = [...delivered.posts, ...imported];
     const { unique, duplicates } = dedupePosts(fetched);
     const alreadySeen = await getSeenPlatformPostIds(
       profileId,
       unique.map((post) => post.platformPostId),
     );
-    const { candidates, filtered } = filterCandidates(unique, {
+    const { candidates, filtered, rejected } = filterCandidates(unique, {
       now: scanStartedAt,
       alreadySeen,
       allowQuotesWithoutContext: limits.fetchQuotePostsWithoutContext,
     });
 
     const saved = await saveCandidates(run.id, profileId, candidates);
+    // Filtered posts are recorded too: delivered and evaluated, never again
+    await saveCandidates(run.id, profileId, rejected);
     // A concurrent writer got some first; count them as already seen
     filtered.already_seen += candidates.length - saved;
 
-    // Only after candidates are safely stored, and only for accounts that
-    // succeeded: a failed account retries the same window and the same X
-    // posts next run
-    await Promise.all(
-      scans
-        .filter((scan) => scan.nextCursor !== undefined)
-        .map((scan) => setWatchlistXCursor(profileId, scan.account.id, scan.nextCursor ?? null)),
-    );
     await markWatchlistAccountsScanned(
       profileId,
       scans.map((scan) => scan.account.id),
@@ -186,10 +187,24 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
       duplicates,
       filtered,
       candidates: saved,
-      sources: countBy(scans.map((scan) => scan.source)),
+      sources: countBy(
+        scans.flatMap((scan) => [
+          ...(scan.fromCache ? [xApiSource.id] : []),
+          ...(scan.imported.length || !scan.fromCache ? [importedSource.id] : []),
+        ]),
+      ),
       failures,
       xApi: context.usage,
+      planXReads: delivered.resources,
+      sharedFetch: {
+        fetched: scans.filter((scan) => scan.refreshed === true).length,
+        reused: scans.filter((scan) => scan.refreshed === false).length,
+      },
     };
+    if (delivered.budgetReached) {
+      context.usage.stoppedReason ??=
+        "Monthly X read budget reached; the remaining posts wait for next month.";
+    }
 
     if (scans.length === 0) {
       const error = `All ${accounts.length} accounts failed to scan.`;
@@ -235,10 +250,10 @@ export async function runScout(profileId: string): Promise<RunScoutResult> {
 }
 
 /**
- * One account: verify it if needed, then fetch its new posts from the X API,
- * falling back to imported posts when X is unavailable (no token, no credits,
- * daily budget used up). After the first such answer the rest of the run
- * doesn't call X again.
+ * Phase 1 for one account: verify it if needed, then refresh its shared cache
+ * when stale. Falls back to the user's imported posts when X is unavailable
+ * (no token, no credits, daily budget used up); after the first such answer
+ * the rest of the run doesn't call X again.
  */
 async function scanAccount(
   context: ScanContext,
@@ -272,40 +287,35 @@ async function scanAccount(
     }
   }
 
-  // The monthly read budget, shared by this run's accounts. Each account
-  // reserves its page before the request, so accounts in flight together
-  // can't all spend the same reads. Only quoted posts can still go over.
-  const readsLeft = context.xReadBudget - usage.postsReturned - context.xReadsReserved;
-  if (readsLeft < X_MIN_PAGE && !usage.stoppedReason) {
-    usage.stoppedReason = "Monthly X read budget reached; the remaining accounts wait for next month.";
-  }
-
+  // The shared fetch reads full pages whatever this user's budget: one user's
+  // budget must never shrink what other watchers get. The user's budget caps
+  // what's delivered to them (phase 2), and they were refused a scan once it
+  // was used up. Real X cost stays bounded by page size, cache freshness and
+  // the run limits.
   if (!isUnverified(current) && !usage.stoppedReason) {
-    // A smaller page leaves the rest as a cursor gap, read on a later scan
-    const limit = Math.min(
-      readsLeft,
-      current.xCursor ? limits.maxPostsPerAccountSubsequentScan : limits.maxPostsPerAccountFirstScan,
-    );
-    context.xReadsReserved += limit;
     try {
-      const result = await xApiSource.fetchPosts({
-        profileId,
-        account: current,
-        since: current.lastScannedAt,
-        limit,
+      const result = await ensureFreshPosts(current, {
+        firstLimit: limits.maxPostsPerAccountFirstScan,
+        nextLimit: limits.maxPostsPerAccountSubsequentScan,
         // Older posts are filtered as too old; not fetching them saves credits
         notBefore: new Date(Date.now() - MAX_POST_AGE_DAYS * 86_400_000),
         usage,
       });
-      return { account: current, source: xApiSource.id, ...result };
+      return {
+        account: current,
+        fromCache: true,
+        imported: [],
+        // busy: another worker still fetching; neither refreshed nor reused
+        refreshed: { fetched: true, fresh: false, waited: false, busy: undefined }[result.status],
+      };
     } catch (error) {
       if (!(error instanceof PostSourceUnavailableError)) throw error;
       stopX(error);
-    } finally {
-      context.xReadsReserved -= limit;
     }
   }
 
+  // Verified accounts still get their cached posts (fetched earlier or by
+  // another user); imports are added for every account X couldn't refresh
   const { posts } = await importedSource.fetchPosts({
     profileId,
     account: current,
@@ -313,7 +323,61 @@ async function scanAccount(
     // Ignored by imports (free, and capped by import time instead)
     limit: limits.maxPostsPerAccountFirstScan,
   });
-  return { account: current, source: importedSource.id, posts };
+  return { account: current, fromCache: !isUnverified(current), imported: posts };
+}
+
+/**
+ * Phase 2: the cached posts by these accounts this user hasn't been delivered,
+ * newest first, as far as their monthly X budget reaches. A quote with its
+ * quoted post costs 2 resources, like the X read it came from. Posts that
+ * don't fit stay undelivered and come on a later run.
+ */
+async function deliverCachedPosts(
+  profileId: string,
+  accounts: WatchlistAccount[],
+  readsLeft: number,
+  now: Date,
+): Promise<{
+  posts: (NormalizedCandidatePost & { watchlistAccountId: string; source: string })[];
+  resources: number;
+  budgetReached: boolean;
+}> {
+  const byAuthor = new Map(accounts.map((account) => [account.platformUserId, account]));
+  // One more than the budget can cover, to know whether anything is left over
+  const cached = await getUndeliveredCachedPosts(profileId, [...byAuthor.keys()], {
+    postedAfter: new Date(now.getTime() - MAX_POST_AGE_DAYS * 86_400_000),
+    limit: readsLeft + 1,
+  });
+
+  const posts = [];
+  let resources = 0;
+  for (const post of cached) {
+    const cost = post.quotedContent ? 2 : 1;
+    if (resources + cost > readsLeft) break;
+    resources += cost;
+    posts.push({
+      ...fromCache(post),
+      watchlistAccountId: byAuthor.get(post.authorPlatformUserId)!.id,
+      source: xApiSource.id,
+    });
+  }
+  return { posts, resources, budgetReached: posts.length < cached.length };
+}
+
+function fromCache(post: XPost): NormalizedCandidatePost {
+  return {
+    platform: "x",
+    platformPostId: post.platformPostId,
+    authorPlatformUserId: post.authorPlatformUserId,
+    authorHandle: post.authorHandle,
+    content: post.quotedContent ? withQuotedPost(post.content, post.quotedContent) : post.content,
+    url: post.url,
+    postedAt: post.postedAt,
+    kind: post.kind,
+    ...(post.kind === "quote" && { quotedPostIncluded: Boolean(post.quotedContent) }),
+    referencedPostIds: post.referencedPostIds,
+    metrics: post.metrics ?? undefined,
+  };
 }
 
 function countBy(values: string[]): Record<string, number> {

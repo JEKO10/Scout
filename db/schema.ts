@@ -8,6 +8,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -653,3 +654,146 @@ export const scanJobsTable = pgTable(
 );
 
 export type ScanJob = typeof scanJobsTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Day 19: Smart notifications. A notification is one strong opportunity from
+// an automatic scan (the in-app history); each channel it goes out on is a
+// delivery: a durable job with its own status, retries and claim.
+// ---------------------------------------------------------------------------
+
+/** Channels a notification can be delivered on; new ones are appended */
+export const notificationChannelEnum = pgEnum("notification_channel", ["slack"]);
+
+export const notificationDeliveryStatusEnum = pgEnum("notification_delivery_status", [
+  "pending",
+  "sending",
+  "sent",
+  "failed",
+  /** Never sent on purpose: quiet hours, daily limit, alerts off */
+  "suppressed",
+]);
+
+export const slackConnectionStatusEnum = pgEnum("slack_connection_status", [
+  "active",
+  /** Token revoked, app uninstalled or a scope missing: connect again */
+  "needs_reconnect",
+  /** Channel deleted, archived or the bot was removed: pick another */
+  "channel_unavailable",
+]);
+
+/** One Slack workspace per Scout user. The bot token is stored encrypted. */
+export const slackConnectionsTable = pgTable("slack_connections", {
+  id: uuid().primaryKey().defaultRandom(),
+  profileId: uuid()
+    .notNull()
+    .unique()
+    .references(() => profilesTable.id, { onDelete: "cascade" }),
+  teamId: text().notNull(),
+  teamName: text().notNull(),
+  botUserId: text(),
+  scopes: text().notNull(),
+  /** AES-256-GCM (lib/crypto/tokens.ts); never sent to the browser */
+  encryptedBotToken: text().notNull(),
+  /** Null until the user picks a channel and Scout verifies it can post there */
+  channelId: text(),
+  channelName: text(),
+  status: slackConnectionStatusEnum().notNull().default("active"),
+  lastError: text(),
+  ...timestamps,
+});
+
+export type SlackConnection = typeof slackConnectionsTable.$inferSelect;
+
+/** Notification preferences; a missing row means the defaults (alerts off). */
+export const notificationSettingsTable = pgTable("notification_settings", {
+  profileId: uuid()
+    .primaryKey()
+    .references(() => profilesTable.id, { onDelete: "cascade" }),
+  slackEnabled: boolean().notNull().default(false),
+  minScore: integer().notNull().default(80),
+  maxPerDay: integer().notNull().default(5),
+  /** Local hours 0–23; both null: no quiet hours. Start > end spans midnight. */
+  quietHoursStart: integer(),
+  quietHoursEnd: integer(),
+  /** IANA name; quiet hours and the daily limit use this day */
+  timezone: text().notNull().default("UTC"),
+  ...timestamps,
+});
+
+export type NotificationSettings = typeof notificationSettingsTable.$inferSelect;
+
+export const notificationsTable = pgTable(
+  "notifications",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    opportunityId: uuid()
+      .notNull()
+      .references(() => opportunitiesTable.id, { onDelete: "cascade" }),
+    readAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One notification per opportunity, however often it is queued
+    unique().on(t.opportunityId),
+    index().on(t.profileId, t.createdAt.desc()),
+  ],
+);
+
+export type Notification = typeof notificationsTable.$inferSelect;
+
+export const notificationDeliveriesTable = pgTable(
+  "notification_deliveries",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    notificationId: uuid()
+      .notNull()
+      .references(() => notificationsTable.id, { onDelete: "cascade" }),
+    // Denormalized for per-user queries and the daily limit
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    channel: notificationChannelEnum().notNull(),
+    status: notificationDeliveryStatusEnum().notNull().default("pending"),
+    /** Why it was suppressed or failed for good, e.g. "quiet_hours", "token_revoked" */
+    reason: text(),
+    /** The user's local day it counts toward the daily limit */
+    day: date({ mode: "string" }).notNull(),
+    attempts: integer().notNull().default(0),
+    runAfter: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    lockedBy: text(),
+    lockedUntil: timestamp({ withTimezone: true }),
+    /** Slack message ts */
+    providerMessageId: text(),
+    error: text(),
+    sentAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    // At most one delivery per notification and channel: no duplicate alerts
+    unique().on(t.notificationId, t.channel),
+    index().on(t.status, t.runAfter),
+    index().on(t.profileId, t.createdAt.desc()),
+  ],
+);
+
+export type NotificationDelivery = typeof notificationDeliveriesTable.$inferSelect;
+
+/**
+ * Alerts reserved per user, channel and local day. One conditional upsert
+ * reserves a slot, so concurrent workers can't exceed the daily limit.
+ */
+export const notificationDailyCountsTable = pgTable(
+  "notification_daily_counts",
+  {
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    channel: notificationChannelEnum().notNull(),
+    day: date({ mode: "string" }).notNull(),
+    count: integer().notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.profileId, t.channel, t.day] })],
+);

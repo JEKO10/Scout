@@ -2,7 +2,7 @@
 // test file, plus a restore of the global X usage counter they touch.
 import { randomUUID } from "node:crypto";
 
-import { eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notLike, sql } from "drizzle-orm";
 
 import db from "@/db";
 import { getXUsageToday } from "@/db/queries/xApiUsage";
@@ -15,7 +15,38 @@ const xUsers = new Set<string>();
 let usageBefore: Awaited<ReturnType<typeof getXUsageToday>> | null | undefined;
 
 export async function rememberXUsage() {
+  await assertNoRealScheduledWork();
   usageBefore = (await getXUsageToday()) ?? null;
+}
+
+/**
+ * The scheduler and the delivery worker take work of any profile. On a shared
+ * database a test tick could scan a real user with mocked X and OpenAI, or
+ * mark a real Slack alert as sent through the Slack mock. Refuse to run then;
+ * a separate Neon branch (TEST_DATABASE_URL) has no real users.
+ */
+async function assertNoRealScheduledWork() {
+  if (process.env.SCOUT_TESTS_ISOLATED_DB === "true") return;
+  const [autoScan] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(s.profilesTable)
+    .where(and(eq(s.profilesTable.autoScanEnabled, true), notLike(s.profilesTable.userId, "test-%")));
+  const [deliveries] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(s.notificationDeliveriesTable)
+    .innerJoin(s.profilesTable, eq(s.profilesTable.id, s.notificationDeliveriesTable.profileId))
+    .where(
+      and(
+        inArray(s.notificationDeliveriesTable.status, ["pending", "sending"]),
+        notLike(s.profilesTable.userId, "test-%"),
+      ),
+    );
+  if (autoScan.n > 0 || deliveries.n > 0) {
+    throw new Error(
+      `Refusing to run: this database has real scheduled work (${autoScan.n} profiles with Automatic Scout on, ` +
+        `${deliveries.n} queued Slack alerts). Set TEST_DATABASE_URL to a Neon test branch.`,
+    );
+  }
 }
 
 /** A profile with a Scout Brain, so scoring runs (against the mocked OpenAI). */

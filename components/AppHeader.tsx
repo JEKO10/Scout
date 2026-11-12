@@ -1,21 +1,13 @@
-"use client";
-
 import { UserButton } from "@neondatabase/auth-ui";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Suspense } from "react";
 
-const navigation = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/opportunities", label: "Opportunities" },
-  { href: "/watchlist", label: "Watchlist" },
-  { href: "/eval", label: "Brain eval" },
-  { href: "/memory", label: "Memory" },
-  { href: "/account/settings", label: "Settings" },
-];
+import { AppNav, NavLinks } from "./AppNav";
+import { NotificationBell } from "./notifications/NotificationBell";
 
+// Server Component: the bell reads the user's notifications on the server,
+// streamed in its own Suspense boundary so the header never waits for it.
 export function AppHeader() {
-  const pathname = usePathname();
-
   return (
     <header className="app-header">
       <div className="app-header-inner">
@@ -26,31 +18,24 @@ export function AppHeader() {
           <span>Scout</span>
         </Link>
 
-        <nav className="app-nav" aria-label="Primary navigation">
-          {navigation.map((item) => {
-            const active = pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="app-nav-link"
-                data-active={active || undefined}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <Suspense fallback={<NavLinks />}>
+          <AppNav />
+        </Suspense>
 
-        <UserButton
-          // Explicit: the default changed upstream; this keeps avatar + name + email
-          size="default"
-          align="end"
-          additionalLinks={[
-            { href: "/dashboard", label: "Dashboard" },
-            { href: "/account/settings", label: "Scout settings" },
-          ]}
-        />
+        <div className="app-header-actions">
+          <Suspense fallback={<span className="notification-bell-placeholder" aria-hidden="true" />}>
+            <NotificationBell />
+          </Suspense>
+          <UserButton
+            // Explicit: the default changed upstream; this keeps avatar + name + email
+            size="default"
+            align="end"
+            additionalLinks={[
+              { href: "/dashboard", label: "Dashboard" },
+              { href: "/account/settings", label: "Scout settings" },
+            ]}
+          />
+        </div>
       </div>
     </header>
   );

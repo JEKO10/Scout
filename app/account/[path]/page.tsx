@@ -7,11 +7,13 @@ import { updateProfile } from "@/actions/profile";
 import { AccountDataOverview } from "@/components/AccountDataOverview";
 import { AppHeader } from "@/components/AppHeader";
 import { AutoScoutSettings } from "@/components/AutoScoutSettings";
+import { NotificationSettings } from "@/components/NotificationSettings";
 import { OpportunitySensitivityForm } from "@/components/OpportunitySensitivityForm";
 import { ProfileForm } from "@/components/ProfileForm";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { requireProfile } from "@/lib/auth/session";
 import { formatRelative } from "@/lib/format";
+import { getNotificationOverview } from "@/services/notifications/overview";
 import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
 
 export function generateStaticParams() {
@@ -54,9 +56,10 @@ async function AccountContent({ params }: { params: Params }) {
 
 async function ScoutSettings() {
   const { profile } = await requireProfile();
-  const [data, autoScout] = await Promise.all([
+  const [data, autoScout, notifications] = await Promise.all([
     getWorkspaceData(profile.id),
     getAutoScoutStatus(profile),
+    getNotificationOverview(profile.id),
   ]);
 
   return (
@@ -72,6 +75,16 @@ async function ScoutSettings() {
             status: autoScout.lastJob.status,
             skipReason: autoScout.lastJob.skipReason,
             error: autoScout.lastJob.error,
+          },
+        }}
+      />
+      <NotificationSettings
+        data={{
+          ...notifications,
+          lastDelivery: notifications.lastDelivery && {
+            status: notifications.lastDelivery.status,
+            reason: notifications.lastDelivery.reason,
+            timeLabel: formatRelative(notifications.lastDelivery.at),
           },
         }}
       />

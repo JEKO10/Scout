@@ -1,4 +1,4 @@
-// Mocked X API and OpenAI, installed on global fetch. Everything else
+// Mocked X API, OpenAI and Slack, installed on global fetch. Everything else
 // (the Neon database) goes to the real fetch.
 
 type Tweet = {
@@ -99,6 +99,58 @@ function aiResponse(payload: unknown) {
   );
 }
 
+type SlackReply = { status?: number; body?: Record<string, unknown>; retryAfter?: number };
+
+export const slack = {
+  /** Every Slack call: method, parsed body and the bearer token used */
+  calls: [] as { method: string; body: Record<string, unknown>; token: string | null }[],
+  /** Per method: queued replies for the next calls, e.g. a 429 or { ok: false } */
+  replies: new Map<string, SlackReply[]>(),
+  channels: [
+    { id: "C0ALERTS01", name: "scout-alerts" },
+    { id: "C0GENERAL1", name: "general" },
+  ],
+  messages: (channel?: string) =>
+    slack.calls.filter(
+      (call) => call.method === "chat.postMessage" && (!channel || call.body.channel === channel),
+    ),
+};
+
+let slackTs = 1;
+
+/**
+ * OAuth codes look like "team:T123": the workspace the user installs into.
+ * Each workspace gets its own bot token, "xoxb-T123".
+ */
+function slackDefault(method: string, body: Record<string, unknown>): Record<string, unknown> {
+  switch (method) {
+    case "oauth.v2.access": {
+      const team = String(body.code ?? "").match(/^team:(\w+)$/)?.[1];
+      if (!team) return { ok: false, error: "invalid_code" };
+      return {
+        ok: true,
+        access_token: `xoxb-${team}`,
+        token_type: "bot",
+        scope: "chat:write,channels:read,channels:join",
+        bot_user_id: `U${team}`,
+        team: { id: team, name: `Workspace ${team}` },
+      };
+    }
+    case "conversations.list":
+      return { ok: true, channels: slack.channels.map((c) => ({ ...c, is_member: false })) };
+    case "conversations.join": {
+      const channel = slack.channels.find((c) => c.id === body.channel);
+      return channel ? { ok: true, channel } : { ok: false, error: "channel_not_found" };
+    }
+    case "chat.postMessage":
+      return { ok: true, channel: body.channel, ts: `1700000000.${String(slackTs++).padStart(6, "0")}` };
+    case "auth.revoke":
+      return { ok: true, revoked: true };
+    default:
+      return { ok: false, error: "unknown_method" };
+  }
+}
+
 const realFetch = globalThis.fetch;
 
 export function installMocks() {
@@ -130,6 +182,25 @@ export function installMocks() {
       }
       if (format === "reply_drafts") return aiResponse({ first: "First draft", second: "Second draft" });
       return new Response("{}", { status: 400 });
+    }
+
+    if (url.hostname === "slack.com") {
+      const method = url.pathname.replace("/api/", "");
+      const raw = String(init?.body ?? "");
+      const headers = new Headers(init?.headers);
+      const body: Record<string, unknown> = headers.get("content-type")?.includes("json")
+        ? JSON.parse(raw || "{}")
+        : Object.fromEntries(new URLSearchParams(raw));
+      const token = headers.get("authorization")?.replace("Bearer ", "") ?? null;
+      slack.calls.push({ method, body, token });
+      const reply = slack.replies.get(method)?.shift();
+      if (reply?.status && reply.status !== 200) {
+        return new Response("", {
+          status: reply.status,
+          headers: reply.retryAfter ? { "retry-after": String(reply.retryAfter) } : {},
+        });
+      }
+      return Response.json(reply?.body ?? slackDefault(method, body));
     }
 
     if (url.hostname !== "api.x.com") return realFetch(input, init);

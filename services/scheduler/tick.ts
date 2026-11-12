@@ -17,6 +17,8 @@ import type { Profile, ScanJob } from "@/db/schema";
 import { PLANS } from "@/lib/billing/plans";
 import { getScoutLimits } from "@/lib/scout/testLimits";
 import { currentPeriodStart } from "@/services/billing/budget";
+import { deliverPendingNotifications, type DeliveryTickResult } from "@/services/notifications/deliver";
+import { queueRunNotifications } from "@/services/notifications/queue";
 import { runScout } from "@/services/scout/runScout";
 
 import { runCleanup } from "./cleanup";
@@ -50,6 +52,9 @@ export type JobOutcome = {
   profileId: string;
   status: "completed" | "skipped" | "failed" | "retry";
   reason?: string;
+  /** Completed scans: notifications created, or why queueing them failed */
+  notified?: number;
+  notifyError?: string;
 };
 
 export type TickResult = {
@@ -58,6 +63,8 @@ export type TickResult = {
   enqueued: number;
   outcomes: JobOutcome[];
   stoppedBy: "no_jobs" | "max_jobs" | "time_budget";
+  /** Day 19: Slack alerts sent (or retried) after the scans */
+  deliveries?: DeliveryTickResult;
   cleanup?: Awaited<ReturnType<typeof runCleanup>>;
 };
 
@@ -96,6 +103,13 @@ export async function runSchedulerTick({
   }
 
   const result: TickResult = { workerId, reaped, enqueued, outcomes, stoppedBy };
+  // Its own small budget, so alerts from these scans go out in this same tick
+  try {
+    result.deliveries = await deliverPendingNotifications({ workerId });
+  } catch (caught) {
+    // Queued deliveries stay in Postgres; the next tick tries again
+    console.error("Notification delivery failed", caught);
+  }
   if (cleanup && Date.now() - started < timeBudgetMs) result.cleanup = await runCleanup();
   return result;
 }
@@ -166,7 +180,13 @@ async function processJob(job: ScanJob, workerId: string): Promise<JobOutcome> {
           busyAccounts: result.stats.sharedFetch?.busy ?? 0,
         });
         await scheduleNextScan(profile.id, { inMinutes: interval, scanned: true });
-        return outcome("completed");
+        // A notification problem must never fail the scan that already succeeded
+        try {
+          const queued = await queueRunNotifications(profile.id, result.run.id);
+          return { ...outcome("completed"), notified: queued.notified };
+        } catch (caught) {
+          return { ...outcome("completed"), notifyError: caught instanceof Error ? caught.message : String(caught) };
+        }
       case "budget_exhausted":
         return skip(`budget_${result.reason}`, { at: nextUtcMonth() });
       case "limited":

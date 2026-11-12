@@ -2,34 +2,35 @@
 
 import { useState, useTransition } from "react";
 
-import {
-  editReplyAction,
-  generateRepliesAction,
-  markReplyCopiedAction,
-} from "@/actions/replies";
+import { editReplyAction, generateRepliesAction } from "@/actions/replies";
+import { recordReplyIntentAction } from "@/actions/replyIntents";
 import type { Reply } from "@/db/schema";
 import { REPLY_STYLE_INFO, REPLY_STYLES, type ReplyStyle } from "@/lib/replies/styles";
+import { checkReplyText, normalizeReplyText, replyIntentUrl, X_REPLY_LIMIT } from "@/lib/replies/xIntent";
 
 export type DraftReply = Pick<Reply, "id" | "variant" | "content" | "originalContent" | "status">;
 
-const X_LIMIT = 280;
-
 /**
  * Generate Reply and the two drafts it produces, in two styles the user picks
- * first (one AI call either way). Copy puts the text on the clipboard (the
- * user posts on X themselves) and marks the opportunity replied.
+ * first (one AI call either way). The user picks a draft, edits it, and
+ * replies on X in X's own composer (Day 21): Scout never posts.
  */
 export function ReplyDrafts({
   opportunityId,
+  postId,
+  postUrl,
   initial,
   defaultStyles,
-  onCopied,
+  onReplyOpened,
 }: {
   opportunityId: string;
+  /** The original X post's ID, for the reply composer */
+  postId: string;
+  postUrl: string | null;
   initial: DraftReply[];
   /** The user's last pick, so they rarely need to choose again */
   defaultStyles: ReplyStyle[];
-  onCopied: () => void;
+  onReplyOpened: () => void;
 }) {
   const [drafts, setDrafts] = useState<DraftReply[]>(initial);
   const [styles, setStyles] = useState<ReplyStyle[]>(
@@ -87,14 +88,15 @@ export function ReplyDrafts({
 
   return (
     <div className="reply-drafts" aria-busy={generating}>
-      {drafts.map((draft) => (
-        <DraftVariant
-          key={draft.id}
-          label={REPLY_STYLE_INFO[draft.variant].label}
-          reply={draft}
-          onCopied={onCopied}
-        />
-      ))}
+      {/* Regenerating replaces the drafts: a fresh composer for the new ones */}
+      <ReplyComposer
+        key={drafts.map((draft) => draft.id).join()}
+        opportunityId={opportunityId}
+        postId={postId}
+        postUrl={postUrl}
+        drafts={drafts}
+        onReplyOpened={onReplyOpened}
+      />
       <form
         className="reply-regenerate"
         onSubmit={(event) => {
@@ -175,121 +177,170 @@ function StylePicker({
   );
 }
 
-function DraftVariant({
-  label,
-  reply,
-  onCopied,
+/**
+ * Pick a draft, edit it, reply on X. Edits are kept per draft while switching.
+ * "Reply on X" is a real link: the browser opens X's composer on the click
+ * itself (no popup blocker), and Scout records the attempt alongside it.
+ */
+function ReplyComposer({
+  opportunityId,
+  postId,
+  postUrl,
+  drafts,
+  onReplyOpened,
 }: {
-  label: string;
-  reply: DraftReply;
-  onCopied: () => void;
+  opportunityId: string;
+  postId: string;
+  postUrl: string | null;
+  drafts: DraftReply[];
+  onReplyOpened: () => void;
 }) {
-  const [content, setContent] = useState(reply.content);
-  const [draft, setDraft] = useState(reply.content);
-  const [editing, setEditing] = useState(false);
-  const [copied, setCopied] = useState(reply.status === "approved");
+  const [selected, setSelected] = useState(drafts[0]?.id ?? "");
+  const [texts, setTexts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(drafts.map((draft) => [draft.id, draft.content])),
+  );
+  const [saved, setSaved] = useState<Record<string, string>>(() =>
+    Object.fromEntries(drafts.map((draft) => [draft.id, draft.content])),
+  );
+  const [tracking, setTracking] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const edited = content !== reply.originalContent;
 
-  function save() {
-    setMessage(null);
+  const draft = drafts.find((item) => item.id === selected) ?? drafts[0];
+  const text = texts[draft.id] ?? "";
+  const check = checkReplyText(text);
+  const intentUrl = replyIntentUrl(postId, text);
+  const edited = normalizeReplyText(text) !== draft.originalContent.trim();
+
+  // Keep edits on the draft (as Edit → Save did), quietly, when leaving the box
+  function persist() {
+    const value = normalizeReplyText(text);
+    if (!value || value === saved[draft.id]) return;
     startTransition(async () => {
-      const result = await editReplyAction(reply.id, draft);
-      if (!result.ok) {
-        setMessage(result.message ?? "Couldn't save.");
-        return;
-      }
-      setContent(draft.trim());
-      setEditing(false);
+      const result = await editReplyAction(draft.id, value);
+      if (result.ok) setSaved((previous) => ({ ...previous, [draft.id]: value }));
     });
   }
 
-  async function copy() {
+  function track(source: "x_web_intent" | "clipboard") {
+    setTracking("saving");
     setMessage(null);
+    startTransition(async () => {
+      const result = await recordReplyIntentAction({ opportunityId, replyId: draft.id, text, source });
+      if (result.ok) {
+        setTracking("saved");
+        onReplyOpened();
+      } else {
+        setTracking("failed");
+        setMessage(result.message ?? "Couldn't save this to your Activity.");
+      }
+    });
+  }
+
+  async function copyAndOpen() {
+    if (!check.ok) return;
+    // Opened in the click itself, before anything async, so it isn't blocked
+    if (postUrl) window.open(postUrl, "_blank", "noopener,noreferrer");
     try {
-      await navigator.clipboard.writeText(content);
+      await navigator.clipboard.writeText(normalizeReplyText(text));
     } catch {
       setMessage("Couldn't copy. Select the text and copy it manually.");
       return;
     }
-    setCopied(true);
-    onCopied();
-    startTransition(async () => {
-      await markReplyCopiedAction(reply.id);
-    });
+    track("clipboard");
   }
 
-  const length = (editing ? draft : content).length;
-
   return (
-    <section className="reply-variant">
-      <header>
-        <h3>{label}</h3>
-        <span className="reply-meta">
-          {edited && <span>Edited ·</span>}
-          <span data-over={length > X_LIMIT || undefined}>
-            {length}/{X_LIMIT}
-          </span>
-        </span>
-      </header>
+    <section className="reply-composer" aria-busy={pending}>
+      <fieldset className="reply-choices">
+        <legend className="sr-only">Pick a draft</legend>
+        {drafts.map((item) => (
+          <label key={item.id} className="reply-choice" data-selected={item.id === draft.id || undefined}>
+            <input
+              type="radio"
+              name={`draft-${opportunityId}`}
+              checked={item.id === draft.id}
+              onChange={() => setSelected(item.id)}
+            />
+            <span>
+              <strong>{REPLY_STYLE_INFO[item.variant].label}</strong>
+              {texts[item.id] !== item.originalContent && <small> · edited</small>}
+              <span className="reply-choice-text">{texts[item.id]}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
 
-      {editing ? (
+      <label className="reply-variant">
+        <header>
+          <h3>Your reply</h3>
+          <span className="reply-meta">
+            {edited && <span>Edited ·</span>}
+            <span data-over={check.length > X_REPLY_LIMIT || undefined} aria-live="polite">
+              {check.length}/{X_REPLY_LIMIT}
+            </span>
+          </span>
+        </header>
         <textarea
           className="field-control reply-editor"
-          value={draft}
-          rows={4}
-          autoFocus
-          aria-label={`Edit ${label} reply`}
-          onChange={(event) => setDraft(event.target.value)}
+          value={text}
+          rows={5}
+          aria-label="Your reply"
+          onChange={(event) => {
+            setTexts((previous) => ({ ...previous, [draft.id]: event.target.value }));
+            if (tracking === "saved") setTracking("idle");
+          }}
+          onBlur={persist}
         />
-      ) : (
-        <p className="reply-text">{content}</p>
-      )}
+      </label>
 
       <div className="reply-actions">
-        {editing ? (
-          <>
-            <button
-              type="button"
-              className="primary-button"
-              disabled={pending || !draft.trim()}
-              onClick={save}
-            >
-              {pending ? "Saving…" : "Save"}
+        <a
+          className="primary-button"
+          href={intentUrl ?? undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-disabled={!intentUrl || undefined}
+          onClick={(event) => {
+            if (!intentUrl) {
+              event.preventDefault();
+              return;
+            }
+            track("x_web_intent");
+          }}
+        >
+          Reply on X
+        </a>
+        <button type="button" className="secondary-button" disabled={!check.ok} onClick={copyAndOpen}>
+          Copy &amp; open post
+        </button>
+      </div>
+
+      <div aria-live="polite">
+        {!check.ok && text.trim() !== "" && (
+          <p className="form-message" data-status="error">
+            {check.error}
+          </p>
+        )}
+        {tracking === "saved" && (
+          <p className="form-message">
+            Opened on X. Post it there; Scout keeps it in your <a href="/activity">Activity</a> as unconfirmed.
+          </p>
+        )}
+        {tracking === "failed" && (
+          <p className="form-message" data-status="error">
+            {message} X still opened.{" "}
+            <button type="button" className="text-link" onClick={() => track("x_web_intent")}>
+              Save to Activity again
             </button>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={pending}
-              onClick={() => {
-                setDraft(content);
-                setEditing(false);
-              }}
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="primary-button" onClick={copy}>
-              {copied ? "Copied ✓" : "Copy"}
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setEditing(true)}
-            >
-              Edit
-            </button>
-          </>
+          </p>
+        )}
+        {tracking !== "failed" && message && (
+          <p className="form-message" data-status="error">
+            {message}
+          </p>
         )}
       </div>
-      {message && (
-        <p className="form-message" data-status="error" role="status">
-          {message}
-        </p>
-      )}
     </section>
   );
 }

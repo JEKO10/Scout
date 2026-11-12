@@ -30,6 +30,7 @@ export function OpportunityCard({
     | "authorHandle"
     | "content"
     | "postUrl"
+    | "platformPostId"
     | "postedAt"
     | "score"
     | "reason"
@@ -82,6 +83,11 @@ export function OpportunityCard({
         </p>
         {status === "saved" && <span className="opportunity-saved">Saved</span>}
         {status === "replied" && <span className="opportunity-saved">Replied</span>}
+        {status === "reply_opened" && (
+          <a href="/activity" className="opportunity-saved" title="Scout opened X's composer; it can't see whether you posted">
+            Opened on X · unconfirmed
+          </a>
+        )}
       </header>
 
       {opportunity.scoreBreakdown?.learningNotes?.length ? (
@@ -123,13 +129,15 @@ export function OpportunityCard({
 
       <ReplyDrafts
         opportunityId={opportunity.id}
+        postId={opportunity.platformPostId}
+        postUrl={opportunity.postUrl}
         initial={replies}
         defaultStyles={defaultStyles}
-        onCopied={() => setStatus("replied")}
+        onReplyOpened={() => setStatus((current) => (current === "replied" ? current : "reply_opened"))}
       />
 
       <footer>
-        {status !== "replied" && (
+        {status !== "replied" && status !== "reply_opened" && (
           <>
             <button
               type="button"

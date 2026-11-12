@@ -6,7 +6,6 @@ import { z } from "zod";
 
 import { addReplyRule, MAX_REPLY_RULES, removeReplyRule } from "@/db/queries/profiles";
 import {
-  markReplyCopied,
   type ReplySet,
   updateReplyContent,
 } from "@/db/queries/replies";
@@ -101,13 +100,8 @@ export async function editReplyAction(
   return reply ? { ok: true } : { ok: false, message: "Reply not found." };
 }
 
-/** Called after the browser copied the text; records the user's pick. */
-export async function markReplyCopiedAction(replyId: string): Promise<{ ok: boolean }> {
-  const { profile } = await requireProfile();
-  const id = idSchema.safeParse(replyId);
-  if (!id.success) return { ok: false };
-  return { ok: await markReplyCopied(profile.id, id.data) };
-}
+// Day 21: copying and opening X are recorded by recordReplyIntentAction
+// (actions/replyIntents.ts), which never marks a reply as posted.
 
 const ruleSchema = z
   .string()

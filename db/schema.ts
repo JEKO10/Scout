@@ -62,7 +62,10 @@ export const opportunityStatusEnum = pgEnum("opportunity_status", [
   "new",
   "saved",
   "dismissed",
+  // Self-reported: the user said (or, before Day 21, copied) they replied
   "replied",
+  // Day 21: X's reply composer was opened from Scout; publication unconfirmed
+  "reply_opened",
 ]);
 
 // Reply styles (lib/replies/styles.ts); new ones are appended, never reordered
@@ -672,6 +675,60 @@ export const scanJobsTable = pgTable(
 );
 
 export type ScanJob = typeof scanJobsTable.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Day 21: Reply on X. The user posts in X's own composer (Web Intent); Scout
+// records that it opened it, with the final text. Never proof of publication.
+// ---------------------------------------------------------------------------
+
+export const replyIntentSourceEnum = pgEnum("reply_intent_source", ["x_web_intent", "clipboard"]);
+
+export const replyIntentStatusEnum = pgEnum("reply_intent_status", [
+  /** Composer opened (or text copied); unconfirmed */
+  "opened",
+  /** The user said they posted it: self-reported, not verified */
+  "confirmed",
+  /** The user put the opportunity back in their feed */
+  "returned",
+]);
+
+export const replyIntentsTable = pgTable(
+  "reply_intents",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    opportunityId: uuid()
+      .notNull()
+      .references(() => opportunitiesTable.id, { onDelete: "cascade" }),
+    /** The draft it started from; null if written from scratch */
+    replyId: uuid().references(() => repliesTable.id, { onDelete: "set null" }),
+    /** The original X post replied to */
+    platformPostId: text().notNull(),
+    /** The final text handed to X, after the user's edits */
+    text: text().notNull(),
+    /** True when the text differs from the AI draft it started from */
+    edited: boolean().notNull().default(false),
+    source: replyIntentSourceEnum().notNull(),
+    status: replyIntentStatusEnum().notNull().default("opened"),
+    /** The opportunity's status before, restored by "Return to opportunities" */
+    previousStatus: opportunityStatusEnum().notNull(),
+    /** Repeated clicks update this row instead of adding history */
+    openCount: integer().notNull().default(1),
+    openedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp({ withTimezone: true }),
+    returnedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    // One history entry per opportunity, however often the composer is opened
+    unique().on(t.opportunityId),
+    index().on(t.profileId, t.openedAt.desc()),
+  ],
+);
+
+export type ReplyIntent = typeof replyIntentsTable.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Day 19: Smart notifications. A notification is one strong opportunity from

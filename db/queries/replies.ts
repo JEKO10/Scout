@@ -145,35 +145,3 @@ export async function updateReplyContent(
     .returning();
   return reply;
 }
-
-/**
- * Copying means the user picked this reply to post on X: the reply becomes
- * "approved" and its opportunity "replied". Returns false if not theirs.
- */
-export async function markReplyCopied(
-  profileId: string,
-  replyId: string,
-): Promise<boolean> {
-  const [reply] = await db
-    .update(repliesTable)
-    .set({ status: "approved" })
-    .where(
-      and(
-        eq(repliesTable.id, replyId),
-        inArray(repliesTable.opportunityId, ownedOpportunityIds(profileId)),
-      ),
-    )
-    .returning({ opportunityId: repliesTable.opportunityId });
-  if (!reply) return false;
-
-  await db
-    .update(opportunitiesTable)
-    .set({ status: "replied" })
-    .where(
-      and(
-        eq(opportunitiesTable.id, reply.opportunityId),
-        eq(opportunitiesTable.profileId, profileId),
-      ),
-    );
-  return true;
-}

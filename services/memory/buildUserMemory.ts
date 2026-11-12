@@ -108,7 +108,7 @@ function topicSignals(rows: EngagementRow[]) {
   for (const row of rows) {
     if (!row.topic) continue;
     const entry = signals.get(row.topic) ?? { topic: row.topic, engaged: 0, dismissed: 0 };
-    if (row.status === "replied" || row.status === "saved") entry.engaged++;
+    if (row.status === "replied" || row.status === "reply_opened" || row.status === "saved") entry.engaged++;
     if (row.status === "dismissed") entry.dismissed++;
     signals.set(row.topic, entry);
   }
@@ -229,7 +229,7 @@ export function summarizeMemory(
     rejectedStyles,
     variants,
     topics: {
-      engaged: countTopics(engagement, ["replied", "saved"]),
+      engaged: countTopics(engagement, ["replied", "reply_opened", "saved"]),
       dismissed: countTopics(engagement, ["dismissed"]),
     },
     arguments: accepted.slice(0, MAX_ARGUMENTS).map((row) => ({

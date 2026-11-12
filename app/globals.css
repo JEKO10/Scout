@@ -3945,3 +3945,112 @@ textarea {
   color: var(--green);
   font-size: 12px;
 }
+
+/* Day 21: reply composer and Activity */
+.reply-composer {
+  display: grid;
+  gap: 12px;
+}
+
+.reply-choices {
+  display: grid;
+  gap: 8px;
+  border: 0;
+}
+
+.reply-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.reply-choice[data-selected] {
+  border-color: var(--ink);
+}
+
+.reply-choice-text {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--muted-ink);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.reply-composer .reply-variant {
+  display: block;
+}
+
+.reply-composer a[aria-disabled] {
+  cursor: not-allowed;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.activity-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.activity-item {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.activity-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.activity-status {
+  color: #9a6700;
+  font-weight: 600;
+}
+
+.activity-status[data-confirmed] {
+  color: var(--green);
+}
+
+.activity-meta {
+  color: var(--muted-ink);
+}
+
+.activity-post {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.activity-reply {
+  padding: 10px 12px;
+  border-left: 3px solid var(--ink);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.activity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.activity-actions .secondary-button {
+  min-height: 34px;
+  font-size: 12px;
+}

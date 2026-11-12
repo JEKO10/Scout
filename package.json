@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:seed": "tsx db/seed.ts",
+    "eval:scoring": "tsx --conditions react-server scripts/eval-scoring.ts",
     "test": "tsx --conditions react-server --require ./tests/setup/next-cache-stub.cjs --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {

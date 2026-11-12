@@ -23,6 +23,13 @@ export const x = {
 export const ai = {
   /** Format name of every OpenAI call */
   calls: [] as string[],
+  /** Request body of every OpenAI call */
+  requests: [] as Record<string, unknown>[],
+  /**
+   * Queued outcomes for the next scoring calls: "error" (HTTP 400, not retried),
+   * "malformed" (output that isn't the schema), "drop" (one judgment missing).
+   */
+  failures: [] as ("error" | "malformed" | "drop")[],
   /** Score every candidate this high (all factors maxed = 100 minus freshness) */
   shouldEngage: true,
 };
@@ -67,21 +74,27 @@ export function addQuotedPost(text: string): string {
   return id;
 }
 
-function aiResponse(payload: unknown) {
+function aiResponse(payload: unknown, model = "gpt-5.5-2026-04-23") {
   return new Response(
     JSON.stringify({
       id: "resp_test",
       object: "response",
       created_at: 0,
       status: "completed",
-      model: "gpt-5.5-2026-04-23",
+      model,
       output: [
         {
           type: "message",
           id: "msg_test",
           status: "completed",
           role: "assistant",
-          content: [{ type: "output_text", text: JSON.stringify(payload), annotations: [] }],
+          content: [
+            {
+              type: "output_text",
+              text: typeof payload === "string" ? payload : JSON.stringify(payload),
+              annotations: [],
+            },
+          ],
         },
       ],
       // 1000 in + 100 out = $0.008 per call at gpt-5.5 list prices
@@ -163,8 +176,16 @@ export function installMocks() {
       const body = JSON.parse(String(init?.body ?? "{}"));
       const format = body.text?.format?.name;
       ai.calls.push(format);
+      ai.requests.push(body);
       if (format === "candidate_judgments") {
-        const ids = [...String(body.input).matchAll(/"candidateId": "([^"]+)"/g)].map((m) => m[1]);
+        // The model echoes what was asked for, so pricing follows the request
+        const model = String(body.model).startsWith("gpt-5.5") ? "gpt-5.5-2026-04-23" : String(body.model);
+        const failure = ai.failures.shift();
+        if (failure === "error") return new Response(JSON.stringify({ error: { message: "boom" } }), { status: 400 });
+        if (failure === "malformed") return aiResponse("not json at all", model);
+        // Pretty (prompt v1) and compact (v2) JSON both carry the ids
+        let ids = [...String(body.input).matchAll(/"candidateId":\s*"([^"]+)"/g)].map((m) => m[1]);
+        if (failure === "drop") ids = ids.slice(1);
         return aiResponse({
           judgments: ids.map((candidateId) => ({
             candidateId,
@@ -178,7 +199,7 @@ export function installMocks() {
             topic: "AI products",
             suggestedAngle: "Your angle.",
           })),
-        });
+        }, model);
       }
       if (format === "reply_drafts") return aiResponse({ first: "First draft", second: "Second draft" });
       return new Response("{}", { status: 400 });

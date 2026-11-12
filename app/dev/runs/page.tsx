@@ -158,7 +158,99 @@ async function RunAnalyticsView() {
       ) : (
         <p className="memory-note">No runs yet.</p>
       )}
+
+      <ScoringSection runs={runs} />
     </main>
+  );
+}
+
+/** Day 20: which scoring strategy each run used, its tokens, cost and speed. */
+function ScoringSection({ runs }: { runs: RunAnalytics[] }) {
+  const scoredRuns = runs.filter((run) => run.scoring);
+  if (scoredRuns.length === 0) return null;
+  // Average cost per candidate by strategy, compared with baseline
+  const byStrategy = new Map<string, { usd: number; candidates: number; runs: number }>();
+  for (const run of scoredRuns) {
+    const s = run.scoring!;
+    const handled = s.perCandidateUsd ? run.scoringUsd / s.perCandidateUsd : 0;
+    const entry = byStrategy.get(s.strategy) ?? { usd: 0, candidates: 0, runs: 0 };
+    byStrategy.set(s.strategy, {
+      usd: entry.usd + run.scoringUsd,
+      candidates: entry.candidates + handled,
+      runs: entry.runs + 1,
+    });
+  }
+  const perCandidate = (key: string) => {
+    const entry = byStrategy.get(key);
+    return entry && entry.candidates ? entry.usd / entry.candidates : null;
+  };
+  const baseline = perCandidate("baseline");
+  const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+  return (
+    <section className="memory-section" aria-labelledby="scoring-title">
+      <p className="eyebrow">Day 20</p>
+      <h2 id="scoring-title">Scoring</h2>
+      <p className="memory-note">
+        Strategy comes from SCOUT_SCORING_STRATEGY (default baseline).{" "}
+        {[...byStrategy.keys()]
+          .map((key) => {
+            const value = perCandidate(key);
+            const change = baseline && value !== null && key !== "baseline" ? ` (${Math.round((1 - value / baseline) * 100)}% vs baseline)` : "";
+            return `${key}: ${value === null ? "–" : `$${value.toFixed(4)}`}/candidate over ${byStrategy.get(key)!.runs} runs${change}`;
+          })
+          .join(" · ")}
+      </p>
+      <div className="analytics-table-wrap">
+        <table className="analytics-table">
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Strategy</th>
+              <th>Model</th>
+              <th>Prompt</th>
+              <th title="Model calls (failed)">Calls</th>
+              <th title="Dropped by the pre-filter before any model call">Pre-filtered</th>
+              <th title="Hybrid: judged again by the second stage">Escalated</th>
+              <th title="Input tokens (cached)">Input</th>
+              <th>Output</th>
+              <th>Reasoning</th>
+              <th>Per candidate</th>
+              <th>Per opp</th>
+              <th title="Average model call time">Latency</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scoredRuns.map((run) => {
+              const s = run.scoring!;
+              return (
+                <tr key={run.id}>
+                  <td>{dateFormat.format(run.startedAt)}</td>
+                  <td>{s.strategy}</td>
+                  <td>{s.models.join(", ") || "–"}</td>
+                  <td>{s.promptVersions.join(", ") || "–"}</td>
+                  <td>
+                    {value(s.calls)}
+                    {s.failedCalls ? ` (${s.failedCalls})` : ""}
+                  </td>
+                  <td>{s.prefiltered}</td>
+                  <td>{s.escalated}</td>
+                  <td>
+                    {tokens(s.tokens.input)}
+                    {s.tokens.cachedInput ? ` (${tokens(s.tokens.cachedInput)})` : ""}
+                  </td>
+                  <td>{tokens(s.tokens.output)}</td>
+                  <td>{tokens(s.tokens.reasoning)}</td>
+                  <td>{s.perCandidateUsd === null ? "–" : `$${s.perCandidateUsd.toFixed(4)}`}</td>
+                  <td>{s.perOpportunityUsd === null ? "–" : `$${s.perOpportunityUsd.toFixed(3)}`}</td>
+                  <td>{s.avgLatencyMs === null ? "–" : `${(s.avgLatencyMs / 1000).toFixed(1)} s`}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

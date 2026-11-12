@@ -15,6 +15,10 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   // Listed so "gpt-5.5-pro" never falls back to gpt-5.5's much lower price
   "gpt-5.5-pro": { input: 30, cachedInput: 30, output: 180 },
   "gpt-5.4": { input: 2.5, cachedInput: 0.25, output: 15 },
+  // Day 20 scoring candidates. From third-party price trackers that agree
+  // with each other (2026-11-12); check OpenAI's pricing page before relying on them.
+  "gpt-5.4-mini": { input: 0.75, cachedInput: 0.075, output: 4.5 },
+  "gpt-5.4-nano": { input: 0.2, cachedInput: 0.02, output: 1.25 },
 };
 
 /**

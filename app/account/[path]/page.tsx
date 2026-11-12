@@ -10,11 +10,14 @@ import { AutoScoutSettings } from "@/components/AutoScoutSettings";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { OpportunitySensitivityForm } from "@/components/OpportunitySensitivityForm";
 import { ProfileForm } from "@/components/ProfileForm";
+import { ReplyPreferencesForm } from "@/components/ReplyPreferencesForm";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { requireProfile } from "@/lib/auth/session";
 import { formatRelative } from "@/lib/format";
+import { detectPreferenceConflicts, normalizeReplyPreferences } from "@/lib/scout/replyPreferences";
 import { getNotificationOverview } from "@/services/notifications/overview";
 import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
+import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 export function generateStaticParams() {
   return Object.values(accountViewPaths).map((path) => ({ path }));
@@ -62,6 +65,19 @@ async function ScoutSettings() {
     getNotificationOverview(profile.id),
   ]);
 
+  // Reply preferences and anything in "avoid" that would also hide what the user wants
+  const replyPreferences = normalizeReplyPreferences(profile.replyPreferences);
+  const brain = resolveScoutBrain(profile);
+  const conflicts = detectPreferenceConflicts({
+    positive: [
+      ...(brain?.interests.topics.map((topic) => topic.label) ?? []),
+      ...(brain?.interests.expertise.map((item) => item.area) ?? []),
+      ...replyPreferences.want,
+    ],
+    avoidTopics: profile.avoidTopics,
+    preferences: replyPreferences,
+  });
+
   return (
     <>
       <AutoScoutSettings
@@ -88,6 +104,7 @@ async function ScoutSettings() {
           },
         }}
       />
+      <ReplyPreferencesForm initial={replyPreferences} conflicts={conflicts} />
       <OpportunitySensitivityForm initial={profile.opportunitySensitivity} />
       <ProfileForm profile={profile} action={updateProfile} />
       <AccountDataOverview profile={profile} data={data} />

@@ -55,6 +55,8 @@ export type RunAiCost = {
   costUsd: number;
   scoringUsd: number;
   replyUsd: number;
+  /** Day 20: scoring tokens as OpenAI reported them */
+  scoringTokens: { input: number; cachedInput: number; output: number; reasoning: number };
 };
 
 /** Estimated AI cost of one Scout run. */
@@ -62,7 +64,13 @@ export async function getRunAiCost(profileId: string, scoutRunId: string): Promi
   return (await getRunsAiCost(profileId, [scoutRunId])).get(scoutRunId) ?? emptyRunCost;
 }
 
-const emptyRunCost: RunAiCost = { calls: 0, costUsd: 0, scoringUsd: 0, replyUsd: 0 };
+const emptyRunCost: RunAiCost = {
+  calls: 0,
+  costUsd: 0,
+  scoringUsd: 0,
+  replyUsd: 0,
+  scoringTokens: { input: 0, cachedInput: 0, output: 0, reasoning: 0 },
+};
 
 /** Estimated AI cost per run, for several runs at once. */
 export async function getRunsAiCost(
@@ -77,13 +85,30 @@ export async function getRunsAiCost(
       costUsd: sql<number>`coalesce(sum(${aiUsageTable.costUsd}), 0)::float8`,
       scoringUsd: sql<number>`coalesce(sum(${aiUsageTable.costUsd}) filter (where ${aiUsageTable.operation} = 'opportunity_scoring'), 0)::float8`,
       replyUsd: sql<number>`coalesce(sum(${aiUsageTable.costUsd}) filter (where ${aiUsageTable.operation} = 'reply_generation'), 0)::float8`,
+      scoringInput: sql<number>`coalesce(sum(${aiUsageTable.inputTokens}) filter (where ${aiUsageTable.operation} = 'opportunity_scoring'), 0)::int`,
+      scoringCached: sql<number>`coalesce(sum(${aiUsageTable.cachedInputTokens}) filter (where ${aiUsageTable.operation} = 'opportunity_scoring'), 0)::int`,
+      scoringOutput: sql<number>`coalesce(sum(${aiUsageTable.outputTokens}) filter (where ${aiUsageTable.operation} = 'opportunity_scoring'), 0)::int`,
+      scoringReasoning: sql<number>`coalesce(sum(${aiUsageTable.reasoningTokens}) filter (where ${aiUsageTable.operation} = 'opportunity_scoring'), 0)::int`,
     })
     .from(aiUsageTable)
     .where(
       and(eq(aiUsageTable.profileId, profileId), inArray(aiUsageTable.scoutRunId, scoutRunIds)),
     )
     .groupBy(aiUsageTable.scoutRunId);
-  return new Map(rows.map(({ scoutRunId, ...cost }) => [scoutRunId!, cost]));
+  return new Map(
+    rows.map(({ scoutRunId, scoringInput, scoringCached, scoringOutput, scoringReasoning, ...cost }) => [
+      scoutRunId!,
+      {
+        ...cost,
+        scoringTokens: {
+          input: scoringInput,
+          cachedInput: scoringCached,
+          output: scoringOutput,
+          reasoning: scoringReasoning,
+        },
+      },
+    ]),
+  );
 }
 
 /**

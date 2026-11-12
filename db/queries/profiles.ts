@@ -11,6 +11,7 @@ import type {
   ScoutBrainAnalysis,
 } from "@/lib/ai/schemas/scoutBrain";
 import type { LearningProfile } from "@/lib/scout/learning";
+import type { ReplyPreferences } from "@/lib/scout/replyPreferences";
 
 export async function getProfileByUserId(
   userId: string,
@@ -221,6 +222,17 @@ export async function removeReplyRule(profileId: string, rule: string): Promise<
  * Automatic Scout on or off, and how often. Turning it on schedules a scan
  * right away; turning it off clears the schedule (an open job then skips).
  */
+/** Settings: the user's own reply preferences. Never written by Brain analysis. */
+export async function saveReplyPreferences(
+  profileId: string,
+  preferences: ReplyPreferences,
+): Promise<void> {
+  await db
+    .update(profilesTable)
+    .set({ replyPreferences: preferences })
+    .where(eq(profilesTable.id, profileId));
+}
+
 export async function updateAutoScan(
   profileId: string,
   { enabled, intervalMinutes }: { enabled: boolean; intervalMinutes: number },

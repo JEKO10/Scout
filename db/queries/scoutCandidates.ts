@@ -5,6 +5,7 @@ import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import db from "@/db";
 import { type ScoutCandidate, scoutCandidatesTable } from "@/db/schema";
 import type { NormalizedCandidatePost } from "@/lib/posts/types";
+import type { PrefilterReason } from "@/lib/scout/prefilter";
 import type { CandidateFilterReason } from "@/lib/scout/types";
 
 /** Which of these posts earlier scans already turned into candidates. */
@@ -149,6 +150,28 @@ export async function saveCandidateScore(
       and(
         eq(scoutCandidatesTable.id, candidateId),
         eq(scoutCandidatesTable.profileId, profileId),
+      ),
+    );
+}
+
+/**
+ * Day 20 pre-filter: candidates not worth a model call. Rejected like the
+ * scan filters' rejects, so they are never scored, charged or retried.
+ */
+export async function rejectCandidates(
+  profileId: string,
+  candidateIds: string[],
+  reason: PrefilterReason,
+): Promise<void> {
+  if (candidateIds.length === 0) return;
+  await db
+    .update(scoutCandidatesTable)
+    .set({ rejectedReason: reason })
+    .where(
+      and(
+        eq(scoutCandidatesTable.profileId, profileId),
+        inArray(scoutCandidatesTable.id, candidateIds),
+        isNull(scoutCandidatesTable.scoredAt),
       ),
     );
 }

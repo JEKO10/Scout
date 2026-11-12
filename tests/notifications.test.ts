@@ -256,11 +256,11 @@ test("5: a high-score opportunity is delivered to Slack once, with safe content"
   assert.equal(message.token, `xoxb-${teamId}`);
   assert.equal(message.body.channel, CHANNEL);
   const blocks = JSON.stringify(message.body.blocks);
-  assert.ok(blocks.includes("Match score: 92/100"));
+  assert.ok(blocks.includes("*92*/100"));
   assert.ok(blocks.includes("@founder"));
   assert.ok(blocks.includes("&lt;post 0&gt;"), "post text escaped for Slack");
   assert.ok(blocks.includes(`https://scout.test/opportunities/${opportunities[0].id}`));
-  assert.ok(blocks.includes("https://x.com/founder/status/1"));
+  assert.ok(blocks.includes("https://x.com/founder/status/1"), "View on X button");
   assert.ok(!blocks.includes("PRIVATE ANGLE"), "no Brain-derived angle in Slack");
 
   const [delivery] = await deliveriesOf(profile.id);

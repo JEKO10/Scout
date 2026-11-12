@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { AiCostPanel } from "@/components/AiCostPanel";
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { MissedPosts } from "@/components/missed/MissedPosts";
 import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
 import { toDrafts } from "@/components/opportunities/toDrafts";
 import { ScoutBrainPanel } from "@/components/ScoutBrainPanel";
@@ -135,6 +136,11 @@ async function Dashboard() {
         }
         interactionCount={memory.interactionCount}
       />
+
+      {/* Day 21: rate a few posts Scout didn't surface; its own boundary, never blocks the page */}
+      <Suspense fallback={null}>
+        <MissedPosts profile={profile} />
+      </Suspense>
 
       <div className="dashboard-grid">
         <section className="feed-section" aria-labelledby="opportunities-title">

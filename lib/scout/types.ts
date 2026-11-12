@@ -88,4 +88,19 @@ export type ScoringStats = {
   surfaced: number;
   /** Why scoring was skipped entirely, e.g. no Scout Brain yet */
   skippedReason?: string;
+  // Day 20: how this run scored (absent on older runs)
+  /** SCOUT_SCORING_STRATEGY in effect, e.g. "baseline" */
+  strategy?: string;
+  /** Models as the API reported them */
+  models?: string[];
+  promptVersions?: string[];
+  /** Model calls, failed ones included */
+  calls?: number;
+  failedCalls?: number;
+  /** Hybrid: candidates judged again by the second stage */
+  escalated?: number;
+  /** Dropped by the deterministic pre-filter, never sent to a model */
+  prefiltered?: number;
+  /** Model call time, summed over calls */
+  latencyMs?: number;
 };

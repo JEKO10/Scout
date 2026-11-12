@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Day 20 scoring evaluation: datasets and results contain Scout Brains
+/evals/**/*.local.*

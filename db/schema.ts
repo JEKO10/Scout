@@ -26,6 +26,8 @@ import type {
 import { PLAN_IDS, type UsageLimits } from "../lib/billing/plans";
 import { REPLY_STYLES } from "../lib/replies/styles";
 import type { LearningProfile } from "../lib/scout/learning";
+import type { PrefilterReason } from "../lib/scout/prefilter";
+import type { ReplyPreferences } from "../lib/scout/replyPreferences";
 import { OPPORTUNITY_SENSITIVITIES } from "../lib/scout/sensitivity";
 import type {
   CandidateFilterReason,
@@ -104,6 +106,9 @@ export const profilesTable = pgTable("profiles", {
   goalBrain: jsonb().$type<StoredGoalBrain>(),
   // Day 13: conclusions from repeated behavior; null until first learned
   learningProfile: jsonb().$type<LearningProfile>(),
+  // What the user wants to reply to, and what not. Written by the user, kept
+  // apart from the Brain: a Brain rebuild never touches it. Null: none yet.
+  replyPreferences: jsonb().$type<ReplyPreferences>(),
   // Standing rules the user wrote for every reply, e.g. "never start with 'Exactly'"
   replyRules: text().array().notNull().default(sql`'{}'::text[]`),
   // How many opportunities they want; sets the score a post needs to surface
@@ -362,6 +367,12 @@ export const postKindEnum = pgEnum("post_kind", ["post", "reply", "quote", "repo
 
 export const candidateLabelEnum = pgEnum("candidate_label", ["yes", "maybe", "no"]);
 
+/** "Did we miss this?": the user's verdict on a post Scout didn't surface */
+export const MISS_RATINGS = ["strong", "acceptable", "weak", "not_for_me"] as const;
+export const missRatingEnum = pgEnum("miss_rating", MISS_RATINGS);
+/** Why it was shown: near the threshold, or a random lower-scored post (unbiased sample) */
+export const missSampleEnum = pgEnum("miss_sample", ["near_threshold", "random_low"]);
+
 /** Posts of other people imported from exports; a post source next to the X API. */
 export const importedPostsTable = pgTable(
   "imported_posts",
@@ -423,7 +434,8 @@ export const scoutCandidatesTable = pgTable(
     source: text().notNull(),
     // Day 17: a delivered post the filters turned down (reply, too old…).
     // Kept so it's never delivered, charged or evaluated again; never scored.
-    rejectedReason: text().$type<CandidateFilterReason>(),
+    // Day 20: or the scoring pre-filter's reason (lib/scout/prefilter.ts)
+    rejectedReason: text().$type<CandidateFilterReason | PrefilterReason>(),
 
     // Day 9 scoring, kept for every candidate (not only surfaced ones) so the
     // threshold can be tuned on real data. Null until scored.
@@ -439,6 +451,12 @@ export const scoutCandidatesTable = pgTable(
     // ranking check. Null until labeled.
     userLabel: candidateLabelEnum(),
     labeledAt: timestamp({ withTimezone: true }),
+
+    // Day 21 "Did we miss this?": a rating of a post Scout didn't surface,
+    // kept apart from userLabel. Null until rated.
+    missRating: missRatingEnum(),
+    missSample: missSampleEnum(),
+    missRatedAt: timestamp({ withTimezone: true }),
     ...timestamps,
   },
   (t) => [

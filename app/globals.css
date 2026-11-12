@@ -3876,3 +3876,72 @@ textarea {
 .notification-muted {
   color: var(--muted-ink);
 }
+
+/* Reply preferences: avoid entries that may hide wanted posts */
+.preference-conflicts {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid #f1d39b;
+  border-radius: 12px;
+  background: #fff8ea;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.preference-conflicts ul {
+  margin: 8px 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.preference-conflicts small {
+  color: var(--muted-ink);
+}
+
+/* Day 21: "Did we miss these?" on the dashboard */
+.missed-posts {
+  margin: 28px 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.missed-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.missed-item {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.missed-post p {
+  margin: 6px 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.missed-ratings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.missed-ratings .secondary-button {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+.missed-thanks {
+  color: var(--green);
+  font-size: 12px;
+}

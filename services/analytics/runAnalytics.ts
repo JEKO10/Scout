@@ -4,6 +4,7 @@ import { getRunsAiCost } from "@/db/queries/aiUsage";
 import { getJobStats, type JobStats } from "@/db/queries/scanJobs";
 import { getRecentScoutRuns } from "@/db/queries/scoutRuns";
 import type { Profile } from "@/db/schema";
+import type { ScoringStats } from "@/lib/scout/types";
 import { estimateXCostUsd } from "@/lib/x/pricing";
 import { getUsageBudget, type UsageBudget } from "@/services/billing/budget";
 
@@ -33,6 +34,22 @@ export type RunAnalytics = {
   totalUsd: number;
   costPerOpportunity: number | null;
   note: string | null;
+  /** Day 20: how the run scored; null before any scoring */
+  scoring: {
+    /** Runs before Day 20 scored with what is now "baseline" */
+    strategy: string;
+    models: string[];
+    promptVersions: string[];
+    calls: number | null;
+    failedCalls: number | null;
+    prefiltered: number;
+    escalated: number;
+    tokens: { input: number; cachedInput: number; output: number; reasoning: number };
+    perCandidateUsd: number | null;
+    /** Scoring cost per opportunity it surfaced */
+    perOpportunityUsd: number | null;
+    avgLatencyMs: number | null;
+  } | null;
 };
 
 /**
@@ -119,7 +136,35 @@ export async function getRunAnalytics(
         totalUsd,
         costPerOpportunity: run.opportunitiesFound > 0 ? totalUsd / run.opportunitiesFound : null,
         note: x?.stoppedReason ?? run.error ?? stats?.scoring?.skippedReason ?? null,
+        scoring: scoringAnalytics(run.stats?.scoring, ai, run.opportunitiesFound),
       };
     }),
+  };
+}
+
+type RunAiCostRow = Awaited<ReturnType<typeof getRunsAiCost>> extends Map<string, infer T> ? T : never;
+
+/** Day 20: the scoring side of a run, from its stats and recorded usage. */
+function scoringAnalytics(
+  stats: ScoringStats | undefined,
+  ai: RunAiCostRow | undefined,
+  opportunities: number,
+): RunAnalytics["scoring"] {
+  if (!stats || stats.scored + (stats.prefiltered ?? 0) === 0) return null;
+  const handled = stats.scored + (stats.prefiltered ?? 0);
+  const usd = ai?.scoringUsd ?? 0;
+  const succeeded = stats.calls !== undefined ? stats.calls - (stats.failedCalls ?? 0) : null;
+  return {
+    strategy: stats.strategy ?? "baseline",
+    models: stats.models ?? [],
+    promptVersions: stats.promptVersions ?? (stats.strategy ? [] : ["v1"]),
+    calls: stats.calls ?? null,
+    failedCalls: stats.failedCalls ?? null,
+    prefiltered: stats.prefiltered ?? 0,
+    escalated: stats.escalated ?? 0,
+    tokens: ai?.scoringTokens ?? { input: 0, cachedInput: 0, output: 0, reasoning: 0 },
+    perCandidateUsd: handled ? usd / handled : null,
+    perOpportunityUsd: opportunities ? usd / opportunities : null,
+    avgLatencyMs: succeeded && stats.latencyMs !== undefined ? stats.latencyMs / succeeded : null,
   };
 }

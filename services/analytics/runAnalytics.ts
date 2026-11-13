@@ -40,6 +40,8 @@ export type RunAnalytics = {
     strategy: string;
     models: string[];
     promptVersions: string[];
+    /** Reasoning efforts the requests actually sent; null: not recorded (older runs) */
+    reasoningEfforts: string[] | null;
     calls: number | null;
     failedCalls: number | null;
     prefiltered: number;
@@ -158,6 +160,7 @@ function scoringAnalytics(
     strategy: stats.strategy ?? "baseline",
     models: stats.models ?? [],
     promptVersions: stats.promptVersions ?? (stats.strategy ? [] : ["v1"]),
+    reasoningEfforts: stats.reasoningEfforts ?? null,
     calls: stats.calls ?? null,
     failedCalls: stats.failedCalls ?? null,
     prefiltered: stats.prefiltered ?? 0,

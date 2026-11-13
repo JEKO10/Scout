@@ -117,6 +117,8 @@ export type StrategyResult = {
   /** Summed over calls (calls run two at a time) */
   latencyMs: number;
   models: string[];
+  /** Reasoning efforts the successful calls actually sent ("default": none sent) */
+  reasoningEfforts: string[];
   errors: string[];
 };
 
@@ -167,6 +169,7 @@ export async function scoreWithStrategy(
     escalated: 0,
     latencyMs: 0,
     models: [],
+    reasoningEfforts: [],
     errors: [],
   };
 
@@ -205,6 +208,8 @@ export async function scoreWithStrategy(
       result.latencyMs += outcome.value.latencyMs;
       if (!result.models.includes(outcome.value.model))
         result.models.push(outcome.value.model);
+      if (!result.reasoningEfforts.includes(outcome.value.reasoningEffort))
+        result.reasoningEfforts.push(outcome.value.reasoningEffort);
       for (const [id, judgment] of outcome.value.judgments)
         judgments.set(id, judgment);
     }

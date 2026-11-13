@@ -549,3 +549,20 @@ test("reasoning effort rolls back by configuration, without a code change", asyn
   process.env.OPENAI_SCORING_REASONING_EFFORT = "turbo";
   assert.equal(getScoringStrategy().primary.reasoningEffort, "low");
 });
+
+test("each run records the reasoning effort its requests actually sent", async () => {
+  const p = await newProfile();
+
+  // Default production configuration: low, set explicitly
+  ai.requests.length = 0;
+  const low = await rankCandidates(p.id, (await withCandidates(p.id, 3)).run.id);
+  assert.deepEqual(low.reasoningEfforts, ["low"]);
+  assert.deepEqual(scoringRequests().at(-1)?.reasoning, { effort: "low" }, "matches the request");
+
+  // Rollback: nothing sent, recorded as the API default
+  process.env.OPENAI_SCORING_REASONING_EFFORT = "default";
+  ai.requests.length = 0;
+  const fallback = await rankCandidates(p.id, (await withCandidates(p.id, 3)).run.id);
+  assert.deepEqual(fallback.reasoningEfforts, ["default"]);
+  assert.equal(scoringRequests().at(-1)?.reasoning, undefined);
+});

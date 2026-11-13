@@ -221,7 +221,17 @@ export type JudgmentResponse = {
   model: string;
   usage: ResponseUsage | null;
   latencyMs: number;
+  /**
+   * The reasoning effort this request carried, read from the request itself:
+   * e.g. "low", or "default" when none was sent (the model's own default).
+   */
+  reasoningEffort: string;
 };
+
+/** What a built request actually asks for: its effort, or "default" when it sends none. */
+export function sentReasoningEffort(request: { reasoning?: { effort?: string | null } }): string {
+  return request.reasoning?.effort ?? "default";
+}
 
 /**
  * One OpenAI call judges a batch. No database access: production records
@@ -241,8 +251,9 @@ export async function requestJudgments(
 ): Promise<JudgmentResponse> {
   const started = Date.now();
   const { maxRetries, ...requestOptions } = options;
+  const request = buildJudgmentRequest(stage, brain, candidates, requestOptions);
   const response = await getOpenAI().responses.parse(
-    buildJudgmentRequest(stage, brain, candidates, requestOptions),
+    request,
     maxRetries === undefined ? undefined : { maxRetries },
   );
   const latencyMs = Date.now() - started;
@@ -260,6 +271,7 @@ export async function requestJudgments(
     model: response.model,
     usage: response.usage ?? null,
     latencyMs,
+    reasoningEffort: sentReasoningEffort(request),
   };
 }
 

@@ -187,6 +187,7 @@ export async function rankCandidates(
     surfaced,
     strategy: strategy.id,
     models: result.models,
+    reasoningEfforts: result.reasoningEfforts,
     promptVersions: [
       ...new Set([strategy.primary.prompt, ...(strategy.escalation ? [strategy.escalation.stage.prompt] : [])]),
     ],

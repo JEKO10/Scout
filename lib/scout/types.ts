@@ -94,6 +94,11 @@ export type ScoringStats = {
   /** Models as the API reported them */
   models?: string[];
   promptVersions?: string[];
+  /**
+   * Reasoning effort the scoring requests actually sent, e.g. ["low"];
+   * "default" means none was sent (the model's default). Absent before it was recorded.
+   */
+  reasoningEfforts?: string[];
   /** Model calls, failed ones included */
   calls?: number;
   failedCalls?: number;

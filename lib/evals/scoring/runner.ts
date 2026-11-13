@@ -174,6 +174,7 @@ function mockJudge(dataset: EvalDataset, profileKey: string): Judge {
       },
       latencyMs:
         (visible + reasoning) * MOCK_ASSUMPTIONS.latencyMsPerOutputToken,
+      reasoningEffort: stage.reasoningEffort ?? "default",
     } satisfies JudgmentResponse;
   };
 }

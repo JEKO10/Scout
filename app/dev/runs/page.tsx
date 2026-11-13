@@ -164,6 +164,13 @@ async function RunAnalyticsView() {
   );
 }
 
+/** What the requests sent: "low (set)", "API default", or "Unknown" for runs before it was recorded. */
+function reasoningLabel(efforts: string[] | null): string {
+  if (efforts === null) return "Unknown";
+  if (efforts.length === 0) return "–";
+  return efforts.map((effort) => (effort === "default" ? "API default" : `${effort} (set)`)).join(", ");
+}
+
 /** Day 20: which scoring strategy each run used, its tokens, cost and speed. */
 function ScoringSection({ runs }: { runs: RunAnalytics[] }) {
   const scoredRuns = runs.filter((run) => run.scoring);
@@ -209,6 +216,9 @@ function ScoringSection({ runs }: { runs: RunAnalytics[] }) {
               <th>Strategy</th>
               <th>Model</th>
               <th>Prompt</th>
+              <th title="Reasoning effort the scoring requests sent: a set value, or the API default when none was sent">
+                Reasoning
+              </th>
               <th title="Model calls (failed)">Calls</th>
               <th title="Dropped by the pre-filter before any model call">Pre-filtered</th>
               <th title="Hybrid: judged again by the second stage">Escalated</th>
@@ -229,6 +239,7 @@ function ScoringSection({ runs }: { runs: RunAnalytics[] }) {
                   <td>{s.strategy}</td>
                   <td>{s.models.join(", ") || "–"}</td>
                   <td>{s.promptVersions.join(", ") || "–"}</td>
+                  <td>{reasoningLabel(s.reasoningEfforts)}</td>
                   <td>
                     {value(s.calls)}
                     {s.failedCalls ? ` (${s.failedCalls})` : ""}

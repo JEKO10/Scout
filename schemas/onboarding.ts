@@ -53,11 +53,12 @@ export const onboardingSchema = z.object({
   occupation: requiredText(120, "Occupation"),
   bio: optionalText(500, "Bio"),
   targetAudience: requiredText(300, "Target audience"),
-  primaryGoal: requiredText(120, "Primary goal"),
+  // Day 22: goals can be several choices, stored comma-separated
+  primaryGoal: requiredText(300, "Primary goal"),
   knownFor: optionalText(300, "Known for"),
   topics: requiredText(300, "Topics you know"),
   avoidTopics: optionalText(300, "Topics to avoid"),
-  voiceDescription: requiredText(200, "How you want to sound"),
+  voiceDescription: requiredText(300, "How you want to sound"),
 });
 
 export type OnboardingValues = z.output<typeof onboardingSchema>;

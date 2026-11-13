@@ -5,14 +5,16 @@ import { redirect } from "next/navigation";
 import OpenAI from "openai";
 import { z } from "zod";
 
-import { updateProfileByUserId, updateProfileXHandle } from "@/db/queries/profiles";
+import { getProfileById, updateProfileByUserId, updateProfileXHandle } from "@/db/queries/profiles";
 import { replaceOnboardingSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
+import { canComplete } from "@/lib/onboarding/progress";
 import {
   onboardingFieldNames,
   onboardingSchema,
   xHandleSchema,
 } from "@/schemas/onboarding";
+import { getOnboardingFacts } from "@/services/onboarding/facts";
 import { analyzeUser } from "@/services/scout-brain/analyzeUser";
 import { buildColdStartBrain } from "@/services/scout-brain/buildColdStartBrain";
 import { addWatchlistAccount } from "@/services/watchlist/addAccount";
@@ -175,14 +177,45 @@ const handlesSchema = z
   .array(z.string().trim().regex(/^[A-Za-z0-9_]{1,15}$/))
   .max(20);
 
-/** Step 5: add the chosen suggestions to the watchlist and finish onboarding. */
-export async function finishOnboardingAction(handles: string[]): Promise<void> {
-  const { user, profile } = await requireProfile();
+/**
+ * Accounts step: add the picked suggestions (each verified on X, as the
+ * watchlist does). Duplicates and a full watchlist are skipped, not fatal.
+ */
+export async function addSuggestedAccountsAction(
+  handles: string[],
+): Promise<{ ok: boolean; added: number; skipped: string[] }> {
+  const { profile } = await requireProfile();
+  const parsed = handlesSchema.safeParse(handles);
+  if (!parsed.success) return { ok: false, added: 0, skipped: [] };
+  let added = 0;
+  const skipped: string[] = [];
+  for (const handle of parsed.data) {
+    try {
+      const result = await addWatchlistAccount(profile.id, handle);
+      if (result.status === "added") added++;
+      else skipped.push(handle);
+    } catch {
+      skipped.push(handle);
+    }
+  }
+  refresh();
+  return { ok: true, added, skipped };
+}
 
-  for (const handle of handlesSchema.parse(handles)) {
-    // Duplicates and a full watchlist are skipped, not fatal
-    await addWatchlistAccount(profile.id, handle);
+/**
+ * Accounts step → first scan. Onboarding is complete only once the essentials
+ * are saved: a Scout Brain and at least one active account to watch.
+ */
+export async function completeOnboardingAction(): Promise<{ ok: boolean; message?: string }> {
+  const { user, profile } = await requireProfile();
+  const fresh = (await getProfileById(profile.id)) ?? profile;
+  const facts = await getOnboardingFacts(fresh);
+  if (!canComplete(facts)) {
+    return {
+      ok: false,
+      message: facts.hasBrain ? "Add at least one account to watch first." : "Build your Scout Brain first.",
+    };
   }
   await updateProfileByUserId(user.id, { onboardingCompleted: true });
-  redirect("/dashboard");
+  redirect("/onboarding?step=scan");
 }

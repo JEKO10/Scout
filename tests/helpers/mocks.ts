@@ -18,6 +18,8 @@ export const x = {
   failures: new Map<string, string[]>(),
   /** Milliseconds each X request takes, to overlap concurrent workers */
   delayMs: 0,
+  /** Accounts the user lookup finds, by lowercase handle → X user ID */
+  users: new Map<string, string>(),
 };
 
 export const ai = {
@@ -228,6 +230,17 @@ export function installMocks() {
 
     x.calls.push(url.pathname);
     if (x.delayMs) await new Promise((resolve) => setTimeout(resolve, x.delayMs));
+    const lookup = url.pathname.match(/^\/2\/users\/by\/username\/([^/]+)$/);
+    if (lookup) {
+      const handle = decodeURIComponent(lookup[1]);
+      const id = x.users.get(handle.toLowerCase());
+      // X answers 200 with errors and no data for unknown accounts
+      return Response.json(
+        id
+          ? { data: { id, username: handle, name: `Name ${handle}`, profile_image_url: "https://pbs.twimg.com/a.jpg" } }
+          : { errors: [{ title: "Not Found Error" }] },
+      );
+    }
     const match = url.pathname.match(/^\/2\/users\/([^/]+)\/tweets$/);
     if (!match) return new Response(JSON.stringify({ title: "unexpected" }), { status: 404 });
     const userId = match[1];

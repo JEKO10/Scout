@@ -2,20 +2,19 @@
 
 import { useState, useTransition } from "react";
 
-import { finishOnboardingAction } from "@/actions/onboarding";
+import { addSuggestedAccountsAction } from "@/actions/onboarding";
 import type { SuggestedAccount } from "@/lib/onboarding/suggestedAccounts";
 
-export function SuggestedWatchlist({
-  accounts,
-  preselected,
-}: {
-  accounts: SuggestedAccount[];
-  preselected: number;
-}) {
-  const [chosen, setChosen] = useState(
-    () => new Set(accounts.slice(0, preselected).map((account) => account.handle)),
-  );
+/**
+ * Ideas matched to the user's topics. Nothing is pre-picked: adding one is a
+ * choice (each is looked up on X, like any watchlist account).
+ */
+export function SuggestedWatchlist({ accounts }: { accounts: SuggestedAccount[] }) {
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  if (accounts.length === 0) return null;
 
   function toggle(handle: string) {
     setChosen((current) => {
@@ -26,68 +25,50 @@ export function SuggestedWatchlist({
     });
   }
 
-  function finish(handles: string[]) {
-    startTransition(() => finishOnboardingAction(handles));
+  function add() {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await addSuggestedAccountsAction([...chosen]);
+      if (!result.ok) {
+        setMessage("Couldn't add those accounts. Try again.");
+        return;
+      }
+      setChosen(new Set());
+      setMessage(
+        `Added ${result.added} ${result.added === 1 ? "account" : "accounts"}.` +
+          (result.skipped.length ? ` Skipped: ${result.skipped.map((h) => `@${h}`).join(", ")}.` : ""),
+      );
+    });
   }
 
   return (
-    <div className="calibration">
-      <p className="eyebrow">Suggested watchlist</p>
-      <p className="calibration-prompt">
-        Accounts that post about what you care about. Pick the ones Scout should follow;
-        you can change this any time.
-      </p>
-
-      {accounts.length ? (
-        <ul className="suggested-accounts">
-          {accounts.map((account) => (
-            <li key={account.handle}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={chosen.has(account.handle)}
-                  onChange={() => toggle(account.handle)}
-                />
-                <span>
-                  <strong>@{account.handle}</strong>
-                  <small>
-                    {account.name} · {account.tags.slice(0, 4).join(", ")}
-                  </small>
-                </span>
-              </label>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="memory-note">
-          No suggestions match your topics yet. Add accounts yourself on the Watchlist page.
+    <div className="suggested-block">
+      <p className="eyebrow">Ideas based on your topics</p>
+      <ul className="suggested-accounts">
+        {accounts.map((account) => (
+          <li key={account.handle}>
+            <label>
+              <input type="checkbox" checked={chosen.has(account.handle)} onChange={() => toggle(account.handle)} />
+              <span>
+                <strong>@{account.handle}</strong>
+                <small>
+                  {account.name} · {account.tags.slice(0, 4).join(", ")}
+                </small>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="calibration-actions">
+        <button type="button" className="secondary-button" disabled={pending || chosen.size === 0} onClick={add}>
+          {pending ? "Adding…" : chosen.size ? `Add ${chosen.size} selected` : "Select accounts to add"}
+        </button>
+      </div>
+      {message && (
+        <p className="form-message" role="status">
+          {message}
         </p>
       )}
-
-      <div className="calibration-actions">
-        <button
-          type="button"
-          className="primary-button"
-          disabled={pending}
-          onClick={() => finish([...chosen])}
-        >
-          {pending
-            ? "Finishing…"
-            : chosen.size
-              ? `Add ${chosen.size} ${chosen.size === 1 ? "account" : "accounts"} and finish`
-              : "Finish"}
-        </button>
-        {chosen.size > 0 && (
-          <button
-            type="button"
-            className="text-link calibration-skip"
-            disabled={pending}
-            onClick={() => finish([])}
-          >
-            Skip, I&apos;ll add my own
-          </button>
-        )}
-      </div>
     </div>
   );
 }

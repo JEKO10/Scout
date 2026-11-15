@@ -10,6 +10,7 @@ import { replyDraftsSchema } from "@/lib/ai/schemas/reply";
 import { splitQuotedPost } from "@/lib/posts/quotedPost";
 import { REPLY_STYLE_INFO, type ReplyStyle } from "@/lib/replies/styles";
 import { recordAiUsage } from "@/services/ai/usage";
+import { track } from "@/services/analytics/track";
 import { getUsageBudget } from "@/services/billing/budget";
 
 import { buildReplyContext, type ReplyContext } from "./buildReplyContext";
@@ -179,5 +180,6 @@ export async function generateReplies(
     ],
     instruction,
   );
+  await track("first_reply_generated", { profileId });
   return { status: "generated", replies };
 }

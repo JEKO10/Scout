@@ -6,6 +6,7 @@ import { cache } from "react";
 
 import { getOrCreateProfile } from "@/db/queries/profiles";
 import { auth } from "@/lib/auth/server";
+import { track } from "@/services/analytics/track";
 
 /** Current Neon Auth user, read from the session cookie on the server. */
 export const requireUser = cache(async () => {
@@ -27,5 +28,9 @@ export const getOptionalUser = cache(async () => {
 export const requireProfile = cache(async () => {
   const user = await requireUser();
   const profile = await getOrCreateProfile(user.id);
+  // A profile created in the last few minutes is a new sign-up (recorded once)
+  if (Date.now() - profile.createdAt.getTime() < 10 * 60_000) {
+    await track("signup_completed", { profileId: profile.id });
+  }
   return { user, profile };
 });

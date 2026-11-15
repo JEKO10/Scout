@@ -1,7 +1,9 @@
 import "./globals.css";
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
+import { appUrl } from "@/lib/appUrl";
 
 import { Providers } from "./providers";
 
@@ -15,13 +17,36 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const description =
+  "Scout monitors conversations on X, finds opportunities relevant to your expertise, and helps you write replies that actually add value.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(appUrl()),
   title: {
-    default: "Scout — Find conversations worth joining",
+    default: "Scout — Find the right conversations on X",
     template: "%s · Scout",
   },
-  description:
-    "An AI growth operator that finds and ranks the conversations where your perspective matters.",
+  description,
+  applicationName: "Scout",
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: "Scout",
+    title: "Scout — Find the right conversations. Grow your audience.",
+    description,
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Scout — Find the right conversations. Grow your audience.",
+    description,
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

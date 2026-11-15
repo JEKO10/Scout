@@ -2,7 +2,9 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { countAnalyticsEvents } from "@/db/queries/analytics";
 import { getBillingAlerts } from "@/db/queries/billing";
+import { FUNNEL } from "@/lib/analytics/events";
 import { requireProfile } from "@/lib/auth/session";
 import { PLANS } from "@/lib/billing/plans";
 import { isScoutTestMode } from "@/lib/scout/testLimits";
@@ -163,6 +165,7 @@ async function RunAnalyticsView() {
       <ScoringSection runs={runs} />
       {/* Billing alerts concern every account: internal accounts only */}
       {profile.plan === "internal" && <BillingAlerts />}
+      {profile.plan === "internal" && <LaunchFunnel />}
     </main>
   );
 }
@@ -333,5 +336,38 @@ function Metric({ value, label }: { value: string; label: string }) {
       <strong>{value}</strong>
       <span>{label}</span>
     </div>
+  );
+}
+
+/** Launch analytics (Day 24): first-party events, last 30 days, all users */
+async function LaunchFunnel() {
+  const rows = await countAnalyticsEvents(30);
+  const byName = new Map(rows.map((row) => [row.name, row]));
+  return (
+    <section className="memory-section" aria-labelledby="funnel-title">
+      <p className="eyebrow">Last 30 days</p>
+      <h2 id="funnel-title">Launch funnel</h2>
+      <div className="analytics-table-wrap">
+        <table className="analytics-table">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Count</th>
+              <th>Accounts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FUNNEL.map((name) => (
+              <tr key={name}>
+                <td>{name}</td>
+                <td>{byName.get(name)?.events ?? 0}</td>
+                <td>{byName.get(name)?.profiles ?? "–"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="memory-note">Public page events (views, clicks) are anonymous, so they have no accounts.</p>
+    </section>
   );
 }

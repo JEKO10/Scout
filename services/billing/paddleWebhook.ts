@@ -22,6 +22,7 @@ import {
   paddleTransactionSchema,
   revokesAccess,
 } from "@/lib/paddle/webhook";
+import { track } from "@/services/analytics/track";
 
 import { billingAlert } from "./alerts";
 
@@ -174,6 +175,9 @@ export async function applySubscriptionState(
     profilePlan: planChanges ? { profileId, plan } : null,
     event: event && { ...event, outcome: outcomeOverride ?? outcome, profileId },
   });
+  if (planChanges && (plan === "starter" || plan === "pro")) {
+    await track("subscription_activated", { profileId, props: { plan } });
+  }
   return outcomeOverride ?? outcome;
 }
 

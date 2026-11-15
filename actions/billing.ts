@@ -7,6 +7,7 @@ import { getProfileByUserId } from "@/db/queries/profiles";
 import { getOptionalUser, requireProfile } from "@/lib/auth/session";
 import { PLANS } from "@/lib/billing/plans";
 import { PaddleApiError, PaddleNotConfiguredError } from "@/lib/paddle/api";
+import { track } from "@/services/analytics/track";
 import {
   cancelAtPeriodEnd,
   changePlan,
@@ -45,6 +46,7 @@ export async function prepareCheckoutAction(
   const { user, profile } = await requireProfile();
   const result = await prepareCheckout(profile, parsed.data);
   if (!result.ok) return result;
+  await track("checkout_started", { profileId: profile.id, props: { plan: parsed.data } });
   return { ok: true, priceId: result.priceId, email: user.email, binding: result.binding };
 }
 
@@ -115,4 +117,13 @@ export async function checkoutStatusAction(sinceIso: string): Promise<
   return result.status === "confirmed"
     ? { status: "confirmed", planLabel: result.plan ? PLANS[result.plan].label : null }
     : result;
+}
+
+/** Pricing (before paid plans launch): note interest in a plan, once per account */
+export async function joinWaitlistAction(tier: string): Promise<{ ok: boolean; message: string }> {
+  const parsed = tierSchema.safeParse(tier);
+  if (!parsed.success) return { ok: false, message: "Unknown plan." };
+  const { profile } = await requireProfile();
+  await track("waitlist_joined", { profileId: profile.id, props: { plan: parsed.data } });
+  return { ok: true, message: `You're on the waitlist for ${PLANS[parsed.data].label}. We'll let you know when paid plans open; Scout stays free meanwhile.` };
 }

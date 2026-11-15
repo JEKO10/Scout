@@ -921,3 +921,27 @@ export const paddleWebhookEventsTable = pgTable("paddle_webhook_events", {
   outcome: text().notNull(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Day 24 launch analytics: product events, first-party, no third-party
+ * tracker. Only an event name, an optional profile, and a few non-sensitive
+ * properties (e.g. the plan) — never post or reply text, Brain details,
+ * emails or IP addresses. Milestones ("once") are recorded at most once per
+ * profile.
+ */
+export const analyticsEventsTable = pgTable(
+  "analytics_events",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: text().notNull(),
+    profileId: uuid().references(() => profilesTable.id, { onDelete: "set null" }),
+    /** A per-profile milestone: the first time only */
+    once: boolean().notNull().default(false),
+    props: jsonb().$type<Record<string, string | number | boolean>>(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index().on(t.name, t.createdAt.desc()),
+    uniqueIndex("analytics_events_once_per_profile").on(t.name, t.profileId).where(sql`${t.once}`),
+  ],
+);

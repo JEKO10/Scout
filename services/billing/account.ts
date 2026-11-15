@@ -12,7 +12,7 @@ import {
   updateSubscriptionPrice,
 } from "@/lib/paddle/api";
 import { createCheckoutBinding } from "@/lib/paddle/binding";
-import { readPaddleConfig } from "@/lib/paddle/config";
+import { isCheckoutOpen, readPaddleConfig } from "@/lib/paddle/config";
 import { ACCESS_STATUSES, paddleSubscriptionSchema } from "@/lib/paddle/webhook";
 
 import { applySubscriptionState, PLAN_RANK } from "./paddleWebhook";
@@ -113,6 +113,7 @@ export async function prepareCheckout(
 ): Promise<BillingResult<{ priceId: string; binding: string }>> {
   const config = readPaddleConfig();
   if (!config.ok) return { ok: false, message: "Checkout isn't configured." };
+  if (!isCheckoutOpen(config)) return { ok: false, message: "Paid plans are coming soon. Join the waitlist instead." };
   if (profile.plan === "internal") {
     return { ok: false, message: "Internal accounts aren't billed and can't subscribe." };
   }
@@ -136,6 +137,7 @@ export async function prepareCheckout(
 export async function changePlan(profile: Pick<Profile, "id" | "plan">, target: PaidTierId): Promise<BillingResult<{ plan: PlanId }>> {
   const config = readPaddleConfig();
   if (!config.ok) return { ok: false, message: "Billing isn't configured." };
+  if (!isCheckoutOpen(config)) return { ok: false, message: "Plan changes open when paid plans launch." };
 
   const subscription = await currentGranting(profile.id);
   if (!subscription) return { ok: false, message: "You don't have an active subscription to change." };

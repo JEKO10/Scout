@@ -6,6 +6,7 @@ import { z } from "zod";
 import { confirmReplyPosted, recordReplyIntent, returnToFeed } from "@/db/queries/replyIntents";
 import { requireProfile } from "@/lib/auth/session";
 import { checkReplyText, isXPostId, normalizeReplyText } from "@/lib/replies/xIntent";
+import { track } from "@/services/analytics/track";
 
 const intentSchema = z.object({
   opportunityId: z.uuid(),
@@ -39,6 +40,7 @@ export async function recordReplyIntentAction(
       message: result.reason === "not_an_x_post" ? "This post can't be replied to on X." : "Opportunity not found.",
     };
   }
+  await track("first_reply_on_x", { profileId: profile.id });
   return { ok: true };
 }
 

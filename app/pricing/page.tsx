@@ -3,20 +3,27 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { TrackView } from "@/components/analytics/Track";
+import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { PricingPlans } from "@/components/pricing/PricingPlans";
 import { getProfileByUserId } from "@/db/queries/profiles";
 import { getOptionalUser } from "@/lib/auth/session";
 import { isPaidTier, PRICING_TIERS,type PricingAccount } from "@/lib/billing/pricing";
-import { countryFromHeader, readPaddleConfig } from "@/lib/paddle/config";
+import { countryFromHeader, isCheckoutOpen, readPaddleConfig } from "@/lib/paddle/config";
 import { ACCESS_STATUSES } from "@/lib/paddle/webhook";
 import { getBillingOverview } from "@/services/billing/account";
 
-export const metadata: Metadata = { title: "Pricing" };
+export const metadata: Metadata = {
+  title: "Pricing",
+  description: "Scout is free during the beta. Starter and Pro plans with more accounts and more frequent scans are coming soon.",
+  alternates: { canonical: "/pricing" },
+};
 
 // Public: the Subscribe buttons ask for sign-in, the page itself doesn't
 export default function PricingPage({ searchParams }: PageProps<"/pricing">) {
   return (
     <main className="landing-page pricing-page">
+      <TrackView name="pricing_view" />
       <nav className="landing-nav shell" aria-label="Main navigation">
         <Link href="/" className="brand" aria-label="Scout home">
           <span className="brand-mark" aria-hidden="true">S</span>
@@ -38,6 +45,7 @@ export default function PricingPage({ searchParams }: PageProps<"/pricing">) {
           <Pricing searchParams={searchParams} />
         </Suspense>
       </section>
+      <SiteFooter />
     </main>
   );
 }
@@ -55,6 +63,7 @@ async function Pricing({ searchParams }: { searchParams: PageProps<"/pricing">["
       email={user?.email ?? null}
       userId={user?.id ?? null}
       account={account}
+      checkoutOpen={isCheckoutOpen(paddle)}
       // A plan picked before sign-in: its checkout opens on return
       resumePlan={isPaidTier(plan) && user && !account?.subscription && account?.currentTier !== plan ? plan : null}
     />

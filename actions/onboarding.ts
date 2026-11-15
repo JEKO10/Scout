@@ -14,6 +14,7 @@ import {
   onboardingSchema,
   xHandleSchema,
 } from "@/schemas/onboarding";
+import { track } from "@/services/analytics/track";
 import { getOnboardingFacts } from "@/services/onboarding/facts";
 import { analyzeUser } from "@/services/scout-brain/analyzeUser";
 import { buildColdStartBrain } from "@/services/scout-brain/buildColdStartBrain";
@@ -217,5 +218,6 @@ export async function completeOnboardingAction(): Promise<{ ok: boolean; message
     };
   }
   await updateProfileByUserId(user.id, { onboardingCompleted: true });
+  await track("onboarding_completed", { profileId: profile.id });
   redirect("/onboarding?step=scan");
 }

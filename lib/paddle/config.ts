@@ -64,3 +64,13 @@ export function countryFromHeader(value: string | null): string | undefined {
   if (!/^[A-Z]{2}$/.test(code) || code === "XX" || code === "T1") return undefined;
   return code;
 }
+
+/**
+ * Whether paid plans can be bought. Real payments need live Paddle billing;
+ * Sandbox checkout is a developer tool, so on a deployed app it stays closed
+ * (paid plans show as "coming soon") and only local development can use it.
+ */
+export function isCheckoutOpen(config: PaddleConfigResult): boolean {
+  if (!config.ok) return false;
+  return config.config.environment === "production" || process.env.NODE_ENV !== "production";
+}

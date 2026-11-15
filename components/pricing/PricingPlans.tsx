@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { changePlanAction, prepareCheckoutAction } from "@/actions/billing";
+import { changePlanAction, joinWaitlistAction, prepareCheckoutAction } from "@/actions/billing";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { PLANS } from "@/lib/billing/plans";
 import type { PaidTierId, PricingAccount, PricingTier } from "@/lib/billing/pricing";
 import { closeCheckout, loadPaddle, onPaddleEvent } from "@/lib/paddle/client";
 import type { PaddleConfigResult } from "@/lib/paddle/config";
@@ -28,6 +29,7 @@ export function PricingPlans({
   userId,
   account,
   resumePlan,
+  checkoutOpen,
 }: {
   tiers: PricingTier[];
   paddle: PaddleConfigResult;
@@ -40,6 +42,11 @@ export function PricingPlans({
   /** Signed-in user's plan and subscription; null when signed out */
   account: PricingAccount | null;
   resumePlan: PaidTierId | null;
+  /**
+   * Paid plans can be bought: only with live Paddle billing (or locally, for
+   * Sandbox testing). Otherwise they're shown as coming soon, with a waitlist.
+   */
+  checkoutOpen: boolean;
 }) {
   const router = useRouter();
   const config = paddle.ok ? paddle.config : null;
@@ -52,14 +59,15 @@ export function PricingPlans({
   const openRef = useRef(false);
   const resumed = useRef(false);
   const [switching, setSwitching] = useState<PaidTierId | null>(null);
+  const [joining, setJoining] = useState<PaidTierId | null>(null);
   const [confirming, setConfirming] = useState<PaidTierId | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const subscription = account?.subscription ?? null;
 
-  // Localized prices, exactly as Paddle formats them
+  // Localized prices, exactly as Paddle formats them (not loaded before launch)
   useEffect(() => {
-    if (!config) return;
+    if (!config || !checkoutOpen) return;
     let active = true;
     const { starter, pro } = config.priceIds;
     loadPaddle(config)
@@ -93,7 +101,7 @@ export function PricingPlans({
     return () => {
       active = false;
     };
-  }, [config, country]);
+  }, [config, country, checkoutOpen]);
 
   // Checkout lifecycle: unlock on close/error, confirmation page on completion.
   // Completion here is only what the browser saw; plans change via webhooks.
@@ -176,18 +184,38 @@ export function PricingPlans({
     router.refresh();
   }
 
-  // Back from sign-in with a plan picked: open its checkout once prices show
+  const joinWaitlist = useCallback(
+    async (tier: PaidTierId) => {
+      if (!email) {
+        router.push(`/auth/sign-up?redirectTo=${encodeURIComponent(`/pricing?plan=${tier}`)}`);
+        return;
+      }
+      setJoining(tier);
+      const result = await joinWaitlistAction(tier);
+      setJoining(null);
+      setNotice({ ok: result.ok, text: result.message });
+    },
+    [email, router],
+  );
+
+  // Back from sign-in with a plan picked: its checkout (or the waitlist) continues
   useEffect(() => {
-    if (!resumePlan || resumed.current || prices.status !== "ready" || !prices.byTier[resumePlan]) return;
+    if (!resumePlan || resumed.current) return;
+    if (checkoutOpen && (prices.status !== "ready" || !prices.byTier[resumePlan])) return;
     resumed.current = true;
     // Plain history update: a router navigation would re-render the server page
     window.history.replaceState(null, "", "/pricing");
-    subscribe(resumePlan);
-  }, [resumePlan, prices, subscribe]);
+    if (checkoutOpen) subscribe(resumePlan);
+    // After this render: joining updates state
+    else void Promise.resolve().then(() => joinWaitlist(resumePlan));
+  }, [resumePlan, prices, subscribe, checkoutOpen, joinWaitlist]);
 
   return (
     <>
-      {!paddle.ok && (
+      {!checkoutOpen && (
+        <p className="pricing-test-note">Scout is free during the beta. Paid plans are coming soon: join the waitlist to hear first.</p>
+      )}
+      {checkoutOpen && !paddle.ok && (
         <div className="form-message pricing-alert" data-status="error" role="alert">
           <strong>Paid plans are unavailable: checkout isn&apos;t configured.</strong>
           <ul>
@@ -197,7 +225,7 @@ export function PricingPlans({
           </ul>
         </div>
       )}
-      {paddle.ok && paddle.config.environment === "sandbox" && (
+      {checkoutOpen && paddle.ok && paddle.config.environment === "sandbox" && (
         <p className="pricing-test-note">Test environment: payments use Paddle Sandbox and no real money is charged.</p>
       )}
       {notice && (
@@ -217,7 +245,11 @@ export function PricingPlans({
             <header>
               <div className="pricing-card-title">
                 <h2>{tier.name}</h2>
-                {tier.recommended && <span className="pricing-badge">Recommended</span>}
+                {!checkoutOpen && tier.id !== "free" ? (
+                  <span className="pricing-badge pricing-badge-soon">Coming soon</span>
+                ) : (
+                  tier.recommended && <span className="pricing-badge">Recommended</span>
+                )}
               </div>
               <p>{tier.description}</p>
             </header>
@@ -229,7 +261,7 @@ export function PricingPlans({
                   <span>/month</span>
                 </>
               ) : (
-                <PaidPriceView prices={prices} tier={tier.id} />
+                <PaidPriceView prices={prices} tier={tier.id} listPriceOnly={!checkoutOpen} />
               )}
             </div>
 
@@ -249,6 +281,19 @@ export function PricingPlans({
                 <Link href={email ? "/dashboard" : "/auth/sign-up"} className="secondary-button pricing-cta">
                   {email ? "Open dashboard" : "Start free"}
                 </Link>
+              )
+            ) : !checkoutOpen ? (
+              subscription ? (
+                <p className="pricing-card-note">Plan changes open when paid plans launch.</p>
+              ) : (
+                <button
+                  type="button"
+                  className="secondary-button pricing-cta"
+                  disabled={joining !== null}
+                  onClick={() => joinWaitlist(tier.id as PaidTierId)}
+                >
+                  {joining === tier.id ? "Joining…" : "Join the waitlist"}
+                </button>
               )
             ) : subscription ? (
               <>
@@ -332,7 +377,16 @@ function SwitchSummary({ tier, price }: { tier: PaidTierId; price: PaidPrice | u
   );
 }
 
-function PaidPriceView({ prices, tier }: { prices: Prices; tier: PaidTierId }) {
+function PaidPriceView({ prices, tier, listPriceOnly }: { prices: Prices; tier: PaidTierId; listPriceOnly: boolean }) {
+  if (listPriceOnly) {
+    // Before launch: the planned list price in USD (Paddle localizes it at checkout)
+    return (
+      <>
+        <strong>${PLANS[tier].monthlyPriceUsd}</strong>
+        <span>/month</span>
+      </>
+    );
+  }
   if (prices.status === "loading") return <span className="pricing-price-loading">Loading price…</span>;
   const price = prices.status === "ready" ? prices.byTier[tier] : undefined;
   if (!price) return <span className="pricing-price-error">{prices.status === "error" ? prices.message : "Price unavailable"}</span>;

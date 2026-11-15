@@ -212,7 +212,7 @@ async function AccountsStep({ profile }: { profile: Profile }) {
     <div className="calibration onboarding-accounts">
       <p className="memory-note">
         Think of founders in your space, experts you learn from, creators your audience follows, and people
-        who could become customers. Start with 5–15.
+        who could become customers. Start with the ones whose conversations matter most to you.
       </p>
       <p className="eyebrow">
         {active} selected

@@ -22,6 +22,7 @@ import { withQuotedPost } from "@/lib/posts/quotedPost";
 import type { NormalizedCandidatePost } from "@/lib/posts/types";
 import { getScoutLimits, type ScoutLimits } from "@/lib/scout/testLimits";
 import type { BudgetExhausted, ScoutRunStats, XRunUsage } from "@/lib/scout/types";
+import { track } from "@/services/analytics/track";
 import {
   freeCapacityReached,
   getUsageBudget,
@@ -302,6 +303,7 @@ export async function runScout(
     }
     console.info("Scout run finished", run.id, stats);
     await recordXUsage({ runsCompleted: 1 });
+    await track("first_scan_completed", { profileId, props: { trigger } });
 
     return {
       status: "completed",

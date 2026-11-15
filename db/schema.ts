@@ -872,3 +872,44 @@ export const notificationDailyCountsTable = pgTable(
   },
   (t) => [primaryKey({ columns: [t.profileId, t.channel, t.day] })],
 );
+
+/**
+ * Day 23: a Paddle subscription and the plan it grants. Written only from
+ * verified webhooks; profiles.plan is derived from it.
+ */
+export const billingSubscriptionsTable = pgTable(
+  "billing_subscriptions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    paddleSubscriptionId: text().notNull().unique(),
+    paddleCustomerId: text().notNull(),
+    /** Paddle's status: active, trialing, past_due, paused, canceled */
+    status: text().notNull(),
+    priceId: text(),
+    /** The plan this subscription's price buys; null for an unknown price */
+    plan: planEnum(),
+    currentPeriodEndsAt: timestamp({ withTimezone: true }),
+    /** e.g. a cancellation at the end of the period */
+    scheduledChange: jsonb().$type<{ action: string; effectiveAt: string } | null>(),
+    /** occurred_at of the newest event applied: older ones arriving late are skipped */
+    lastEventAt: timestamp({ withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId)],
+);
+
+export type BillingSubscription = typeof billingSubscriptionsTable.$inferSelect;
+
+/** Every Paddle webhook event handled once: retries and replays are no-ops */
+export const paddleWebhookEventsTable = pgTable("paddle_webhook_events", {
+  eventId: text().primaryKey(),
+  eventType: text().notNull(),
+  occurredAt: timestamp({ withTimezone: true }).notNull(),
+  profileId: uuid().references(() => profilesTable.id, { onDelete: "set null" }),
+  /** applied, stale (older than what's stored), unmatched (no Scout user), ignored */
+  outcome: text().notNull(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});

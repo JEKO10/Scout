@@ -21,7 +21,8 @@ export type AutoScanSettings = {
   maxAutoRunsPerDay: number;
 };
 
-export const PLAN_IDS = ["free", "pro", "internal"] as const;
+// Order matters for the Postgres enum: new plans are inserted, never reordered
+export const PLAN_IDS = ["free", "starter", "pro", "internal"] as const;
 
 export type PlanId = (typeof PLAN_IDS)[number];
 
@@ -42,9 +43,22 @@ export const PLANS: Record<
     },
     autoScan: { intervalsMinutes: [120, 240, 480], maxAutoRunsPerDay: 12 },
   },
+  // Day 23: between Free and Pro on every limit; tune with real usage
+  starter: {
+    label: "Starter",
+    monthlyPriceUsd: 12,
+    limits: {
+      monthlyXPostReads: 6_000,
+      monthlyScoringUsd: 20,
+      monthlyReplyUsd: 6,
+      maxActiveWatchlist: 20,
+      maxCandidatesPerRun: 80,
+    },
+    autoScan: { intervalsMinutes: [60, 120, 240], maxAutoRunsPerDay: 24 },
+  },
   pro: {
     label: "Pro",
-    monthlyPriceUsd: 29,
+    monthlyPriceUsd: 24,
     limits: {
       monthlyXPostReads: 10_000,
       monthlyScoringUsd: 30,

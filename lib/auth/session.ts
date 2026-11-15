@@ -16,6 +16,13 @@ export const requireUser = cache(async () => {
   return session.user;
 });
 
+/** Current user if signed in, null otherwise: for public pages (pricing). */
+export const getOptionalUser = cache(async () => {
+  await connection();
+  const { data: session } = await auth.getSession();
+  return session?.user ?? null;
+});
+
 /** Current user plus their Scout profile (created on first access). */
 export const requireProfile = cache(async () => {
   const user = await requireUser();

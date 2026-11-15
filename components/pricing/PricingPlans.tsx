@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { changePlanAction } from "@/actions/billing";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { PaidTierId, PricingAccount, PricingTier } from "@/lib/billing/pricing";
 import { closeCheckout, loadPaddle, onPaddleEvent } from "@/lib/paddle/client";
 import type { PaddleConfigResult } from "@/lib/paddle/config";
@@ -51,6 +52,8 @@ export function PricingPlans({
   const openRef = useRef(false);
   const resumed = useRef(false);
   const [switching, setSwitching] = useState<PaidTierId | null>(null);
+  const [confirming, setConfirming] = useState<PaidTierId | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const subscription = account?.subscription ?? null;
 
@@ -144,20 +147,22 @@ export function PricingPlans({
     [config, email, userId, account, router],
   );
 
-  async function switchTo(tier: PaidTierId) {
-    const name = tier === "pro" ? "Pro" : "Starter";
-    const confirmed = window.confirm(
-      tier === "pro"
-        ? `Switch to ${name} now? Paddle charges the prorated difference for the rest of this billing period to your saved payment method.`
-        : `Switch to ${name} now? Your limits change right away and the unused part of this period is credited to your next bill.`,
-    );
-    if (!confirmed) return;
+  async function confirmSwitch() {
+    if (!confirming) return;
+    const tier = confirming;
     setSwitching(tier);
+    setSwitchError(null);
     setNotice(null);
     const result = await changePlanAction(tier);
     setSwitching(null);
-    setNotice({ ok: result.ok, text: result.message ?? (result.ok ? "Plan changed." : "Something went wrong.") });
-    if (result.ok) router.refresh();
+    if (!result.ok) {
+      // Kept in the dialog, next to what the user just tried
+      setSwitchError(result.message);
+      return;
+    }
+    setConfirming(null);
+    setNotice({ ok: true, text: result.message ?? "Plan changed." });
+    router.refresh();
   }
 
   // Back from sign-in with a plan picked: open its checkout once prices show
@@ -238,7 +243,10 @@ export function PricingPlans({
                   type="button"
                   className={`${tier.recommended ? "primary-button" : "secondary-button"} pricing-cta`}
                   disabled={switching !== null || subscription.changeBlockedBy !== null}
-                  onClick={() => switchTo(tier.id as PaidTierId)}
+                  onClick={() => {
+                    setSwitchError(null);
+                    setConfirming(tier.id as PaidTierId);
+                  }}
                 >
                   {switching === tier.id ? "Switching…" : `Switch to ${tier.name}`}
                 </button>
@@ -263,7 +271,46 @@ export function PricingPlans({
           </article>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={confirming !== null}
+        title={confirming === "pro" ? "Upgrade to Pro?" : "Switch to Starter?"}
+        confirmLabel={confirming === "pro" ? "Upgrade to Pro" : "Switch to Starter"}
+        pending={switching !== null}
+        error={switchError}
+        onConfirm={confirmSwitch}
+        onCancel={() => setConfirming(null)}
+      >
+        {confirming && <SwitchSummary tier={confirming} price={prices.status === "ready" ? prices.byTier[confirming] : undefined} />}
+      </ConfirmDialog>
     </>
+  );
+}
+
+/** What changes when the plan is switched; amounts are Paddle's own strings */
+function SwitchSummary({ tier, price }: { tier: PaidTierId; price: PaidPrice | undefined }) {
+  const upgrade = tier === "pro";
+  return (
+    <ul className="confirm-dialog-list">
+      <li>
+        <strong>{upgrade ? "Pro" : "Starter"} limits apply right away.</strong>
+      </li>
+      <li>
+        {upgrade
+          ? "The price difference for the rest of this billing period is charged now to the payment method on file."
+          : "The unused part of this period is credited to your next bill. Nothing is charged now."}
+      </li>
+      {price && (
+        <li>
+          From your next renewal:{" "}
+          <strong>
+            {price.total}
+            {price.interval && `/${price.interval}`}
+          </strong>
+          .
+        </li>
+      )}
+    </ul>
   );
 }
 

@@ -4315,3 +4315,90 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Confirmation dialog */
+.confirm-dialog {
+  width: min(100% - 32px, 460px);
+  margin: auto;
+  border: 0;
+  border-radius: 22px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0;
+  box-shadow: 0 30px 80px rgb(0 0 0 / 22%);
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(15 15 18 / 45%);
+  backdrop-filter: blur(3px);
+}
+
+.confirm-dialog[open] {
+  animation: confirm-dialog-in 160ms ease-out;
+}
+
+@keyframes confirm-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+.confirm-dialog-panel {
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+}
+
+.confirm-dialog-panel h2 {
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.03em;
+}
+
+.confirm-dialog-list {
+  display: grid;
+  gap: 10px;
+  color: var(--muted-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.confirm-dialog-list strong {
+  color: var(--ink);
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.pricing-card .pricing-current {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pricing-card .pricing-card-note {
+  margin-top: -12px;
+  color: var(--muted-ink);
+  font-size: 12px;
+}
+
+@media (max-width: 480px) {
+  .confirm-dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .confirm-dialog-actions > * {
+    width: 100%;
+  }
+}

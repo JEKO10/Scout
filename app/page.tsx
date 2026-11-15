@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
+
+import { getOptionalUser } from "@/lib/auth/session";
 
 export default function Home() {
   return (
@@ -8,10 +11,9 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">S</span>
           <span>Scout</span>
         </Link>
-        <div>
-          <Link href="/auth/sign-in" className="nav-text-link">Sign in</Link>
-          <Link href="/auth/sign-up" className="small-dark-button">Start scouting</Link>
-        </div>
+        <Suspense fallback={<NavLinks signedIn={false} />}>
+          <SessionNavLinks />
+        </Suspense>
       </nav>
 
       <section className="landing-hero shell">
@@ -22,12 +24,9 @@ export default function Home() {
             Scout learns your voice, watches the right people and surfaces the
             posts where your perspective matters.
           </p>
-          <div className="hero-actions">
-            <Link href="/auth/sign-up" className="primary-button">Get started</Link>
-            <Link href="/auth/sign-in" className="text-link">
-              Open your dashboard <span aria-hidden="true">→</span>
-            </Link>
-          </div>
+          <Suspense fallback={<HeroActions signedIn={false} />}>
+            <SessionHeroActions />
+          </Suspense>
         </div>
 
         <div className="signal-visual" aria-hidden="true">
@@ -51,5 +50,47 @@ export default function Home() {
         </div>
       </section>
     </main>
+  );
+}
+
+// The landing page stays static; only these links read the session, so a
+// signed-in visitor goes straight to the app instead of the sign-in form.
+async function SessionNavLinks() {
+  return <NavLinks signedIn={Boolean(await getOptionalUser())} />;
+}
+
+async function SessionHeroActions() {
+  return <HeroActions signedIn={Boolean(await getOptionalUser())} />;
+}
+
+function NavLinks({ signedIn }: { signedIn: boolean }) {
+  return signedIn ? (
+    <div>
+      <Link href="/pricing" className="nav-text-link">Pricing</Link>
+      <Link href="/dashboard" className="small-dark-button">Open dashboard</Link>
+    </div>
+  ) : (
+    <div>
+      <Link href="/pricing" className="nav-text-link">Pricing</Link>
+      <Link href="/auth/sign-in" className="nav-text-link">Sign in</Link>
+      <Link href="/auth/sign-up" className="small-dark-button">Start scouting</Link>
+    </div>
+  );
+}
+
+function HeroActions({ signedIn }: { signedIn: boolean }) {
+  return (
+    <div className="hero-actions">
+      {signedIn ? (
+        <Link href="/dashboard" className="primary-button">Open your dashboard</Link>
+      ) : (
+        <>
+          <Link href="/auth/sign-up" className="primary-button">Get started</Link>
+          <Link href="/auth/sign-in" className="text-link">
+            Sign in <span aria-hidden="true">→</span>
+          </Link>
+        </>
+      )}
+    </div>
   );
 }

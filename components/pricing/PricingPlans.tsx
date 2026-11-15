@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { PaidTierId, PricingTier } from "@/lib/billing/pricing";
+import { changePlanAction } from "@/actions/billing";
+import type { PaidTierId, PricingAccount, PricingTier } from "@/lib/billing/pricing";
 import { closeCheckout, loadPaddle, onPaddleEvent } from "@/lib/paddle/client";
 import type { PaddleConfigResult } from "@/lib/paddle/config";
 
@@ -24,6 +25,7 @@ export function PricingPlans({
   country,
   email,
   userId,
+  account,
   resumePlan,
 }: {
   tiers: PricingTier[];
@@ -34,6 +36,8 @@ export function PricingPlans({
   email: string | null;
   /** Neon Auth user ID, sent as customData so the webhook knows whose subscription it is */
   userId: string | null;
+  /** Signed-in user's plan and subscription; null when signed out */
+  account: PricingAccount | null;
   resumePlan: PaidTierId | null;
 }) {
   const router = useRouter();
@@ -46,6 +50,9 @@ export function PricingPlans({
   // State updates are async; the ref stops a double click opening two checkouts
   const openRef = useRef(false);
   const resumed = useRef(false);
+  const [switching, setSwitching] = useState<PaidTierId | null>(null);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const subscription = account?.subscription ?? null;
 
   // Localized prices, exactly as Paddle formats them
   useEffect(() => {
@@ -112,6 +119,8 @@ export function PricingPlans({
         router.push(`/auth/sign-in?redirectTo=${encodeURIComponent(`/pricing?plan=${tier}`)}`);
         return;
       }
+      // One subscription per user: an existing one is switched, never doubled
+      if (account?.subscription || account?.currentTier === tier) return;
       if (openRef.current) return;
       openRef.current = true;
       setOpening(tier);
@@ -132,8 +141,24 @@ export function PricingPlans({
           setCheckoutError("Couldn't open checkout. Try again in a moment.");
         });
     },
-    [config, email, userId, router],
+    [config, email, userId, account, router],
   );
+
+  async function switchTo(tier: PaidTierId) {
+    const name = tier === "pro" ? "Pro" : "Starter";
+    const confirmed = window.confirm(
+      tier === "pro"
+        ? `Switch to ${name} now? Paddle charges the prorated difference for the rest of this billing period to your saved payment method.`
+        : `Switch to ${name} now? Your limits change right away and the unused part of this period is credited to your next bill.`,
+    );
+    if (!confirmed) return;
+    setSwitching(tier);
+    setNotice(null);
+    const result = await changePlanAction(tier);
+    setSwitching(null);
+    setNotice({ ok: result.ok, text: result.message ?? (result.ok ? "Plan changed." : "Something went wrong.") });
+    if (result.ok) router.refresh();
+  }
 
   // Back from sign-in with a plan picked: open its checkout once prices show
   useEffect(() => {
@@ -158,6 +183,11 @@ export function PricingPlans({
       )}
       {paddle.ok && paddle.config.environment === "sandbox" && (
         <p className="pricing-test-note">Test environment: payments use Paddle Sandbox and no real money is charged.</p>
+      )}
+      {notice && (
+        <p className="form-message pricing-alert" data-status={notice.ok ? "success" : "error"} role="status">
+          {notice.text}
+        </p>
       )}
       {checkoutError && (
         <p className="form-message pricing-alert" data-status="error" role="alert">
@@ -187,10 +217,33 @@ export function PricingPlans({
               )}
             </div>
 
-            {tier.id === "free" ? (
-              <Link href={email ? "/dashboard" : "/auth/sign-up"} className="secondary-button pricing-cta">
-                {email ? "Open dashboard" : "Start free"}
-              </Link>
+            {account?.currentTier === tier.id ? (
+              <span className="pricing-current pricing-cta">Your plan</span>
+            ) : tier.id === "free" ? (
+              subscription ? (
+                <>
+                  <Link href="/account/settings" className="secondary-button pricing-cta">
+                    Cancel in Settings
+                  </Link>
+                  <p className="pricing-card-note">Plan &amp; billing → Manage billing.</p>
+                </>
+              ) : (
+                <Link href={email ? "/dashboard" : "/auth/sign-up"} className="secondary-button pricing-cta">
+                  {email ? "Open dashboard" : "Start free"}
+                </Link>
+              )
+            ) : subscription ? (
+              <>
+                <button
+                  type="button"
+                  className={`${tier.recommended ? "primary-button" : "secondary-button"} pricing-cta`}
+                  disabled={switching !== null || subscription.changeBlockedBy !== null}
+                  onClick={() => switchTo(tier.id as PaidTierId)}
+                >
+                  {switching === tier.id ? "Switching…" : `Switch to ${tier.name}`}
+                </button>
+                {subscription.changeBlockedBy && <p className="pricing-card-note">{subscription.changeBlockedBy}</p>}
+              </>
             ) : (
               <button
                 type="button"

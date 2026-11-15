@@ -54,6 +54,7 @@ export const paddleSubscriptionSchema = z.object({
   items: z.array(z.object({ price: z.object({ id: z.string() }).nullish() })).default([]),
   current_billing_period: z.object({ ends_at: z.string() }).nullish(),
   scheduled_change: z.object({ action: z.string(), effective_at: z.string() }).nullish(),
+  updated_at: z.string().optional(),
 });
 
 export type PaddleSubscription = z.infer<typeof paddleSubscriptionSchema>;

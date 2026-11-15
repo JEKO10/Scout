@@ -58,3 +58,11 @@ export const PRICING_TIERS: PricingTier[] = [
 export function isPaidTier(value: unknown): value is PaidTierId {
   return value === "starter" || value === "pro";
 }
+
+/** What the pricing page knows about the signed-in user's plan */
+export type PricingAccount = {
+  /** The tier to mark "Your plan"; null for internal accounts without a subscription */
+  currentTier: PricingTierId | null;
+  /** A subscription granting access: paid tiers switch on it instead of a new checkout */
+  subscription: { plan: PaidTierId | null; changeBlockedBy: string | null } | null;
+};

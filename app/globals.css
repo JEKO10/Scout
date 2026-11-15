@@ -4261,3 +4261,57 @@ textarea {
     padding-block: 32px 28px;
   }
 }
+
+/* Plan & billing (Day 23) */
+.plan-usage {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.plan-usage > div {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.plan-usage dt {
+  color: var(--muted-ink);
+  font-size: 12px;
+}
+
+.plan-usage dd {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.plan-billing .calibration-actions {
+  margin-top: 20px;
+}
+
+.pricing-current {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pricing-card-note {
+  margin-top: -12px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .plan-usage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -7,14 +7,18 @@ import { updateProfile } from "@/actions/profile";
 import { AccountDataOverview } from "@/components/AccountDataOverview";
 import { AppHeader } from "@/components/AppHeader";
 import { AutoScoutSettings } from "@/components/AutoScoutSettings";
+import { PlanBilling } from "@/components/billing/PlanBilling";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { OpportunitySensitivityForm } from "@/components/OpportunitySensitivityForm";
 import { ProfileForm } from "@/components/ProfileForm";
 import { ReplyPreferencesForm } from "@/components/ReplyPreferencesForm";
 import { getWorkspaceData } from "@/db/queries/opportunities";
+import { countActiveWatchlist } from "@/db/queries/watchlist";
 import { requireProfile } from "@/lib/auth/session";
 import { formatRelative } from "@/lib/format";
 import { detectPreferenceConflicts, normalizeReplyPreferences } from "@/lib/scout/replyPreferences";
+import { getBillingOverview } from "@/services/billing/account";
+import { getUsageBudget } from "@/services/billing/budget";
 import { getNotificationOverview } from "@/services/notifications/overview";
 import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
@@ -59,10 +63,13 @@ async function AccountContent({ params }: { params: Params }) {
 
 async function ScoutSettings() {
   const { profile } = await requireProfile();
-  const [data, autoScout, notifications] = await Promise.all([
+  const [data, autoScout, notifications, billing, budget, activeAccounts] = await Promise.all([
     getWorkspaceData(profile.id),
     getAutoScoutStatus(profile),
     getNotificationOverview(profile.id),
+    getBillingOverview(profile),
+    getUsageBudget(profile),
+    countActiveWatchlist(profile.id),
   ]);
 
   // Reply preferences and anything in "avoid" that would also hide what the user wants
@@ -80,6 +87,11 @@ async function ScoutSettings() {
 
   return (
     <>
+      <PlanBilling
+        billing={billing}
+        limits={budget.limits}
+        usage={{ xPostReads: budget.used.xPostReads, activeAccounts }}
+      />
       <AutoScoutSettings
         data={{
           enabled: autoScout.enabled,

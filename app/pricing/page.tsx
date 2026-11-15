@@ -4,9 +4,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { PricingPlans } from "@/components/pricing/PricingPlans";
+import { getProfileByUserId } from "@/db/queries/profiles";
 import { getOptionalUser } from "@/lib/auth/session";
-import { isPaidTier, PRICING_TIERS } from "@/lib/billing/pricing";
+import { isPaidTier, PRICING_TIERS,type PricingAccount } from "@/lib/billing/pricing";
 import { countryFromHeader, readPaddleConfig } from "@/lib/paddle/config";
+import { ACCESS_STATUSES } from "@/lib/paddle/webhook";
+import { getBillingOverview } from "@/services/billing/account";
 
 export const metadata: Metadata = { title: "Pricing" };
 
@@ -42,6 +45,7 @@ export default function PricingPage({ searchParams }: PageProps<"/pricing">) {
 async function Pricing({ searchParams }: { searchParams: PageProps<"/pricing">["searchParams"] }) {
   const [{ plan }, requestHeaders, user] = await Promise.all([searchParams, headers(), getOptionalUser()]);
   const paddle = readPaddleConfig();
+  const account = user ? await pricingAccount(user.id) : null;
 
   return (
     <PricingPlans
@@ -50,10 +54,24 @@ async function Pricing({ searchParams }: { searchParams: PageProps<"/pricing">["
       country={countryFromHeader(requestHeaders.get("x-vercel-ip-country"))}
       email={user?.email ?? null}
       userId={user?.id ?? null}
+      account={account}
       // A plan picked before sign-in: its checkout opens on return
-      resumePlan={isPaidTier(plan) && user ? plan : null}
+      resumePlan={isPaidTier(plan) && user && !account?.subscription && account?.currentTier !== plan ? plan : null}
     />
   );
+}
+
+/** Read only: a signed-in user without a profile yet is simply on Free */
+async function pricingAccount(userId: string): Promise<PricingAccount> {
+  const profile = await getProfileByUserId(userId);
+  if (!profile) return { currentTier: "free", subscription: null };
+  const billing = await getBillingOverview(profile);
+  const granting = billing.subscription && ACCESS_STATUSES.has(billing.subscription.status) ? billing.subscription : null;
+  const subscriptionTier = granting?.plan && isPaidTier(granting.plan) ? granting.plan : null;
+  return {
+    currentTier: subscriptionTier ?? (profile.plan === "internal" ? null : profile.plan),
+    subscription: granting && { plan: subscriptionTier, changeBlockedBy: granting.changeBlockedBy },
+  };
 }
 
 function PricingSkeleton() {

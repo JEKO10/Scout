@@ -40,13 +40,6 @@ export async function upsertSubscription(values: SubscriptionValues): Promise<vo
     .onConflictDoUpdate({ target: billingSubscriptionsTable.paddleSubscriptionId, set: changes });
 }
 
-export async function setProfilePlan(
-  profileId: string,
-  plan: PlanId,
-  autoScanIntervalMinutes: number | null | undefined,
-): Promise<void> {
-  await db
-    .update(profilesTable)
-    .set({ plan, ...(autoScanIntervalMinutes !== undefined ? { autoScanIntervalMinutes } : {}) })
-    .where(eq(profilesTable.id, profileId));
+export async function setProfilePlan(profileId: string, plan: PlanId): Promise<void> {
+  await db.update(profilesTable).set({ plan }).where(eq(profilesTable.id, profileId));
 }

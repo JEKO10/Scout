@@ -9,7 +9,7 @@ import {
   upsertSubscription,
 } from "@/db/queries/billing";
 import { getProfileById, getProfileByUserId } from "@/db/queries/profiles";
-import { type PlanId, PLANS } from "@/lib/billing/plans";
+import type { PlanId } from "@/lib/billing/plans";
 import { readPaddleConfig } from "@/lib/paddle/config";
 import {
   ACCESS_STATUSES,
@@ -21,7 +21,7 @@ import {
 export type WebhookOutcome = "applied" | "stale" | "unmatched" | "ignored" | "duplicate";
 
 /** Plans in order of what they include; the best active subscription wins */
-const RANK: Record<PlanId, number> = { free: 0, starter: 1, pro: 2, internal: 3 };
+export const PLAN_RANK: Record<PlanId, number> = { free: 0, starter: 1, pro: 2, internal: 3 };
 
 /** The Scout plan a Paddle price buys, by the configured price IDs */
 export function planForPrice(priceId: string | null | undefined): PlanId | null {
@@ -58,7 +58,8 @@ export async function handlePaddleEvent(event: PaddleEvent): Promise<WebhookOutc
   return outcome;
 }
 
-async function applySubscription(
+/** Stores Paddle's subscription state (from a webhook or an API response) and syncs the plan */
+export async function applySubscription(
   subscription: PaddleSubscription,
   occurredAt: Date,
 ): Promise<{ outcome: WebhookOutcome; profileId: string | null }> {
@@ -106,14 +107,12 @@ export async function syncProfilePlan(profileId: string): Promise<void> {
   const subscriptions = await getSubscriptionsForProfile(profileId);
   let plan: PlanId = "free";
   for (const subscription of subscriptions) {
-    if (subscription.plan && ACCESS_STATUSES.has(subscription.status) && RANK[subscription.plan] > RANK[plan]) {
+    if (subscription.plan && ACCESS_STATUSES.has(subscription.status) && PLAN_RANK[subscription.plan] > PLAN_RANK[plan]) {
       plan = subscription.plan;
     }
   }
   if (plan === profile.plan) return;
-
-  // A chosen auto-scan interval the new plan doesn't offer falls back to its default
-  const interval = profile.autoScanIntervalMinutes;
-  const keepInterval = interval === null || PLANS[plan].autoScan.intervalsMinutes.includes(interval);
-  await setProfilePlan(profileId, plan, keepInterval ? undefined : null);
+  // The chosen auto-scan interval is kept: the scheduler uses it only while
+  // the plan offers it (autoScanInterval), so it returns after an upgrade back
+  await setProfilePlan(profileId, plan);
 }

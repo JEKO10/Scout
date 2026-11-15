@@ -12,8 +12,12 @@ import { eq, like } from "drizzle-orm";
 import { POST } from "@/app/api/webhooks/paddle/route";
 import db from "@/db";
 import * as s from "@/db/schema";
+import { PLANS } from "@/lib/billing/plans";
+import { PaddleNotConfiguredError } from "@/lib/paddle/api";
 import { verifyPaddleSignature } from "@/lib/paddle/webhook";
+import { changePlan, getBillingOverview, openBillingPortal } from "@/services/billing/account";
 import { handlePaddleEvent } from "@/services/billing/paddleWebhook";
+import { autoScanInterval } from "@/services/scheduler/tick";
 
 import { cleanup, getProfile, newProfile, rememberXUsage } from "./helpers/db";
 
@@ -141,7 +145,7 @@ test("unknown users, unknown prices, internal accounts and other events", async 
   );
 });
 
-test("downgrade resets an auto-scan interval the new plan doesn't offer", async () => {
+test("plan changes keep the chosen auto-scan interval; the scheduler applies what the plan offers", async () => {
   const p = await newProfile();
   const id = `sub_${randomUUID()}`;
   await handlePaddleEvent(subscriptionEvent("subscription.created", { id, userId: p.userId, priceId: PRO, at: "2026-11-13T10:00:00Z" }));
@@ -149,5 +153,116 @@ test("downgrade resets an auto-scan interval the new plan doesn't offer", async 
   await handlePaddleEvent(subscriptionEvent("subscription.canceled", { id, priceId: PRO, status: "canceled", at: "2026-11-13T11:00:00Z" }));
   const after = await getProfile(p.id);
   assert.equal(after.plan, "free");
-  assert.equal(after.autoScanIntervalMinutes, null);
+  assert.equal(after.autoScanIntervalMinutes, 30, "kept for when the user upgrades again");
+  assert.equal(autoScanInterval(after), PLANS.free.autoScan.intervalsMinutes[0], "Free's default meanwhile");
+});
+
+// --- Plan & billing: switching plans and the customer portal (Paddle API mocked) ---
+
+type PaddleCall = { method: string; path: string; body: Record<string, unknown> };
+const paddleCalls: PaddleCall[] = [];
+
+function mockPaddleApi(respond: (call: PaddleCall) => unknown) {
+  const previous = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    // The test database (Neon, over HTTP) passes; Paddle is answered here; nothing else may leave
+    if (url.hostname.endsWith(".neon.tech")) return previous(input, init);
+    if (url.hostname !== "sandbox-api.paddle.com") throw new Error(`Unexpected request to ${url.hostname}`);
+    const call = { method: init?.method ?? "GET", path: url.pathname, body: JSON.parse(String(init?.body ?? "{}")) };
+    paddleCalls.push(call);
+    return new Response(JSON.stringify(respond(call)), { status: 200 });
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = previous;
+  };
+}
+
+async function subscribedProfile(priceId: string) {
+  const p = await newProfile();
+  const id = `sub_${randomUUID()}`;
+  await handlePaddleEvent(subscriptionEvent("subscription.created", { id, userId: p.userId, priceId, at: "2026-11-15T10:00:00Z" }));
+  return { p, id };
+}
+
+test("switching plans updates the same subscription and the plan at once", async () => {
+  process.env.PADDLE_API_KEY = "pdl_sdbx_apikey_test";
+  const { p, id } = await subscribedProfile(PRO);
+  const restore = mockPaddleApi((call) => ({
+    data: {
+      id,
+      status: "active",
+      customer_id: "ctm_test",
+      custom_data: null,
+      items: [{ price: { id: (call.body.items as { price_id: string }[])[0].price_id } }],
+      current_billing_period: { ends_at: "2026-12-15T00:00:00Z" },
+      scheduled_change: null,
+      updated_at: "2026-11-15T11:00:00Z",
+    },
+  }));
+  try {
+    const profile = await getProfile(p.id);
+    assert.deepEqual(await changePlan(profile, "pro"), { ok: false, message: "You're already on this plan." });
+
+    assert.deepEqual(await changePlan(profile, "starter"), { ok: true, plan: "starter" });
+    const call = paddleCalls.at(-1)!;
+    assert.equal(call.method, "PATCH");
+    assert.equal(call.path, `/subscriptions/${id}`);
+    assert.equal(call.body.proration_billing_mode, "prorated_next_billing_period", "downgrade: credit next bill");
+    assert.equal((await getProfile(p.id)).plan, "starter");
+
+    await changePlan(await getProfile(p.id), "pro");
+    assert.equal(paddleCalls.at(-1)!.body.proration_billing_mode, "prorated_immediately", "upgrade: charged now");
+    assert.equal((await getProfile(p.id)).plan, "pro");
+
+    const overview = await getBillingOverview(await getProfile(p.id));
+    assert.equal(overview.subscription?.plan, "pro");
+    assert.equal(overview.subscription?.changeBlockedBy, null);
+    assert.ok(overview.hasBillingAccount);
+  } finally {
+    restore();
+  }
+});
+
+test("plan switches are refused without a subscription, during a scheduled cancel, or without an API key", async () => {
+  const restore = mockPaddleApi(() => {
+    throw new Error("must not be called");
+  });
+  try {
+    const free = await newProfile();
+    assert.equal((await changePlan(free, "pro")).ok, false);
+
+    const { p, id } = await subscribedProfile(STARTER);
+    const canceling = subscriptionEvent("subscription.updated", { id, at: "2026-11-15T12:00:00Z" });
+    (canceling.data as Record<string, unknown>).scheduled_change = { action: "cancel", effective_at: "2026-12-15T00:00:00Z" };
+    await handlePaddleEvent(canceling);
+    const result = await changePlan(await getProfile(p.id), "pro");
+    assert.equal(result.ok, false);
+    assert.match(!result.ok ? result.message : "", /scheduled change/);
+    assert.equal((await getProfile(p.id)).plan, "starter", "still Starter until the period ends");
+
+    const other = await subscribedProfile(STARTER);
+    process.env.PADDLE_API_KEY = "";
+    await assert.rejects(changePlan(await getProfile(other.p.id), "pro"), PaddleNotConfiguredError);
+    assert.equal(paddleCalls.filter((c) => c.path.includes(other.id)).length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("Manage billing opens a portal session for the user's own Paddle customer", async () => {
+  process.env.PADDLE_API_KEY = "pdl_sdbx_apikey_test";
+  const restore = mockPaddleApi(() => ({
+    data: { urls: { general: { overview: "https://customer-portal.paddle.com/cpl_test" } } },
+  }));
+  try {
+    assert.equal(await openBillingPortal(await newProfile()), null, "no billing account yet");
+    const { p, id } = await subscribedProfile(PRO);
+    assert.equal(await openBillingPortal(p), "https://customer-portal.paddle.com/cpl_test");
+    const call = paddleCalls.at(-1)!;
+    assert.equal(call.path, "/customers/ctm_test/portal-sessions");
+    assert.deepEqual(call.body.subscription_ids, [id]);
+  } finally {
+    restore();
+  }
 });

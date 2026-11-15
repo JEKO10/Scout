@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { getBillingAlerts } from "@/db/queries/billing";
 import { requireProfile } from "@/lib/auth/session";
 import { PLANS } from "@/lib/billing/plans";
 import { isScoutTestMode } from "@/lib/scout/testLimits";
@@ -160,7 +161,32 @@ async function RunAnalyticsView() {
       )}
 
       <ScoringSection runs={runs} />
+      {/* Billing alerts concern every account: internal accounts only */}
+      {profile.plan === "internal" && <BillingAlerts />}
     </main>
+  );
+}
+
+async function BillingAlerts() {
+  const alerts = await getBillingAlerts();
+  return (
+    <section className="memory-section" aria-labelledby="billing-alerts-title">
+      <p className="eyebrow">Paddle webhooks</p>
+      <h2 id="billing-alerts-title">Billing alerts</h2>
+      {alerts.length === 0 ? (
+        <p className="memory-note">Nothing needs attention: no unmatched payments, duplicates or refunds.</p>
+      ) : (
+        <ul className="memory-list">
+          {alerts.map((alert) => (
+            <li key={alert.eventId}>
+              <strong>{alert.outcome}</strong> · {alert.eventType} · {alert.eventId} ·{" "}
+              {alert.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="memory-note">Details are in the Vercel logs under [billing-alert] and in internal Slack channels.</p>
+    </section>
   );
 }
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { CheckoutConfirmation } from "@/components/checkout/CheckoutConfirmation";
 import { readPaddleConfig } from "@/lib/paddle/config";
 
 export const metadata: Metadata = { title: "Payment received" };
@@ -9,7 +10,7 @@ export const metadata: Metadata = { title: "Payment received" };
 /**
  * Shown after the browser reports a completed checkout. It changes nothing:
  * anyone can open this URL, so plans are activated only by verified Paddle
- * webhooks (next step).
+ * webhooks; the page waits for that confirmation and then shows the plan.
  */
 export default function CheckoutSuccessPage({ searchParams }: PageProps<"/checkout/success">) {
   return (
@@ -26,18 +27,7 @@ export default function CheckoutSuccessPage({ searchParams }: PageProps<"/checko
         <Suspense fallback={null}>
           <Details searchParams={searchParams} />
         </Suspense>
-        <p>
-          Your plan will be upgraded once Paddle confirms the subscription. Until then your current
-          limits stay as they are.
-        </p>
-        <div className="checkout-actions">
-          <Link href="/dashboard" className="primary-button">
-            Go to my dashboard
-          </Link>
-          <Link href="/pricing" className="secondary-button">
-            Back to pricing
-          </Link>
-        </div>
+        <CheckoutConfirmation />
       </section>
     </main>
   );

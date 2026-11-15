@@ -18,6 +18,7 @@ import {
 } from "@/db/queries/cleanup";
 import { getXUsageToday } from "@/db/queries/xApiUsage";
 import * as s from "@/db/schema";
+import { PLANS } from "@/lib/billing/plans";
 import { isAuthorizedSchedulerRequest } from "@/lib/scheduler/auth";
 import { runSchedulerTick } from "@/services/scheduler/tick";
 import { runScout } from "@/services/scout/runScout";
@@ -88,9 +89,10 @@ test("1: an automatic scan runs when it's due and schedules the next one", async
   assert.ok((job.durationMs ?? -1) >= 0);
   const profile = await profileRow(p.id);
   assert.ok(profile.lastAutoScanAt, "last scan recorded");
-  // Free plan default: every 120 minutes
+  // Free plan default interval
+  const expected = PLANS.free.autoScan.intervalsMinutes[0];
   const minutes = (profile.nextScanAt!.getTime() - Date.now()) / 60_000;
-  assert.ok(minutes > 115 && minutes <= 121, `next scan in ${minutes} min`);
+  assert.ok(minutes > expected - 5 && minutes <= expected + 1, `next scan in ${minutes} min`);
 });
 
 test("2: users with Automatic Scout off are skipped", async () => {

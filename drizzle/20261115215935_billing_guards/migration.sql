@@ -1,0 +1,2 @@
+ALTER TABLE "billing_subscriptions" ADD COLUMN "unitPrice" jsonb;--> statement-breakpoint
+CREATE UNIQUE INDEX "billing_subscriptions_one_active_per_profile" ON "billing_subscriptions" ("profileId") WHERE "status" in ('active', 'trialing', 'past_due');

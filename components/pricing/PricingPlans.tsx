@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { changePlanAction } from "@/actions/billing";
+import { changePlanAction, prepareCheckoutAction } from "@/actions/billing";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { PaidTierId, PricingAccount, PricingTier } from "@/lib/billing/pricing";
 import { closeCheckout, loadPaddle, onPaddleEvent } from "@/lib/paddle/client";
@@ -128,15 +128,26 @@ export function PricingPlans({
       openRef.current = true;
       setOpening(tier);
       setCheckoutError(null);
-      loadPaddle(config)
-        .then((instance) =>
+      // The server checks the account and picks the price; the browser only says which tier
+      Promise.all([prepareCheckoutAction(tier), loadPaddle(config)])
+        .then(([prepared, instance]) => {
+          if (!prepared.ok) {
+            openRef.current = false;
+            setOpening(null);
+            setCheckoutError(prepared.message);
+            return;
+          }
+          // Remembered for /checkout/success: confirmations count from here
+          try {
+            sessionStorage.setItem("scout-checkout-started", new Date().toISOString());
+          } catch {}
           instance.Checkout.open({
-            items: [{ priceId: config.priceIds[tier], quantity: 1 }],
-            customer: { email },
-            customData: { userId },
+            items: [{ priceId: prepared.priceId, quantity: 1 }],
+            customer: { email: prepared.email },
+            customData: { scoutBinding: prepared.binding },
             settings: { displayMode: "overlay", variant: "one-page" },
-          }),
-        )
+          });
+        })
         .catch((error: unknown) => {
           console.error("Paddle checkout failed to open", error);
           openRef.current = false;
@@ -224,6 +235,8 @@ export function PricingPlans({
 
             {account?.currentTier === tier.id ? (
               <span className="pricing-current pricing-cta">Your plan</span>
+            ) : account?.internal && tier.id !== "free" ? (
+              <span className="pricing-current pricing-cta">Internal account: not billed</span>
             ) : tier.id === "free" ? (
               subscription ? (
                 <>
@@ -250,7 +263,12 @@ export function PricingPlans({
                 >
                   {switching === tier.id ? "Switching…" : `Switch to ${tier.name}`}
                 </button>
-                {subscription.changeBlockedBy && <p className="pricing-card-note">{subscription.changeBlockedBy}</p>}
+                <p className="pricing-card-note">
+                  {subscription.changeBlockedBy ??
+                    (tier.id === "pro"
+                      ? "Takes effect immediately. You pay the difference for the rest of this billing period."
+                      : "Takes effect immediately. Unused time on your current plan is credited to your next bill.")}
+                </p>
               </>
             ) : (
               <button

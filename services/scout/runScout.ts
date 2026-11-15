@@ -23,6 +23,7 @@ import type { NormalizedCandidatePost } from "@/lib/posts/types";
 import { getScoutLimits, type ScoutLimits } from "@/lib/scout/testLimits";
 import type { BudgetExhausted, ScoutRunStats, XRunUsage } from "@/lib/scout/types";
 import {
+  freeCapacityReached,
   getUsageBudget,
   maxActiveWatchlist,
   scanBlockedBy,
@@ -62,7 +63,12 @@ type AccountScan = {
   refreshed?: boolean;
   /** Another worker held the account's fetch; its cached posts were used as they are */
   busy?: boolean;
+  /** Not fetched from X this run: the user's budget couldn't cover it (cached posts still delivered) */
+  skippedForBudget?: boolean;
 };
+
+/** X won't return fewer than this many posts per request */
+const MIN_X_PAGE = 5;
 
 /** Shared by one run's account scans. */
 type ScanContext = {
@@ -72,7 +78,40 @@ type ScanContext = {
   deadline: number | null;
   lockWaitMs?: number;
   usage: XRunUsage;
+  /** Posts each account's X fetch may read this run (missing: no budget cap) */
+  fetchCaps: Map<string, number>;
 };
+
+/**
+ * Day 23: the X posts a run may fetch, spread over the user's accounts. A
+ * fetch reads at most what the user can still afford today, so a refresh this
+ * user triggers never costs more than their budget, however the shared cache
+ * is used later. Least recently scanned accounts go first when the budget
+ * can't cover all of them; the rest still get their cached posts.
+ */
+export function planFetchCaps(
+  accounts: Pick<WatchlistAccount, "id" | "lastScannedAt">[],
+  affordableResources: number,
+  limits: Pick<ScoutLimits, "maxPostsPerAccountFirstScan" | "maxPostsPerAccountSubsequentScan" | "fetchQuotePostsWithoutContext" | "fetchReplies">,
+): Map<string, number> {
+  // With quotes expanded, a post can cost two resources (the quote and what it quotes)
+  const perPost = !limits.fetchQuotePostsWithoutContext && !limits.fetchReplies ? 2 : 1;
+  const posts = Math.max(0, Math.floor(affordableResources / perPost));
+  const fullPage = Math.max(limits.maxPostsPerAccountFirstScan, limits.maxPostsPerAccountSubsequentScan);
+  const ordered = [...accounts].sort(
+    (a, b) => (a.lastScannedAt?.getTime() ?? 0) - (b.lastScannedAt?.getTime() ?? 0),
+  );
+  const caps = new Map<string, number>();
+  const even = Math.floor(posts / Math.max(1, ordered.length));
+  if (even >= MIN_X_PAGE) {
+    for (const account of ordered) caps.set(account.id, Math.min(fullPage, even));
+    return caps;
+  }
+  // Not enough for every account: full minimum pages for as many as possible
+  let fundable = Math.floor(posts / MIN_X_PAGE);
+  for (const account of ordered) caps.set(account.id, fundable-- > 0 ? MIN_X_PAGE : 0);
+  return caps;
+}
 
 /**
  * RUN SCOUT, in two phases.
@@ -98,9 +137,9 @@ export async function runScout(
   profileId: string,
   { trigger = "manual", lockWaitMs }: RunScoutOptions = {},
 ): Promise<RunScoutResult> {
-  const limits = getScoutLimits();
   const profile = await getProfileById(profileId);
   if (!profile) throw new Error(`Profile ${profileId} not found`);
+  const limits = getScoutLimits(profile.plan);
   // Also guards against more active accounts than the limit allows, e.g. two
   // accounts resumed at the same moment
   const accounts = (await getActiveWatchlist(profileId)).slice(0, maxActiveWatchlist(profile));
@@ -111,6 +150,17 @@ export async function runScout(
   const budget = await getUsageBudget(profile);
   const blockedBy = scanBlockedBy(budget);
   if (blockedBy) return { status: "budget_exhausted", reason: blockedBy };
+  if (await freeCapacityReached(profile.plan)) return { status: "budget_exhausted", reason: "free_capacity" };
+
+  // What X may still be asked for: today's budget minus cached posts already
+  // waiting for this user (those are delivered first and cost the same)
+  const waiting = await getUndeliveredCachedPosts(
+    profileId,
+    accounts.filter((account) => !isUnverified(account)).map((account) => account.platformUserId),
+    { postedAfter: new Date(Date.now() - MAX_POST_AGE_DAYS * 86_400_000), limit: budget.remaining.xPostReads + 1 },
+  );
+  const waitingResources = waiting.reduce((sum, post) => sum + (post.quotedContent ? 2 : 1), 0);
+  const fetchCaps = planFetchCaps(accounts, budget.remaining.xPostReads - waitingResources, limits);
 
   await failStaleScoutRuns(
     profileId,
@@ -134,6 +184,7 @@ export async function runScout(
       ? Date.now() + limits.maxScanDurationSeconds * 1000
       : null,
     lockWaitMs,
+    fetchCaps,
     usage: {
       requests: 0,
       failed: 0,
@@ -189,7 +240,8 @@ export async function runScout(
 
     await markWatchlistAccountsScanned(
       profileId,
-      scans.map((scan) => scan.account.id),
+      // Accounts skipped for budget stay "least recently scanned": first next time
+      scans.filter((scan) => !scan.skippedForBudget).map((scan) => scan.account.id),
       scanStartedAt,
     );
     await recordXUsage({
@@ -310,11 +362,16 @@ async function scanAccount(
   // what's delivered to them (phase 2), and they were refused a scan once it
   // was used up. Real X cost stays bounded by page size, cache freshness and
   // the run limits.
+  const cap = context.fetchCaps.get(account.id) ?? Infinity;
+  if (!isUnverified(current) && cap === 0) {
+    // Over today's budget: no X request; already cached posts are still delivered
+    return { account: current, fromCache: true, imported: [], skippedForBudget: true };
+  }
   if (!isUnverified(current) && !usage.stoppedReason) {
     try {
       const result = await ensureFreshPosts(current, {
-        firstLimit: limits.maxPostsPerAccountFirstScan,
-        nextLimit: limits.maxPostsPerAccountSubsequentScan,
+        firstLimit: Math.min(limits.maxPostsPerAccountFirstScan, cap),
+        nextLimit: Math.min(limits.maxPostsPerAccountSubsequentScan, cap),
         lockWaitMs: context.lockWaitMs,
         // Older posts are filtered as too old; not fetching them saves credits
         notBefore: new Date(Date.now() - MAX_POST_AGE_DAYS * 86_400_000),

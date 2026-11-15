@@ -81,12 +81,18 @@ test("3: one user's small budget doesn't limit another's", async () => {
   await watch(small.id, [user]);
   await watch(large.id, [user]);
 
+  // Day 23: a budget too small for one X page can't trigger a fetch at all
   const runSmall = await completed(small.id);
+  assert.equal(runSmall.stats.xApi?.requests ?? 0, 0, "no X request beyond the small budget");
+  assert.equal(runSmall.stats.planXReads, 0);
   const runLarge = await completed(large.id);
-  assert.equal(runSmall.stats.planXReads, 3, "small budget: 3 delivered");
-  assert.equal(runSmall.stats.xApi?.postsReturned, 10, "the shared fetch read a full page");
   assert.equal(runLarge.stats.planXReads, 10, "the other user gets all 10");
-  assert.equal(runLarge.stats.xApi?.requests, 0, "from the cache");
+  assert.equal(runLarge.stats.xApi?.postsReturned, 10, "fetched by the user who can afford it");
+  // The small user then gets what its budget covers, from the shared cache
+  await ageRuns(small.id);
+  const again = await completed(small.id);
+  assert.equal(again.stats.planXReads, 3, "small budget: 3 delivered");
+  assert.equal(again.stats.xApi?.requests ?? 0, 0, "from the cache");
 });
 
 test("4: workers on separate requests don't fetch the same account twice", async () => {

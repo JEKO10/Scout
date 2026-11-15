@@ -4402,3 +4402,23 @@ textarea {
     width: 100%;
   }
 }
+
+.plan-price {
+  color: var(--muted-ink);
+  font-weight: 500;
+}
+
+.plan-subscription-actions {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.plan-cancel-link {
+  border: 0;
+  background: none;
+  color: var(--destructive);
+  cursor: pointer;
+  padding: 0;
+}

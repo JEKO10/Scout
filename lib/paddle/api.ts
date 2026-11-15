@@ -36,12 +36,12 @@ function connection(): { baseUrl: string; apiKey: string } {
 
 const errorSchema = z.object({ error: z.object({ code: z.string().optional(), detail: z.string().optional() }) });
 
-async function request(method: "POST" | "PATCH", path: string, body: unknown): Promise<unknown> {
+async function request(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<unknown> {
   const { baseUrl, apiKey } = connection();
   const response = await fetch(`${baseUrl}${path}`, {
     method,
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(15_000),
   });
   const json: unknown = await response.json().catch(() => null);
@@ -82,4 +82,38 @@ export async function updateSubscriptionPrice(
     proration_billing_mode: prorationBillingMode,
   });
   return z.object({ data: z.unknown() }).parse(json).data;
+}
+
+/** Whether server-side Paddle calls can be made (key present and matching the environment) */
+export function isPaddleApiConfigured(): boolean {
+  try {
+    connection();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const entitySchema = z.object({ data: z.unknown() });
+
+/** Paddle's current subscription entity: the authority when events arrive out of order */
+export async function getSubscription(subscriptionId: string): Promise<unknown> {
+  return entitySchema.parse(await request("GET", `/subscriptions/${encodeURIComponent(subscriptionId)}`)).data;
+}
+
+/** Cancels at the end of the billing period (access continues until then), or immediately */
+export async function cancelSubscription(
+  subscriptionId: string,
+  effectiveFrom: "next_billing_period" | "immediately",
+): Promise<unknown> {
+  const json = await request("POST", `/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
+    effective_from: effectiveFrom,
+  });
+  return entitySchema.parse(json).data;
+}
+
+/** Removes a scheduled change, e.g. keeps a subscription that was set to cancel */
+export async function removeScheduledChange(subscriptionId: string): Promise<unknown> {
+  const json = await request("PATCH", `/subscriptions/${encodeURIComponent(subscriptionId)}`, { scheduled_change: null });
+  return entitySchema.parse(json).data;
 }

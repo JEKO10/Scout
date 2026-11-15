@@ -231,7 +231,7 @@ async function ScanStep({ profile }: { profile: Profile }) {
   const [activeRun, runs, gate, budget, accounts] = await Promise.all([
     getActiveScoutRun(profile.id),
     getRecentScoutRuns(profile.id, 1),
-    getRunGate(profile.id, getScoutLimits()),
+    getRunGate(profile.id, getScoutLimits(profile.plan)),
     getUsageBudget(profile),
     getWatchlist(profile.id),
   ]);
@@ -240,7 +240,7 @@ async function ScanStep({ profile }: { profile: Profile }) {
 
   // Why a scan can't start right now, said plainly instead of a broken spinner
   const blockedBy = scanBlockedBy(budget);
-  const limits = getScoutLimits();
+  const limits = getScoutLimits(profile.plan);
   const blocked =
     activeAccounts === 0
       ? "Add at least one active account to watch first."

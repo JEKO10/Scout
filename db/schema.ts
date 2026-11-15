@@ -891,14 +891,22 @@ export const billingSubscriptionsTable = pgTable(
     priceId: text(),
     /** The plan this subscription's price buys; null for an unknown price */
     plan: planEnum(),
+    /** Recurring price in the currency charged, minor units, as Paddle reports it */
+    unitPrice: jsonb().$type<{ amount: string; currencyCode: string } | null>(),
     currentPeriodEndsAt: timestamp({ withTimezone: true }),
     /** e.g. a cancellation at the end of the period */
     scheduledChange: jsonb().$type<{ action: string; effectiveAt: string } | null>(),
-    /** occurred_at of the newest event applied: older ones arriving late are skipped */
+    /** When Paddle last changed the subscription (its updated_at): older states never overwrite newer */
     lastEventAt: timestamp({ withTimezone: true }).notNull(),
     ...timestamps,
   },
-  (t) => [index().on(t.profileId)],
+  (t) => [
+    index().on(t.profileId),
+    // One subscription granting access per user: a second is canceled, never stacked
+    uniqueIndex("billing_subscriptions_one_active_per_profile")
+      .on(t.profileId)
+      .where(sql`${t.status} in ('active', 'trialing', 'past_due')`),
+  ],
 );
 
 export type BillingSubscription = typeof billingSubscriptionsTable.$inferSelect;

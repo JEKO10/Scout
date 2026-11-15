@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
@@ -77,7 +78,7 @@ async function Watchlist() {
               <p className="eyebrow">
                 {testStatus.maxActiveAccounts === null
                   ? `${activeCount} active`
-                  : `${activeCount} / ${testStatus.maxActiveAccounts} active (testing mode)`}
+                  : `${activeCount} / ${testStatus.maxActiveAccounts} active on your plan`}
               </p>
               <h2 id="watchlist-title">Accounts</h2>
             </div>
@@ -85,6 +86,14 @@ async function Watchlist() {
               {accounts.length} / {WATCHLIST_LIMIT}
             </span>
           </div>
+
+          {testStatus.maxActiveAccounts !== null && activeCount > testStatus.maxActiveAccounts && (
+            <p className="form-message" data-status="error" role="status">
+              You have {activeCount} active accounts, but your plan scans {testStatus.maxActiveAccounts}. Only the
+              first {testStatus.maxActiveAccounts} are scanned: pause the ones you care about least, or{" "}
+              <Link href="/pricing">upgrade your plan</Link>. Nothing is deleted.
+            </p>
+          )}
 
           <WatchlistList
             accounts={accounts.map((account) => ({

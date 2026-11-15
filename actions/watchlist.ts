@@ -126,8 +126,8 @@ export async function runScoutAction(): Promise<WatchlistActionState> {
         status: "error",
         message:
           gate.blockedBy === "daily_limit"
-            ? `Testing mode allows ${getScoutLimits().maxRunsPerDay} scans per 24 hours.${next}`
-            : `Testing mode waits ${getScoutLimits().minMinutesBetweenRuns} minutes between scans.${next}`,
+            ? `Testing mode allows ${getScoutLimits(profile.plan).maxRunsPerDay} scans per 24 hours.${next}`
+            : `Testing mode waits ${getScoutLimits(profile.plan).minMinutesBetweenRuns} minutes between scans.${next}`,
       };
     }
     case "failed":

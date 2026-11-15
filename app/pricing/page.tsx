@@ -64,13 +64,14 @@ async function Pricing({ searchParams }: { searchParams: PageProps<"/pricing">["
 /** Read only: a signed-in user without a profile yet is simply on Free */
 async function pricingAccount(userId: string): Promise<PricingAccount> {
   const profile = await getProfileByUserId(userId);
-  if (!profile) return { currentTier: "free", subscription: null };
+  if (!profile) return { currentTier: "free", subscription: null, internal: false };
   const billing = await getBillingOverview(profile);
   const granting = billing.subscription && ACCESS_STATUSES.has(billing.subscription.status) ? billing.subscription : null;
   const subscriptionTier = granting?.plan && isPaidTier(granting.plan) ? granting.plan : null;
   return {
     currentTier: subscriptionTier ?? (profile.plan === "internal" ? null : profile.plan),
     subscription: granting && { plan: subscriptionTier, changeBlockedBy: granting.changeBlockedBy },
+    internal: profile.plan === "internal",
   };
 }
 

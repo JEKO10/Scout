@@ -16,7 +16,7 @@ import { getXUsageToday } from "@/db/queries/xApiUsage";
 import type { Profile, ScanJob } from "@/db/schema";
 import { PLANS } from "@/lib/billing/plans";
 import { getScoutLimits } from "@/lib/scout/testLimits";
-import { currentPeriodStart } from "@/services/billing/budget";
+import { blockedUntilTomorrow, currentPeriodStart } from "@/services/billing/budget";
 import { deliverPendingNotifications, type DeliveryTickResult } from "@/services/notifications/deliver";
 import { queueRunNotifications } from "@/services/notifications/queue";
 import { runScout } from "@/services/scout/runScout";
@@ -188,7 +188,8 @@ async function processJob(job: ScanJob, workerId: string): Promise<JobOutcome> {
           return { ...outcome("completed"), notifyError: caught instanceof Error ? caught.message : String(caught) };
         }
       case "budget_exhausted":
-        return skip(`budget_${result.reason}`, { at: nextUtcMonth() });
+        // Paced budgets and Free's shared capacity come back tomorrow, monthly budgets next month
+        return skip(`budget_${result.reason}`, { at: blockedUntilTomorrow(result.reason) ? nextUtcDay() : nextUtcMonth() });
       case "limited":
         return skip("run_limit", result.gate.nextEligibleAt ? { at: result.gate.nextEligibleAt } : { inMinutes: interval });
       case "already_running":

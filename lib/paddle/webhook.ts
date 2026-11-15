@@ -51,13 +51,49 @@ export const paddleSubscriptionSchema = z.object({
   status: z.string().min(1),
   customer_id: z.string().min(1),
   custom_data: z.record(z.string(), z.unknown()).nullish(),
-  items: z.array(z.object({ price: z.object({ id: z.string() }).nullish() })).default([]),
+  items: z
+    .array(
+      z.object({
+        price: z
+          .object({
+            id: z.string(),
+            unit_price: z.object({ amount: z.string(), currency_code: z.string() }).nullish(),
+          })
+          .nullish(),
+      }),
+    )
+    .default([]),
   current_billing_period: z.object({ ends_at: z.string() }).nullish(),
   scheduled_change: z.object({ action: z.string(), effective_at: z.string() }).nullish(),
+  created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
 
 export type PaddleSubscription = z.infer<typeof paddleSubscriptionSchema>;
+
+/** transaction.* events: only the link to their subscription matters */
+export const paddleTransactionSchema = z.object({ subscription_id: z.string().nullish() });
+
+/** adjustment.* events: refunds, credits and chargebacks */
+export const paddleAdjustmentSchema = z.object({
+  id: z.string(),
+  action: z.string(),
+  type: z.string().nullish(),
+  status: z.string(),
+  subscription_id: z.string().nullish(),
+  transaction_id: z.string().nullish(),
+});
+
+export type PaddleAdjustment = z.infer<typeof paddleAdjustmentSchema>;
+
+/**
+ * Money given back in full, or taken back by the bank: the subscription's
+ * paid access ends. Partial refunds and credits keep it (they're alerted).
+ */
+export function revokesAccess(adjustment: PaddleAdjustment): boolean {
+  if (adjustment.action === "chargeback") return true;
+  return adjustment.action === "refund" && adjustment.type === "full" && adjustment.status === "approved";
+}
 
 /** Statuses during which the subscriber keeps the paid plan */
 export const ACCESS_STATUSES = new Set(["active", "trialing", "past_due"]);

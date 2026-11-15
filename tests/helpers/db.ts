@@ -32,6 +32,20 @@ async function assertNoRealScheduledWork() {
   );
 }
 
+/**
+ * The limits most tests run under: the generous, unpaced limits Free had
+ * before Day 23, so tests about scanning aren't shaped by the beta budget.
+ * Tests about plans and pacing pass their own (or use the real plan limits).
+ */
+export const TEST_LIMITS: Partial<UsageLimits> = {
+  monthlyXPostReads: 3_000,
+  monthlyScoringUsd: 10,
+  monthlyReplyUsd: 3,
+  maxActiveWatchlist: 10,
+  maxCandidatesPerRun: 60,
+  dailyPacing: false,
+};
+
 /** A profile with a Scout Brain, so scoring runs (against the mocked OpenAI). */
 export async function newProfile(overrides: Partial<UsageLimits> = {}) {
   const brain = await sourceBrain();
@@ -42,7 +56,7 @@ export async function newProfile(overrides: Partial<UsageLimits> = {}) {
       voiceBrain: brain.voice as s.Profile["voiceBrain"],
       interestBrain: brain.interests as s.Profile["interestBrain"],
       goalBrain: brain.goals as s.Profile["goalBrain"],
-      usageLimitOverrides: overrides,
+      usageLimitOverrides: { ...TEST_LIMITS, ...overrides },
     })
     .returning();
   created.push(p.id);
@@ -57,7 +71,7 @@ export async function getProfile(id: string) {
 export function setOverrides(profileId: string, overrides: Partial<UsageLimits>) {
   return db
     .update(s.profilesTable)
-    .set({ usageLimitOverrides: overrides })
+    .set({ usageLimitOverrides: { ...TEST_LIMITS, ...overrides } })
     .where(eq(s.profilesTable.id, profileId));
 }
 

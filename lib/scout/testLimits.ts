@@ -72,8 +72,20 @@ export function isScoutTestMode(): boolean {
   return process.env.SCOUT_TEST_MODE === "true";
 }
 
-export function getScoutLimits(): ScoutLimits {
-  const limits = isScoutTestMode() ? SCOUT_TEST_LIMITS : SCOUT_DEFAULT_LIMITS;
+/** Plans a customer pays for; testing mode doesn't hold back their own allowances */
+const PAID_PLANS = new Set(["starter", "pro"]);
+
+/**
+ * The limits a scan runs under. In testing mode, paying customers get their
+ * plan's per-user allowances (accounts, how often they scan) instead of the
+ * testing caps; the global X spending caps and per-scan fetch sizes still
+ * apply to everyone, so total X spend stays bounded.
+ */
+export function getScoutLimits(plan?: string): ScoutLimits {
+  let limits = isScoutTestMode() ? SCOUT_TEST_LIMITS : SCOUT_DEFAULT_LIMITS;
+  if (isScoutTestMode() && plan && PAID_PLANS.has(plan)) {
+    limits = { ...limits, maxWatchlistAccounts: null, maxRunsPerDay: null, minMinutesBetweenRuns: null };
+  }
   const dailyReads = Number(process.env.SCOUT_X_DAILY_POST_READ_LIMIT);
   return Number.isFinite(dailyReads) && dailyReads > 0
     ? { ...limits, maxXPostReadsPerDay: dailyReads }

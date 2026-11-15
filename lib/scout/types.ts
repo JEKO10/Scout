@@ -36,7 +36,15 @@ export type XRunUsage = {
 };
 
 /** Why a run was refused before it started, or a reply wasn't generated. */
-export type BudgetExhausted = "x_reads" | "scoring" | "replies";
+export type BudgetExhausted =
+  | "x_reads"
+  | "scoring"
+  | "replies"
+  // Day 23 pacing: the month has budget left, today's share is used
+  | "x_reads_today"
+  | "scoring_today"
+  // Free used its share of Scout's global daily X caps
+  | "free_capacity";
 
 export type ScoutRunStats = {
   accountsTotal: number;

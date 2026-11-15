@@ -16,18 +16,33 @@ export type PricingTier = {
 
 const number = new Intl.NumberFormat("en");
 
-function every(minutes: number): string {
-  if (minutes < 60) return `${minutes} minutes`;
-  const hours = minutes / 60;
-  return hours === 1 ? "hour" : `${hours} hours`;
+/** Measured averages (Day 23): what one scored post and one reply generation cost */
+export const SCORING_USD_PER_POST = 0.0104;
+export const REPLY_USD_PER_GENERATION = 0.028;
+
+/** Roughly how many posts the AI can score and how many replies it can draft per month */
+export function monthlyCapacity(limits: UsageLimits): { scoredPosts: number; replies: number } {
+  return {
+    scoredPosts: Math.floor(limits.monthlyScoringUsd / SCORING_USD_PER_POST),
+    replies: Math.floor(limits.monthlyReplyUsd / REPLY_USD_PER_GENERATION),
+  };
+}
+
+function scanFrequency(autoScan: AutoScanSettings): string {
+  const minutes = Math.min(...autoScan.intervalsMinutes);
+  if (minutes >= 1440) return "Automatic scan once a day";
+  if (minutes >= 60) return `Automatic scans up to every ${minutes / 60} hours`;
+  return `Automatic scans up to every ${minutes} minutes`;
 }
 
 function limitFeatures(limits: UsageLimits, autoScan: AutoScanSettings): string[] {
+  const capacity = monthlyCapacity(limits);
   return [
     `Watch up to ${limits.maxActiveWatchlist} accounts`,
-    `${number.format(limits.monthlyXPostReads)} X posts read per month`,
-    `Automatic scans as often as every ${every(Math.min(...autoScan.intervalsMinutes))}`,
-    `Up to ${limits.maxCandidatesPerRun} posts scored per scan`,
+    `About ${number.format(capacity.scoredPosts)} new posts scored for you per month`,
+    `About ${number.format(capacity.replies)} reply drafts per month`,
+    scanFrequency(autoScan),
+    "Budget paced daily, so it lasts all month",
   ];
 }
 
@@ -65,4 +80,6 @@ export type PricingAccount = {
   currentTier: PricingTierId | null;
   /** A subscription granting access: paid tiers switch on it instead of a new checkout */
   subscription: { plan: PaidTierId | null; changeBlockedBy: string | null } | null;
+  /** Internal (development) accounts are never billed: no checkout */
+  internal: boolean;
 };

@@ -27,13 +27,13 @@ export type ScoutTestStatus = {
 export async function getScoutTestStatus(
   profileId: string,
 ): Promise<ScoutTestStatus> {
-  const limits = getScoutLimits();
-  const [gate, usage, activeAccounts, runs, profile] = await Promise.all([
+  const profile = await getProfileById(profileId);
+  const limits = getScoutLimits(profile?.plan);
+  const [gate, usage, activeAccounts, runs] = await Promise.all([
     getRunGate(profileId, limits),
     getXUsageToday(),
     countActiveWatchlist(profileId),
     getRecentScoutRuns(profileId, 10),
-    getProfileById(profileId),
   ]);
   const lastSuccessful = runs.find((run) => run.status === "completed");
 

@@ -15,10 +15,11 @@ import { ReplyPreferencesForm } from "@/components/ReplyPreferencesForm";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countActiveWatchlist } from "@/db/queries/watchlist";
 import { requireProfile } from "@/lib/auth/session";
+import { REPLY_USD_PER_GENERATION } from "@/lib/billing/pricing";
 import { formatRelative } from "@/lib/format";
 import { detectPreferenceConflicts, normalizeReplyPreferences } from "@/lib/scout/replyPreferences";
 import { getBillingOverview } from "@/services/billing/account";
-import { getUsageBudget } from "@/services/billing/budget";
+import { BUDGET_MESSAGES, getUsageBudget, maxActiveWatchlist, scanBlockedBy } from "@/services/billing/budget";
 import { getNotificationOverview } from "@/services/notifications/overview";
 import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
@@ -72,6 +73,8 @@ async function ScoutSettings() {
     countActiveWatchlist(profile.id),
   ]);
 
+  const blockedBy = scanBlockedBy(budget);
+
   // Reply preferences and anything in "avoid" that would also hide what the user wants
   const replyPreferences = normalizeReplyPreferences(profile.replyPreferences);
   const brain = resolveScoutBrain(profile);
@@ -90,7 +93,15 @@ async function ScoutSettings() {
       <PlanBilling
         billing={billing}
         limits={budget.limits}
-        usage={{ xPostReads: budget.used.xPostReads, activeAccounts }}
+        usage={{
+          xPostReads: budget.used.xPostReads,
+          activeAccounts,
+          maxActiveAccounts: maxActiveWatchlist(profile),
+          xReadsNow: budget.remaining.xPostReads,
+          scoredPostsNow: Math.floor(budget.remaining.scoringUsd / budget.scoringUsdPerCandidate),
+          repliesLeft: Math.floor(budget.remaining.replyUsd / REPLY_USD_PER_GENERATION),
+          nextScanNote: blockedBy ? BUDGET_MESSAGES[blockedBy] : null,
+        }}
       />
       <AutoScoutSettings
         data={{

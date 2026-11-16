@@ -23,6 +23,7 @@ export function OpportunityCard({
   opportunity,
   replies = [],
   defaultStyles = DEFAULT_REPLY_STYLES,
+  sourceLabel,
 }: {
   opportunity: Pick<
     Opportunity,
@@ -37,9 +38,11 @@ export function OpportunityCard({
     | "suggestedAngle"
     | "status"
     | "scoreBreakdown"
-  >;
+  > & { discoveryTopicId?: string | null };
   replies?: DraftReply[];
   defaultStyles?: ReplyStyle[];
+  /** Day 26: where it was found, e.g. the Smart Discovery topic's name */
+  sourceLabel?: string;
 }) {
   // Local, not refreshed from the server: a dismissed or replied card stays in
   // place (with Undo) until the user navigates, instead of vanishing mid-read
@@ -84,6 +87,11 @@ export function OpportunityCard({
         >
           <strong>{score}</strong> · {tierLabels[tier]}
         </p>
+        {(sourceLabel || opportunity.discoveryTopicId) && (
+          <span className="opportunity-source" title="Found by Smart Discovery">
+            Discovery{sourceLabel ? ` · ${sourceLabel}` : ""}
+          </span>
+        )}
         {status === "saved" && <span className="opportunity-saved">Saved</span>}
         {status === "replied" && <span className="opportunity-saved">Replied</span>}
         {status === "reply_opened" && (

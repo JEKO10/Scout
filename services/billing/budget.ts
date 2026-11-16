@@ -82,7 +82,8 @@ export async function getUsageBudget(
   const limits = effectiveLimits(profile.plan, profile.usageLimitOverrides);
   const used = {
     xPostReads,
-    scoringUsd: cost("opportunity_scoring"),
+    // Discovery keyword suggestions are scoring-side AI work: same allowance
+    scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords"),
     replyUsd: cost("reply_generation"),
   };
   const monthRemaining = {

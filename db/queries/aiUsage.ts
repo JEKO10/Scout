@@ -135,3 +135,12 @@ export async function getScoringCostPerCandidate(
   const row = result.rows[0];
   return row && row.scored > 0 ? Number(row.cost) / Number(row.scored) : null;
 }
+
+/** OpenAI calls of one kind for a profile since a moment (per-user rate limits) */
+export async function countAiCallsSince(profileId: string, operation: AiOperation, since: Date): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(aiUsageTable)
+    .where(and(eq(aiUsageTable.profileId, profileId), eq(aiUsageTable.operation, operation), gte(aiUsageTable.createdAt, since)));
+  return row?.n ?? 0;
+}

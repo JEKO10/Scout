@@ -238,3 +238,46 @@ export async function getXUserCandidatePosts(
     hasMore,
   };
 }
+
+type XApiSearchResponse = {
+  data?: XApiTweet[];
+  includes?: { users?: { id: string; username: string }[] };
+  meta?: { result_count: number; newest_id?: string; next_token?: string };
+};
+
+/**
+ * Day 26 Smart Discovery: one page of X's recent search (last 7 days), newest
+ * first, with each post's author. Same request path as timelines: the global
+ * daily caps, retries and usage accounting all apply. Every post X returns is
+ * billed, so `limit` is the page size.
+ */
+export async function searchRecentXPosts(
+  query: { query: string; limit: number; sinceId?: string | null; startTime?: Date },
+  stats?: XRequestStats,
+): Promise<{ posts: NormalizedCandidatePost[]; newestId: string | null }> {
+  const body = await xFetch<XApiSearchResponse>(
+    "/tweets/search/recent",
+    {
+      query: query.query,
+      // X requires 10–100 results per page for search
+      max_results: String(Math.min(Math.max(query.limit, 10), 100)),
+      "tweet.fields": "created_at,public_metrics,note_tweet,referenced_tweets,author_id",
+      expansions: "author_id",
+      "user.fields": "username",
+      since_id: query.sinceId ?? undefined,
+      start_time: query.sinceId ? undefined : query.startTime?.toISOString(),
+    },
+    stats,
+  );
+  const tweets = body.data ?? [];
+  if (stats) stats.postsReturned += tweets.length;
+  await recordXUsage({ postsReturned: tweets.length });
+
+  const handles = new Map((body.includes?.users ?? []).map((user) => [user.id, user.username]));
+  const posts = tweets
+    .filter((tweet) => tweet.author_id && handles.has(tweet.author_id))
+    .map((tweet) =>
+      normalizeXCandidatePost(tweet, { platformUserId: tweet.author_id!, handle: handles.get(tweet.author_id!)! }),
+    );
+  return { posts, newestId: body.meta?.newest_id ?? tweets[0]?.id ?? null };
+}

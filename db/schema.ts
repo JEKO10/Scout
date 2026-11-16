@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   date,
   doublePrecision,
@@ -254,6 +255,10 @@ export const opportunitiesTable = pgTable(
     suggestedAngle: text(),
     // What the post is about, named after a Scout Brain topic when one fits
     topic: text(),
+    // Day 26 source: the Smart Discovery topic that found it (null: the watchlist)
+    discoveryTopicId: uuid().references((): AnyPgColumn => discoveryTopicsTable.id, {
+      onDelete: "set null",
+    }),
     status: opportunityStatusEnum().notNull().default("new"),
     postedAt: timestamp({ withTimezone: true }),
     ...timestamps,
@@ -419,6 +424,10 @@ export const scoutCandidatesTable = pgTable(
     watchlistAccountId: uuid().references(() => watchlistAccountsTable.id, {
       onDelete: "set null",
     }),
+    // Day 26: found by a Smart Discovery topic's search (null: the watchlist)
+    discoveryTopicId: uuid().references((): AnyPgColumn => discoveryTopicsTable.id, {
+      onDelete: "set null",
+    }),
     platform: platformEnum().notNull(),
     platformPostId: text().notNull(),
     authorPlatformUserId: text(),
@@ -535,6 +544,8 @@ export const aiOperationEnum = pgEnum("ai_operation", [
   "brain_creation",
   "memory_learning",
   "brain_eval",
+  // Day 26: search terms suggested for a Smart Discovery topic
+  "discovery_keywords",
 ]);
 
 // One row per OpenAI call: actual token usage from the API, and the cost
@@ -967,3 +978,30 @@ export const feedbackTable = pgTable(
 );
 
 export type Feedback = typeof feedbackTable.$inferSelect;
+
+/**
+ * Day 26 Smart Discovery: what a user wants Scout to search X for. Searched
+ * during the user's scans (same budget, same scoring); never right after
+ * creation.
+ */
+export const discoveryTopicsTable = pgTable(
+  "discovery_topics",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    description: text(),
+    keywords: text().array().notNull(),
+    excludedKeywords: text().array().notNull().default(sql`'{}'::text[]`),
+    isActive: boolean().notNull().default(true),
+    /** Newest post ID seen: the next search only asks X for newer posts */
+    sinceId: text(),
+    lastSearchedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId)],
+);
+
+export type DiscoveryTopic = typeof discoveryTopicsTable.$inferSelect;

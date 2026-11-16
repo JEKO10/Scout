@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getActiveDiscoveryTopics, markTopicSearched } from "@/db/queries/discovery";
 import { getProfileById } from "@/db/queries/profiles";
 import { getSeenPlatformPostIds, saveCandidates } from "@/db/queries/scoutCandidates";
 import {
@@ -17,11 +18,14 @@ import {
 } from "@/db/queries/watchlist";
 import { recordXUsage } from "@/db/queries/xApiUsage";
 import { getUndeliveredCachedPosts } from "@/db/queries/xCache";
-import type { ScoutRun, WatchlistAccount, XPost } from "@/db/schema";
+import type { DiscoveryTopic, Profile, ScoutRun, WatchlistAccount, XPost } from "@/db/schema";
+import { effectiveLimits } from "@/lib/billing/plans";
+import { buildSearchQuery, languageCode } from "@/lib/discovery/query";
 import { withQuotedPost } from "@/lib/posts/quotedPost";
 import type { NormalizedCandidatePost } from "@/lib/posts/types";
 import { getScoutLimits, type ScoutLimits } from "@/lib/scout/testLimits";
 import type { BudgetExhausted, ScoutRunStats, XRunUsage } from "@/lib/scout/types";
+import { searchRecentXPosts, XApiBudgetError } from "@/lib/x/client";
 import { track } from "@/services/analytics/track";
 import {
   freeCapacityReached,
@@ -34,6 +38,7 @@ import { rankCandidates } from "@/services/opportunities/rankCandidates";
 import { importedSource } from "@/services/post-sources/imported";
 import { PostSourceUnavailableError } from "@/services/post-sources/types";
 import { xApiSource } from "@/services/post-sources/xApi";
+import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 import { isUnverified } from "@/services/watchlist/addAccount";
 import { ensureFreshPosts } from "@/services/x/sharedFetch";
 
@@ -70,6 +75,8 @@ type AccountScan = {
 
 /** X won't return fewer than this many posts per request */
 const MIN_X_PAGE = 5;
+/** ...or fewer than this many from a search */
+const MIN_SEARCH_PAGE = 10;
 
 /** Shared by one run's account scans. */
 type ScanContext = {
@@ -94,23 +101,33 @@ export function planFetchCaps(
   accounts: Pick<WatchlistAccount, "id" | "lastScannedAt">[],
   affordableResources: number,
   limits: Pick<ScoutLimits, "maxPostsPerAccountFirstScan" | "maxPostsPerAccountSubsequentScan" | "fetchQuotePostsWithoutContext" | "fetchReplies">,
+  /** Day 26: Smart Discovery topics share the same budget (search pages are 10+ posts, no quotes) */
+  topics: Pick<DiscoveryTopic, "id" | "lastSearchedAt">[] = [],
 ): Map<string, number> {
   // With quotes expanded, a post can cost two resources (the quote and what it quotes)
-  const perPost = !limits.fetchQuotePostsWithoutContext && !limits.fetchReplies ? 2 : 1;
-  const posts = Math.max(0, Math.floor(affordableResources / perPost));
+  const accountPerPost = !limits.fetchQuotePostsWithoutContext && !limits.fetchReplies ? 2 : 1;
   const fullPage = Math.max(limits.maxPostsPerAccountFirstScan, limits.maxPostsPerAccountSubsequentScan);
-  const ordered = [...accounts].sort(
-    (a, b) => (a.lastScannedAt?.getTime() ?? 0) - (b.lastScannedAt?.getTime() ?? 0),
-  );
+  const units = [
+    ...accounts.map((a) => ({ id: a.id, at: a.lastScannedAt, minPage: MIN_X_PAGE, perPost: accountPerPost })),
+    ...topics.map((t) => ({ id: t.id, at: t.lastSearchedAt, minPage: MIN_SEARCH_PAGE, perPost: 1 })),
+  ].sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0));
+
+  const budget = Math.max(0, affordableResources);
   const caps = new Map<string, number>();
-  const even = Math.floor(posts / Math.max(1, ordered.length));
-  if (even >= MIN_X_PAGE) {
-    for (const account of ordered) caps.set(account.id, Math.min(fullPage, even));
+  const evenResources = Math.floor(budget / Math.max(1, units.length));
+  if (units.every((unit) => Math.floor(evenResources / unit.perPost) >= unit.minPage)) {
+    for (const unit of units) caps.set(unit.id, Math.min(Math.max(fullPage, unit.minPage), Math.floor(evenResources / unit.perPost)));
     return caps;
   }
-  // Not enough for every account: full minimum pages for as many as possible
-  let fundable = Math.floor(posts / MIN_X_PAGE);
-  for (const account of ordered) caps.set(account.id, fundable-- > 0 ? MIN_X_PAGE : 0);
+  // Not enough for everything: minimum pages for as many as the budget covers, least recent first
+  let left = budget;
+  for (const unit of units) {
+    const cost = unit.minPage * unit.perPost;
+    if (left >= cost) {
+      caps.set(unit.id, unit.minPage);
+      left -= cost;
+    } else caps.set(unit.id, 0);
+  }
   return caps;
 }
 
@@ -144,7 +161,12 @@ export async function runScout(
   // Also guards against more active accounts than the limit allows, e.g. two
   // accounts resumed at the same moment
   const accounts = (await getActiveWatchlist(profileId)).slice(0, maxActiveWatchlist(profile));
-  if (accounts.length === 0) return { status: "no_active_accounts" };
+  // Day 26: active Smart Discovery topics, within the plan's limit
+  const topics = (await getActiveDiscoveryTopics(profileId)).slice(
+    0,
+    effectiveLimits(profile.plan, profile.usageLimitOverrides).maxDiscoveryTopics,
+  );
+  if (accounts.length === 0 && topics.length === 0) return { status: "no_active_accounts" };
 
   // Checked before a run row exists: a refused scan costs and records nothing.
   // Only one run per profile can be active, so this budget can't be spent twice.
@@ -161,7 +183,7 @@ export async function runScout(
     { postedAfter: new Date(Date.now() - MAX_POST_AGE_DAYS * 86_400_000), limit: budget.remaining.xPostReads + 1 },
   );
   const waitingResources = waiting.reduce((sum, post) => sum + (post.quotedContent ? 2 : 1), 0);
-  const fetchCaps = planFetchCaps(accounts, budget.remaining.xPostReads - waitingResources, limits);
+  const fetchCaps = planFetchCaps(accounts, budget.remaining.xPostReads - waitingResources, limits, topics);
 
   await failStaleScoutRuns(
     profileId,
@@ -209,19 +231,24 @@ export async function runScout(
       else failures.push({ handle: accounts[i].handle, reason: errorMessage(result.reason) });
     });
 
+    // ---- 1b. Smart Discovery: one budgeted search per active topic ------
+    const discovery = await searchTopics(context, profile, topics);
+    failures.push(...discovery.failures);
+
     // ---- 2. Process: this user's undelivered cached posts ----------------
     const cachedAccounts = scans.filter((scan) => scan.fromCache).map((scan) => scan.account);
     const delivered = await deliverCachedPosts(
       profileId,
       cachedAccounts,
-      budget.remaining.xPostReads,
+      // Search results are this user's own reads: what's left after them
+      Math.max(0, budget.remaining.xPostReads - discovery.resources),
       scanStartedAt,
     );
     const imported = scans.flatMap(({ account, imported: posts }) =>
       posts.map((post) => ({ ...post, watchlistAccountId: account.id, source: importedSource.id })),
     );
 
-    const fetched = [...delivered.posts, ...imported];
+    const fetched = [...delivered.posts, ...imported, ...discovery.posts];
     const { unique, duplicates } = dedupePosts(fetched);
     const alreadySeen = await getSeenPlatformPostIds(
       profileId,
@@ -265,7 +292,7 @@ export async function runScout(
       ),
       failures,
       xApi: context.usage,
-      planXReads: delivered.resources,
+      planXReads: delivered.resources + discovery.resources,
       sharedFetch: {
         fetched: scans.filter((scan) => scan.refreshed === true).length,
         reused: scans.filter((scan) => scan.refreshed === false).length,
@@ -277,7 +304,8 @@ export async function runScout(
         "Monthly X read budget reached; the remaining posts wait for next month.";
     }
 
-    if (scans.length === 0) {
+    // Topics-only users (no watchlist) have no account scans: that's not a failure
+    if (accounts.length > 0 && scans.length === 0) {
       const error = `All ${accounts.length} accounts failed to scan.`;
       return {
         status: "failed",
@@ -468,3 +496,60 @@ function countBy(values: string[]): Record<string, number> {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * Day 26 Smart Discovery: one X recent search per active topic, for posts
+ * newer than its last search, as many as this run's budget assigns it. The
+ * results are this user's own (not shared), charged to their X budget like
+ * delivered posts, and go through the same filters and scoring. A topic over
+ * budget is skipped this time; a failing search never fails the scan.
+ */
+async function searchTopics(
+  context: ScanContext,
+  profile: Profile,
+  topics: DiscoveryTopic[],
+): Promise<{
+  posts: (NormalizedCandidatePost & { watchlistAccountId: null; discoveryTopicId: string; source: string })[];
+  resources: number;
+  failures: ScoutRunStats["failures"];
+}> {
+  const posts = [];
+  const failures: ScoutRunStats["failures"] = [];
+  let resources = 0;
+  const language = languageCode(resolveScoutBrain(profile)?.voice.languages);
+
+  for (const topic of topics) {
+    const cap = context.fetchCaps.get(topic.id) ?? 0;
+    const query = buildSearchQuery(topic, { language });
+    if (cap === 0 || !query || context.usage.stoppedReason) continue;
+    try {
+      const result = await searchRecentXPosts(
+        {
+          query,
+          limit: cap,
+          sinceId: topic.sinceId,
+          startTime: new Date(Date.now() - MAX_POST_AGE_DAYS * 86_400_000),
+        },
+        context.usage,
+      );
+      resources += result.posts.length;
+      posts.push(
+        ...result.posts.map((post) => ({
+          ...post,
+          watchlistAccountId: null,
+          discoveryTopicId: topic.id,
+          source: X_SEARCH_SOURCE,
+        })),
+      );
+      await markTopicSearched(topic.id, result.newestId, new Date());
+    } catch (error) {
+      failures.push({ handle: `topic: ${topic.name}`, reason: errorMessage(error) });
+      // Out of X budget or credits: no more searches this run
+      if (error instanceof XApiBudgetError) context.usage.stoppedReason ??= error.message;
+    }
+  }
+  return { posts, resources, failures };
+}
+
+/** Candidate source of Smart Discovery results */
+export const X_SEARCH_SOURCE = "x_search";

@@ -26,6 +26,8 @@ export type XApiUserResponse = {
 export type XApiTweet = {
   id: string;
   text: string;
+  /** Requested with expansions=author_id (search results) */
+  author_id?: string;
   created_at?: string;
   public_metrics?: {
     like_count: number;

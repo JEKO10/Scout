@@ -28,7 +28,10 @@ export async function getSeenPlatformPostIds(
 }
 
 export type CandidateToSave = NormalizedCandidatePost & {
-  watchlistAccountId: string;
+  /** Null for Smart Discovery results */
+  watchlistAccountId: string | null;
+  /** Day 26: the Smart Discovery topic that found it */
+  discoveryTopicId?: string | null;
   source: string;
 };
 
@@ -53,6 +56,7 @@ export async function saveCandidates(
         runId,
         profileId,
         watchlistAccountId: candidate.watchlistAccountId,
+        discoveryTopicId: candidate.discoveryTopicId ?? null,
         source: candidate.source,
         platform: candidate.platform,
         platformPostId: candidate.platformPostId,

@@ -172,6 +172,7 @@ export async function rankCandidates(
         reason: judgment.reason,
         suggestedAngle: judgment.suggestedAngle,
         topic,
+        discoveryTopicId: candidate.discoveryTopicId,
         status: "new" as const,
         postedAt: candidate.postedAt,
       });

@@ -8,6 +8,7 @@ const navigation = [
   { href: "/opportunities", label: "Opportunities" },
   { href: "/activity", label: "Activity" },
   { href: "/watchlist", label: "Watchlist" },
+  { href: "/discovery", label: "Discovery" },
   { href: "/eval", label: "Brain eval" },
   { href: "/memory", label: "Memory" },
   { href: "/account/settings", label: "Settings" },

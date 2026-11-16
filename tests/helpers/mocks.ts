@@ -20,7 +20,26 @@ export const x = {
   delayMs: 0,
   /** Accounts the user lookup finds, by lowercase handle → X user ID */
   users: new Map<string, string>(),
+  /** Day 26: what X's recent search returns (any query), and the queries asked */
+  search: [] as (Tweet & { author_id: string })[],
+  searchQueries: [] as string[],
 };
+
+/** Posts X's recent search will find, by an author ID; returns their IDs */
+export function addSearchResults(authorId: string, count: number): string[] {
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const id = nextId();
+    ids.push(id);
+    x.search.push({
+      id,
+      author_id: authorId,
+      text: `Struggling to find our first customers for a SaaS product, any advice? (${id})`,
+      created_at: new Date(Date.now() - 1800_000).toISOString(),
+    });
+  }
+  return ids;
+}
 
 export const ai = {
   /** Format name of every OpenAI call */
@@ -240,6 +259,21 @@ export function installMocks() {
           ? { data: { id, username: handle, name: `Name ${handle}`, profile_image_url: "https://pbs.twimg.com/a.jpg" } }
           : { errors: [{ title: "Not Found Error" }] },
       );
+    }
+    if (url.pathname === "/2/tweets/search/recent") {
+      const p = url.searchParams;
+      x.searchQueries.push(p.get("query") ?? "");
+      const since = p.get("since_id");
+      const max = Number(p.get("max_results"));
+      const all = [...x.search]
+        .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1))
+        .filter((t) => !since || BigInt(t.id) > BigInt(since));
+      const page = all.slice(0, max);
+      return Response.json({
+        data: page.length ? page : undefined,
+        includes: { users: [...new Set(page.map((t) => t.author_id))].map((id) => ({ id, username: `h${id}` })) },
+        meta: { result_count: page.length, ...(page[0] && { newest_id: page[0].id }) },
+      });
     }
     const match = url.pathname.match(/^\/2\/users\/([^/]+)\/tweets$/);
     if (!match) return new Response(JSON.stringify({ title: "unexpected" }), { status: 404 });

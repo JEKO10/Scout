@@ -34,6 +34,7 @@ import {
   scanBlockedBy,
   scoringAllowance,
 } from "@/services/billing/budget";
+import { classifyLeads } from "@/services/leads/classify";
 import { rankCandidates } from "@/services/opportunities/rankCandidates";
 import { importedSource } from "@/services/post-sources/imported";
 import { PostSourceUnavailableError } from "@/services/post-sources/types";
@@ -328,6 +329,14 @@ export async function runScout(
         surfaced: 0,
         skippedReason: "Scoring failed; candidates will be scored on the next run.",
       };
+    }
+    // Day 27 Lead Scout: buying-intent checks on the most relevant new posts.
+    // Never fails the scan; unchecked posts are checked next time.
+    try {
+      stats.leads = await classifyLeads((await getProfileById(profileId)) ?? profile, run.id);
+    } catch (error) {
+      console.error("Lead checks failed", run.id, error instanceof Error ? error.message : error);
+      stats.leads = { checked: 0, leads: 0, high: 0, skippedReason: "Lead checks failed; they run on the next scan." };
     }
     console.info("Scout run finished", run.id, stats);
     await recordXUsage({ runsCompleted: 1 });

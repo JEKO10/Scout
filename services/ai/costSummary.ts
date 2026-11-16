@@ -12,6 +12,8 @@ export const AI_OPERATION_LABELS: Record<AiOperation, string> = {
   memory_learning: "Memory / learning",
   brain_eval: "Brain eval (dev)",
   discovery_keywords: "Discovery search terms",
+  lead_icp: "Lead Scout profile",
+  lead_classification: "Lead Scout intent checks",
 };
 
 export type AiCostSummary = {

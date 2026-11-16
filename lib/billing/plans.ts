@@ -27,6 +27,11 @@ export type UsageLimits = {
    * plan's X and AI budgets with the watchlist: no separate allowance.
    */
   maxDiscoveryTopics: number;
+  /**
+   * Day 27 Lead Scout: posts checked for buying intent per scan, the most
+   * relevant first. Paid from the scoring budget, so it never adds cost on top.
+   */
+  maxLeadChecksPerRun: number;
 };
 
 /** Automatic Scout (Day 18): how often a plan may scan on its own. */
@@ -57,6 +62,7 @@ export const PLANS: Record<
       maxCandidatesPerRun: 20,
       dailyPacing: true,
       maxDiscoveryTopics: 1,
+      maxLeadChecksPerRun: 3,
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
@@ -73,6 +79,7 @@ export const PLANS: Record<
       maxCandidatesPerRun: 40,
       dailyPacing: true,
       maxDiscoveryTopics: 3,
+      maxLeadChecksPerRun: 5,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
   },
@@ -88,6 +95,7 @@ export const PLANS: Record<
       maxCandidatesPerRun: 60,
       dailyPacing: true,
       maxDiscoveryTopics: 5,
+      maxLeadChecksPerRun: 10,
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
@@ -104,6 +112,7 @@ export const PLANS: Record<
       maxCandidatesPerRun: 100,
       dailyPacing: false,
       maxDiscoveryTopics: 10,
+      maxLeadChecksPerRun: 20,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
   },

@@ -19,6 +19,10 @@ export const SERVER_EVENTS = [
   "first_opportunity_viewed",
   "reply_on_x_clicked",
   "feedback_submitted",
+  // Day 27 Lead Scout
+  "lead_saved",
+  "lead_reply_started",
+  "lead_opened_on_x",
 ] as const;
 
 export type ClientEvent = (typeof CLIENT_EVENTS)[number];
@@ -50,6 +54,9 @@ export const FUNNEL: AnalyticsEvent[] = [
   "first_reply_on_x",
   "reply_on_x_clicked",
   "feedback_submitted",
+  "lead_saved",
+  "lead_reply_started",
+  "lead_opened_on_x",
   "pricing_view",
   "checkout_started",
   "subscription_activated",

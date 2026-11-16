@@ -4970,3 +4970,28 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Lead Scout (Day 27) */
+.lead-intent {
+  font-weight: 650;
+}
+
+.lead-card[data-intent="high"] .lead-intent {
+  color: var(--green);
+}
+
+.lead-card[data-intent="medium"] .lead-intent {
+  color: #b26b00;
+}
+
+.lead-card[data-intent="low"] .lead-intent {
+  color: var(--muted-ink);
+}
+
+.lead-evidence {
+  margin-top: 8px;
+  border-left: 3px solid var(--line);
+  color: var(--ink);
+  font-style: italic;
+  padding-left: 10px;
+}

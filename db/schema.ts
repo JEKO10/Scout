@@ -25,6 +25,7 @@ import type {
   StoredVoiceBrain,
 } from "../lib/ai/schemas/scoutBrain";
 import { PLAN_IDS, type UsageLimits } from "../lib/billing/plans";
+import type { LeadProfile, LeadScoreBreakdown } from "../lib/leads/types";
 import { REPLY_STYLES } from "../lib/replies/styles";
 import type { LearningProfile } from "../lib/scout/learning";
 import type { PrefilterReason } from "../lib/scout/prefilter";
@@ -129,6 +130,8 @@ export const profilesTable = pgTable("profiles", {
   lastAutoScanAt: timestamp({ withTimezone: true }),
 
   onboardingCompleted: boolean().notNull().default(false),
+  // Day 27 Lead Scout: the user's ideal customer profile; null until set up
+  leadProfile: jsonb().$type<LeadProfile>(),
   ...timestamps,
 });
 
@@ -469,6 +472,8 @@ export const scoutCandidatesTable = pgTable(
     missRating: missRatingEnum(),
     missSample: missSampleEnum(),
     missRatedAt: timestamp({ withTimezone: true }),
+    // Day 27: checked for buying intent (a lead or not): never checked twice
+    leadCheckedAt: timestamp({ withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -546,6 +551,9 @@ export const aiOperationEnum = pgEnum("ai_operation", [
   "brain_eval",
   // Day 26: search terms suggested for a Smart Discovery topic
   "discovery_keywords",
+  // Day 27 Lead Scout: an ideal customer profile drafted from the Brain, and buying-intent checks
+  "lead_icp",
+  "lead_classification",
 ]);
 
 // One row per OpenAI call: actual token usage from the API, and the cost
@@ -1005,3 +1013,47 @@ export const discoveryTopicsTable = pgTable(
 );
 
 export type DiscoveryTopic = typeof discoveryTopicsTable.$inferSelect;
+
+export const leadIntentEnum = pgEnum("lead_intent", ["high", "medium", "low"]);
+
+/**
+ * Day 27 Lead Scout: a public X post whose author may need what the user
+ * offers, with the evidence. One row per user and post; "not a lead" posts
+ * aren't stored (their candidate is marked as checked instead).
+ */
+export const leadsTable = pgTable(
+  "leads",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    candidateId: uuid().references(() => scoutCandidatesTable.id, { onDelete: "set null" }),
+    /** Linked when the user starts a reply (reuses the opportunity reply flow) */
+    opportunityId: uuid().references(() => opportunitiesTable.id, { onDelete: "set null" }),
+    discoveryTopicId: uuid().references(() => discoveryTopicsTable.id, { onDelete: "set null" }),
+    platform: platformEnum().notNull(),
+    platformPostId: text().notNull(),
+    /** Public author identifiers only, as X shows them */
+    authorPlatformUserId: text(),
+    authorHandle: text().notNull(),
+    postUrl: text().notNull(),
+    content: text().notNull(),
+    postedAt: timestamp({ withTimezone: true }).notNull(),
+    intent: leadIntentEnum().notNull(),
+    score: integer().notNull(),
+    scoreBreakdown: jsonb().$type<LeadScoreBreakdown>().notNull(),
+    /** Words from the post that show the need */
+    evidence: text().notNull(),
+    reason: text().notNull(),
+    suggestedAction: text().notNull(),
+    saved: boolean().notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [
+    unique().on(t.profileId, t.platform, t.platformPostId),
+    index().on(t.profileId, t.score.desc()),
+  ],
+);
+
+export type Lead = typeof leadsTable.$inferSelect;

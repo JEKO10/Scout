@@ -73,6 +73,8 @@ export type ScoutRunStats = {
   sharedFetch?: { fetched: number; reused: number; busy?: number };
   /** Day 9 Opportunity Engine; absent on runs from before it existed */
   scoring?: ScoringStats;
+  /** Day 27 Lead Scout: buying-intent checks after scoring */
+  leads?: { checked: number; leads: number; high: number; skippedReason?: string };
 };
 
 /** Points per factor; the total score (0–100) is their sum. */

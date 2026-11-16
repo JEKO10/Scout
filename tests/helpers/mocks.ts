@@ -53,6 +53,9 @@ export const ai = {
   failures: [] as ("error" | "malformed" | "drop")[],
   /** Score every candidate this high (all factors maxed = 100 minus freshness) */
   shouldEngage: true,
+  /** Day 27: the intent every lead check returns, and an optional fixed quote */
+  leadIntent: "high" as "high" | "medium" | "low" | "not_a_lead",
+  leadQuote: undefined as string | undefined,
 };
 
 let seq = BigInt("1900000000000000000");
@@ -223,6 +226,33 @@ export function installMocks() {
         }, model);
       }
       if (format === "reply_drafts") return aiResponse({ first: "First draft", second: "Second draft" });
+      // Day 27 Lead Scout: every post judged with ai.leadIntent, quoting its first words
+      if (format === "lead_judgments") {
+        const { posts } = JSON.parse(String(body.input)) as { posts: { candidateId: string; text: string }[] };
+        return aiResponse({
+          judgments: posts.map((post) => ({
+            candidateId: post.candidateId,
+            intent: ai.leadIntent,
+            icpFit: 25,
+            intentStrength: 30,
+            problemFit: 18,
+            evidence: 8,
+            evidenceQuote: ai.leadQuote ?? post.text.slice(0, 24),
+            reason: "They are asking how to find their first customers.",
+            suggestedAction: "Share what worked for you; mention your product only if it fits.",
+          })),
+        });
+      }
+      if (format === "lead_profile") {
+        return aiResponse({
+          product: "An AI tool that helps SaaS founders find their first customers on X.",
+          audience: "Early-stage SaaS founders",
+          problems: ["Finding first customers", "Finding first customers", "No time for outreach"],
+          industries: ["SaaS"],
+          buyingSignals: ["asking for customer acquisition advice"],
+          excluded: ["job posts"],
+        });
+      }
       return new Response("{}", { status: 400 });
     }
 

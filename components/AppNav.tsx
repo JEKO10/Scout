@@ -9,6 +9,7 @@ const navigation = [
   { href: "/activity", label: "Activity" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/discovery", label: "Discovery" },
+  { href: "/leads", label: "Leads" },
   { href: "/eval", label: "Brain eval" },
   { href: "/memory", label: "Memory" },
   { href: "/account/settings", label: "Settings" },

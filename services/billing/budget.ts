@@ -83,7 +83,7 @@ export async function getUsageBudget(
   const used = {
     xPostReads,
     // Discovery keyword suggestions are scoring-side AI work: same allowance
-    scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords"),
+    scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords") + cost("lead_icp") + cost("lead_classification"),
     replyUsd: cost("reply_generation"),
   };
   const monthRemaining = {

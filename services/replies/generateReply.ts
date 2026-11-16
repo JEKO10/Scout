@@ -2,11 +2,13 @@ import "server-only";
 
 import { zodTextFormat } from "openai/helpers/zod";
 
+import { getLeadByOpportunity } from "@/db/queries/leads";
 import { getOpportunityForProfile } from "@/db/queries/opportunities";
 import { getProfileById } from "@/db/queries/profiles";
 import { getCurrentReplies, type ReplySet, saveReplyDrafts } from "@/db/queries/replies";
 import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import { replyDraftsSchema } from "@/lib/ai/schemas/reply";
+import type { LeadProfile } from "@/lib/leads/types";
 import { splitQuotedPost } from "@/lib/posts/quotedPost";
 import { REPLY_STYLE_INFO, type ReplyStyle } from "@/lib/replies/styles";
 import { recordAiUsage } from "@/services/ai/usage";
@@ -65,6 +67,7 @@ function buildInput(
   opportunity: { authorHandle: string | null; content: string; reason: string | null; suggestedAngle: string | null },
   styles: [ReplyStyle, ReplyStyle],
   revision: Revision | null,
+  lead: { product: string; intent: string; evidence: string } | null = null,
 ): string {
   const [first, second] = styles.map((style) => REPLY_STYLE_INFO[style]);
   const post = splitQuotedPost(opportunity.content);
@@ -83,6 +86,14 @@ function buildInput(
       `## The post they are quoting (by another account; context only, not their words)\n${post.quoted}`,
     `## Why they should join\n${opportunity.reason ?? "-"}`,
     `## Suggested angle\n${opportunity.suggestedAngle ?? "-"}`,
+    // Day 27 Lead Scout: the author may need what the user offers
+    lead &&
+      [
+        "## Possible customer (Lead Scout)",
+        `What the user offers: ${lead.product}`,
+        `Buying intent: ${lead.intent}. Evidence from the post: "${lead.evidence}"`,
+        "Help first with something genuinely useful. Mention what the user offers at most once, briefly, and only if it directly answers the need. No sales pitch, no links unless they asked, no claims beyond the description above, no DM requests.",
+      ].join("\n"),
     [
       "## Styles",
       `first (${first.label}): ${first.prompt}`,
@@ -161,7 +172,7 @@ export async function generateReplies(
   const response = await getOpenAI().responses.parse({
     model: AI_MODELS.reply,
     instructions: INSTRUCTIONS,
-    input: buildInput(context, opportunity, styles, revision),
+    input: buildInput(context, opportunity, styles, revision, await leadContext(profile, opportunity.id)),
     text: { format: zodTextFormat(replyDraftsSchema, "reply_drafts") },
   });
   // Tied to the run that found the opportunity, for per-run cost analytics
@@ -182,4 +193,14 @@ export async function generateReplies(
   );
   await track("first_reply_generated", { profileId });
   return { status: "generated", replies };
+}
+
+/** The lead behind an opportunity, when the user started this reply from Lead Scout */
+async function leadContext(
+  profile: { id: string; leadProfile: LeadProfile | null },
+  opportunityId: string,
+): Promise<{ product: string; intent: string; evidence: string } | null> {
+  if (!profile.leadProfile) return null;
+  const lead = await getLeadByOpportunity(profile.id, opportunityId);
+  return lead ? { product: profile.leadProfile.product, intent: lead.intent, evidence: lead.evidence } : null;
 }

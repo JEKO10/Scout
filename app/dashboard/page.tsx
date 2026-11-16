@@ -61,11 +61,13 @@ async function Dashboard() {
     0,
   );
   const latestRun = data.scoutRuns[0];
+  // X testing limits and AI costs are developer panels: internal accounts only
+  const internal = profile.plan === "internal";
   const [voiceSamples, memory, testStatus, aiCost, postedReplies] = await Promise.all([
     getVoiceSamples(profile.id),
     buildUserMemory(profile.id),
-    getScoutTestStatus(profile.id),
-    getAiCostSummary(profile.id),
+    internal ? getScoutTestStatus(profile.id) : null,
+    internal ? getAiCostSummary(profile.id) : null,
     getPostedReplies(profile.id, 20),
   ]);
   const calibration = voiceSamples.filter((sample) => sample.source === "onboarding");
@@ -148,6 +150,10 @@ async function Dashboard() {
             <div>
               <p className="eyebrow">Best first</p>
               <h2 id="opportunities-title">Top opportunities</h2>
+              <p className="memory-note">
+                Scores run from 0 to 100: how well a post fits your topics, goals and expertise, how fresh it is and
+                whether a reply from you would add something. Higher is worth your time sooner.
+              </p>
             </div>
             <Link href="/opportunities" className="text-link">
               View all {newOpportunities} <span aria-hidden="true">→</span>
@@ -179,8 +185,8 @@ async function Dashboard() {
         </section>
 
         <aside className="dashboard-aside" aria-label="Scout status">
-          <XTestingPanel status={testStatus} />
-          <AiCostPanel summary={aiCost} />
+          {testStatus && <XTestingPanel status={testStatus} />}
+          {aiCost && <AiCostPanel summary={aiCost} />}
           <XAccountCard
             handle={profile.xHandle}
             account={xAccount}

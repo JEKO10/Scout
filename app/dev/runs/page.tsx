@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { countAnalyticsEvents } from "@/db/queries/analytics";
 import { getBillingAlerts } from "@/db/queries/billing";
+import { getRecentFeedback } from "@/db/queries/feedback";
 import { FUNNEL } from "@/lib/analytics/events";
 import { requireProfile } from "@/lib/auth/session";
 import { PLANS } from "@/lib/billing/plans";
@@ -166,6 +167,7 @@ async function RunAnalyticsView() {
       {/* Billing alerts concern every account: internal accounts only */}
       {profile.plan === "internal" && <BillingAlerts />}
       {profile.plan === "internal" && <LaunchFunnel />}
+      {profile.plan === "internal" && <RecentFeedback />}
     </main>
   );
 }
@@ -368,6 +370,30 @@ async function LaunchFunnel() {
         </table>
       </div>
       <p className="memory-note">Public page events (views, clicks) are anonymous, so they have no accounts.</p>
+    </section>
+  );
+}
+
+/** Beta feedback (Day 25): newest first, from every user */
+async function RecentFeedback() {
+  const items = await getRecentFeedback(30);
+  return (
+    <section className="memory-section" aria-labelledby="feedback-title">
+      <p className="eyebrow">Beta</p>
+      <h2 id="feedback-title">Feedback</h2>
+      {items.length === 0 ? (
+        <p className="memory-note">No feedback yet.</p>
+      ) : (
+        <ul className="memory-list">
+          {items.map((item) => (
+            <li key={item.id}>
+              <strong>{item.category}</strong> · {item.path ?? "–"} · profile {item.profileId.slice(0, 8)} ·{" "}
+              {item.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC
+              {item.message && <p>{item.message}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

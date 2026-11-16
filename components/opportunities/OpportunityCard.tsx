@@ -78,7 +78,10 @@ export function OpportunityCard({
   return (
     <article className="opportunity-card" data-tier={tier} aria-busy={pending}>
       <header>
-        <p className="opportunity-score">
+        <p
+          className="opportunity-score"
+          title="0–100: how well this post fits your Scout Brain (topics, goals, expertise), how fresh it is and whether your reply would add value"
+        >
           <strong>{score}</strong> · {tierLabels[tier]}
         </p>
         {status === "saved" && <span className="opportunity-saved">Saved</span>}

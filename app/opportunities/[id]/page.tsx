@@ -9,6 +9,7 @@ import { toDrafts } from "@/components/opportunities/toDrafts";
 import { getOpportunityForProfile } from "@/db/queries/opportunities";
 import { getCurrentReplies, getLastReplyStyles } from "@/db/queries/replies";
 import { requireProfile } from "@/lib/auth/session";
+import { track } from "@/services/analytics/track";
 
 // One opportunity, linked from Slack alerts and the notification bell.
 export default function OpportunityPage(props: PageProps<"/opportunities/[id]">) {
@@ -37,6 +38,7 @@ async function Opportunity({ params }: { params: PageProps<"/opportunities/[id]"
   // Scoped to the signed-in profile: another user's opportunity is a 404
   const opportunity = await getOpportunityForProfile(profile.id, id);
   if (!opportunity) notFound();
+  await track("first_opportunity_viewed", { profileId: profile.id });
 
   const [replies, lastStyles] = await Promise.all([
     getCurrentReplies(profile.id, [opportunity.id]),

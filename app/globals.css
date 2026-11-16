@@ -4747,3 +4747,81 @@ textarea {
     animation: none;
   }
 }
+
+/* Beta feedback (Day 25) */
+.feedback-trigger {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted-ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.feedback-trigger:hover {
+  border-color: #c9c9cd;
+  color: var(--ink);
+}
+
+.feedback-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+}
+
+.feedback-categories label {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 560;
+  padding: 7px 14px;
+}
+
+.feedback-categories label[data-selected] {
+  border-color: #111;
+  background: #111;
+  color: #fff;
+}
+
+.feedback-categories input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.feedback-message {
+  display: grid;
+  gap: 8px;
+  color: var(--muted-ink);
+  font-size: 13px;
+}
+
+.feedback-message textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+@media (max-width: 720px) {
+  .feedback-trigger {
+    padding: 5px 10px;
+  }
+}
+
+.feedback-categories label:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { AppNav, NavLinks } from "./AppNav";
+import { FeedbackButton } from "./feedback/FeedbackButton";
 import { NotificationBell } from "./notifications/NotificationBell";
 
 // Server Component: the bell reads the user's notifications on the server,
@@ -23,6 +24,7 @@ export function AppHeader() {
         </Suspense>
 
         <div className="app-header-actions">
+          <FeedbackButton />
           <Suspense fallback={<span className="notification-bell-placeholder" aria-hidden="true" />}>
             <NotificationBell />
           </Suspense>

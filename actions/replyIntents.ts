@@ -41,6 +41,7 @@ export async function recordReplyIntentAction(
     };
   }
   await track("first_reply_on_x", { profileId: profile.id });
+  await track("reply_on_x_clicked", { profileId: profile.id });
   return { ok: true };
 }
 

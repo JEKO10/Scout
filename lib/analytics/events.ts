@@ -14,6 +14,11 @@ export const SERVER_EVENTS = [
   "checkout_started",
   "subscription_activated",
   "waitlist_joined",
+  // Day 25
+  "first_watchlist_added",
+  "first_opportunity_viewed",
+  "reply_on_x_clicked",
+  "feedback_submitted",
 ] as const;
 
 export type ClientEvent = (typeof CLIENT_EVENTS)[number];
@@ -28,6 +33,8 @@ export const ONCE_EVENTS = new Set<AnalyticsEvent>([
   "first_reply_generated",
   "first_reply_on_x",
   "waitlist_joined",
+  "first_watchlist_added",
+  "first_opportunity_viewed",
 ]);
 
 /** The launch funnel, in order, for the internal dashboard */
@@ -36,9 +43,13 @@ export const FUNNEL: AnalyticsEvent[] = [
   "start_free_click",
   "signup_completed",
   "onboarding_completed",
+  "first_watchlist_added",
   "first_scan_completed",
+  "first_opportunity_viewed",
   "first_reply_generated",
   "first_reply_on_x",
+  "reply_on_x_clicked",
+  "feedback_submitted",
   "pricing_view",
   "checkout_started",
   "subscription_activated",

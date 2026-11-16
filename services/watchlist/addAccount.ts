@@ -9,6 +9,7 @@ import {
 } from "@/db/queries/watchlist";
 import type { WatchlistAccount } from "@/db/schema";
 import type { NormalizedProfile } from "@/lib/posts/types";
+import { track } from "@/services/analytics/track";
 import { maxActiveWatchlist } from "@/services/billing/budget";
 import { PostSourceUnavailableError } from "@/services/post-sources/types";
 import { xApiSource } from "@/services/post-sources/xApi";
@@ -75,6 +76,7 @@ export async function addWatchlistAccount(
   const paused = (await countActiveWatchlist(profileId)) >= maxActive;
   const account = await insertWatchlistAccount(profileId, "x", profile, { isActive: !paused });
   if (!account) return { status: "duplicate", handle: profile.handle };
+  await track("first_watchlist_added", { profileId });
 
   return { status: "added", account, verified, paused, maxActive };
 }

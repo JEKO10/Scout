@@ -945,3 +945,25 @@ export const analyticsEventsTable = pgTable(
     uniqueIndex("analytics_events_once_per_profile").on(t.name, t.profileId).where(sql`${t.once}`),
   ],
 );
+
+export const feedbackCategoryEnum = pgEnum("feedback_category", ["bug", "feature", "general"]);
+
+/** Day 25 beta feedback: what users send from the "Feedback" button */
+export const feedbackTable = pgTable(
+  "feedback",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    category: feedbackCategoryEnum().notNull(),
+    /** Optional, up to 2,000 characters */
+    message: text(),
+    /** The app page it was sent from, e.g. /dashboard (path only, no query) */
+    path: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.profileId, t.createdAt.desc()), index().on(t.createdAt.desc())],
+);
+
+export type Feedback = typeof feedbackTable.$inferSelect;

@@ -4995,3 +4995,638 @@ textarea {
   font-style: italic;
   padding-left: 10px;
 }
+
+/* Lead CRM (Day 28) */
+.crm-metrics {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.crm-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+}
+
+.crm-panel h2 {
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.crm-workspace {
+  display: grid;
+  align-content: start;
+}
+
+.crm-status select,
+.crm-search {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 9px;
+}
+
+.crm-followup {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
+}
+
+.crm-followup label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.crm-followup input,
+.crm-note-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+}
+
+.crm-notes {
+  display: grid;
+  gap: 12px;
+}
+
+.crm-notes li {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.crm-notes p {
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+
+.crm-notes small,
+.crm-timeline small {
+  color: var(--muted-ink);
+  font-size: 12px;
+}
+
+.crm-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.crm-timeline li {
+  display: grid;
+  gap: 2px;
+  border-left: 2px solid var(--line);
+  font-size: 14px;
+  padding-left: 10px;
+}
+
+.crm-timeline li[data-user] {
+  border-left-color: var(--blue);
+}
+
+.crm-danger {
+  margin-top: 20px;
+}
+
+.crm-next,
+.crm-next-banner {
+  font-size: 13px;
+}
+
+.crm-next[data-tone="urgent"],
+.crm-next-banner[data-tone="urgent"] {
+  color: var(--destructive);
+}
+
+.crm-next-banner {
+  margin-top: 20px;
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 12px 14px;
+}
+
+.crm-followups ul {
+  display: grid;
+  gap: 6px;
+}
+
+.crm-followups li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.crm-followup-when {
+  min-width: 70px;
+  color: var(--muted-ink);
+  font-weight: 600;
+}
+
+.crm-followups li[data-state="overdue"] .crm-followup-when {
+  color: var(--destructive);
+}
+
+.crm-view-toggle {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.crm-view-toggle a {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+}
+
+.crm-view-toggle a[aria-current="page"] {
+  background: #111;
+  color: #fff;
+}
+
+.crm-kanban {
+  display: grid;
+  grid-auto-columns: minmax(200px, 1fr);
+  grid-auto-flow: column;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+}
+
+.crm-column {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 160px;
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.crm-column h2 {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.crm-column h2 span {
+  color: var(--muted-ink);
+}
+
+.crm-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  font-size: 13px;
+  padding: 10px;
+}
+
+.crm-card a {
+  font-weight: 600;
+}
+
+.crm-card p {
+  color: var(--muted-ink);
+}
+
+@media (max-width: 900px) {
+  .crm-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .crm-followup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Trend Scout (Day 29) */
+.trend-list {
+  display: grid;
+  gap: 14px;
+}
+
+.trend-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  padding: 18px;
+}
+
+.trend-card h2 {
+  font-size: 18px;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+.trend-card p {
+  color: var(--muted-ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.trend-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--muted-ink);
+  font-size: 12px;
+}
+
+.trend-status {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 9px;
+}
+
+.trend-status[data-status="rising"] {
+  background: #e7f6ec;
+  color: #1c7c45;
+}
+
+.trend-status[data-status="declining"] {
+  background: #fdecec;
+  color: #a23b3b;
+}
+
+.trend-status[data-status="stable"],
+.trend-status[data-status="newly_detected"],
+.trend-status[data-status="insufficient_history"] {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.trend-bars {
+  display: grid;
+  gap: 6px;
+}
+
+.trend-bars > div {
+  display: flex;
+  height: 56px;
+  align-items: end;
+  gap: 4px;
+}
+
+.trend-bars span {
+  display: flex;
+  height: 100%;
+  flex: 1;
+  align-items: end;
+}
+
+.trend-bars i {
+  display: block;
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: #111;
+}
+
+.trend-bars figcaption {
+  color: var(--muted-ink);
+  font-size: 11px;
+}
+
+/* Trend Intelligence (Day 30) */
+.trend-timing {
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 9px;
+}
+
+.trend-timing[data-timing="act_now"] {
+  background: #111;
+  color: #fff;
+}
+
+.trend-action {
+  color: var(--ink) !important;
+}
+
+.trend-scores {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.ai-tag {
+  border-radius: 6px;
+  background: #eef4ff;
+  color: #1f4fa3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  vertical-align: middle;
+}
+
+.ai-insight {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+  border: 1px solid #d6e3ff;
+  border-radius: 16px;
+  background: #fbfcff;
+  padding: 18px;
+}
+
+.ai-insight h2 {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.ai-insight h3 {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ai-insight p,
+.ai-insight li {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ai-insight-ideas {
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .trend-scores {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Content Studio (Day 31) */
+.studio-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.studio-options label,
+.studio-topic {
+  display: grid;
+  gap: 4px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.studio-options select,
+.studio-topic input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  padding: 8px 10px;
+}
+
+.studio-ideas {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.studio-editor {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.studio-editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.studio-title {
+  min-width: min(100%, 420px);
+  font-size: 18px !important;
+  font-weight: 620;
+}
+
+.studio-posts {
+  display: grid;
+  gap: 4px;
+}
+
+.studio-post-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.studio-count {
+  color: var(--muted-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.studio-count[data-over] {
+  color: var(--destructive);
+  font-weight: 650;
+}
+
+@media (max-width: 720px) {
+  .studio-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Content Calendar (Day 32) */
+.cal-toolbar {
+  align-items: center;
+}
+
+.cal-layout {
+  grid-template-columns: minmax(0, 2.2fr) minmax(240px, 0.8fr);
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cal-head {
+  color: var(--muted-ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.cal-day {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 110px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px;
+}
+
+.cal-grid[data-view="week"] .cal-day {
+  min-height: 260px;
+}
+
+.cal-day[data-outside] {
+  background: var(--surface);
+  opacity: 0.7;
+}
+
+.cal-day[data-today] {
+  border-color: #111;
+}
+
+.cal-day-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.cal-add {
+  color: var(--muted-ink);
+  font-weight: 700;
+  padding: 0 4px;
+}
+
+.cal-add:hover {
+  color: var(--ink);
+}
+
+.cal-item {
+  display: grid;
+  gap: 2px;
+  border-left: 3px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+.cal-item[data-state="planned"] {
+  border-left-color: var(--blue);
+}
+
+.cal-item[data-state="published"] {
+  border-left-color: var(--green);
+}
+
+.cal-item[data-state="missed"] {
+  border-left-color: var(--destructive);
+}
+
+.cal-item-time {
+  color: var(--muted-ink);
+  font-weight: 650;
+}
+
+.cal-item-text {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-item-meta {
+  color: var(--muted-ink);
+}
+
+.cal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cal-list li {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.cal-list-day {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.plan-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.plan-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.plan-fields label,
+.plan-note {
+  display: grid;
+  gap: 4px;
+  color: var(--muted-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plan-fields input,
+.plan-fields select,
+.plan-note input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 7px 9px;
+}
+
+@media (max-width: 980px) {
+  .cal-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .cal-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cal-head,
+  .cal-day[data-outside] {
+    display: none;
+  }
+
+  .cal-day {
+    min-height: 0;
+  }
+
+  .cal-list li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

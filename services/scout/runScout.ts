@@ -40,6 +40,7 @@ import { importedSource } from "@/services/post-sources/imported";
 import { PostSourceUnavailableError } from "@/services/post-sources/types";
 import { xApiSource } from "@/services/post-sources/xApi";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
+import { computeTrends } from "@/services/trends/compute";
 import { isUnverified } from "@/services/watchlist/addAccount";
 import { ensureFreshPosts } from "@/services/x/sharedFetch";
 
@@ -337,6 +338,12 @@ export async function runScout(
     } catch (error) {
       console.error("Lead checks failed", run.id, error instanceof Error ? error.message : error);
       stats.leads = { checked: 0, leads: 0, high: 0, skippedReason: "Lead checks failed; they run on the next scan." };
+    }
+    // Day 29 Trend Scout: regroup this user's stored posts (no API calls)
+    try {
+      await computeTrends(profileId);
+    } catch (error) {
+      console.error("Trend computation failed", run.id, error instanceof Error ? error.message : error);
     }
     console.info("Scout run finished", run.id, stats);
     await recordXUsage({ runsCompleted: 1 });

@@ -96,13 +96,20 @@ export function LeadCard({ lead }: { lead: LeadView }) {
           onClick={() =>
             startTransition(async () => {
               const next = !saved;
+              setMessage(null);
               const result = await setLeadSavedAction(lead.id, next);
               if (result.ok) setSaved(next);
+              else setMessage(result.message);
             })
           }
         >
-          {saved ? "Unsave" : "Save lead"}
+          {saved ? "Remove from CRM" : "Save to CRM"}
         </button>
+        {saved && (
+          <a href={`/crm/${lead.id}`} className="text-link">
+            Open in CRM <span aria-hidden="true">→</span>
+          </a>
+        )}
       </div>
       {message && (
         <p className="form-message" data-status="error" role="status">

@@ -32,6 +32,10 @@ export type UsageLimits = {
    * relevant first. Paid from the scoring budget, so it never adds cost on top.
    */
   maxLeadChecksPerRun: number;
+  /** Day 28: leads kept in the CRM at once (stored data only: no API cost) */
+  maxSavedLeads: number;
+  /** Day 30: AI trend insights generated per day (on request, cached); paid from the scoring budget */
+  maxTrendInsightsPerDay: number;
 };
 
 /** Automatic Scout (Day 18): how often a plan may scan on its own. */
@@ -63,6 +67,8 @@ export const PLANS: Record<
       dailyPacing: true,
       maxDiscoveryTopics: 1,
       maxLeadChecksPerRun: 3,
+      maxSavedLeads: 25,
+      maxTrendInsightsPerDay: 2,
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
@@ -80,6 +86,8 @@ export const PLANS: Record<
       dailyPacing: true,
       maxDiscoveryTopics: 3,
       maxLeadChecksPerRun: 5,
+      maxSavedLeads: 250,
+      maxTrendInsightsPerDay: 5,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
   },
@@ -96,6 +104,8 @@ export const PLANS: Record<
       dailyPacing: true,
       maxDiscoveryTopics: 5,
       maxLeadChecksPerRun: 10,
+      maxSavedLeads: 1000,
+      maxTrendInsightsPerDay: 10,
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
@@ -113,6 +123,8 @@ export const PLANS: Record<
       dailyPacing: false,
       maxDiscoveryTopics: 10,
       maxLeadChecksPerRun: 20,
+      maxSavedLeads: 5000,
+      maxTrendInsightsPerDay: 30,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
   },

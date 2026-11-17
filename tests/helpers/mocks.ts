@@ -243,6 +243,53 @@ export function installMocks() {
           })),
         });
       }
+      // Day 30: one insight, citing the first post and an ID that was never given
+      if (format === "trend_insight") {
+        const { posts } = JSON.parse(String(body.input)) as { posts: { id: string }[] };
+        return aiResponse({
+          summary: "Founders compare AI products for their first customers.",
+          discussion: "Which AI tools actually help early SaaS teams.",
+          drivers: "Not clear from these posts.",
+          recurringQuestions: ["Which tool is worth paying for?"],
+          sentiment: "mixed",
+          whyItMatters: "Your audience is early SaaS founders.",
+          angles: { educational: "Explain how to evaluate one", personal: "What you use", practical: "A checklist", contrarian: null },
+          hooks: ["Most AI tools solve the wrong problem.", "How I would pick one.", "Third hook", "Fourth hook"],
+          format: { type: "thread", why: "Several steps to explain." },
+          recommendedAction: "Reply to the most active conversation with your checklist.",
+          supportingPostIds: [posts[0]?.id, "00000000-0000-0000-0000-000000000000"],
+        });
+      }
+      // Day 31 Content Studio
+      if (format === "content_ideas") {
+        return aiResponse({
+          ideas: Array.from({ length: 6 }, (_, i) => ({
+            hook: `Idea ${i + 1}: what nobody tells you about first customers`,
+            description: "A practical take from your own work.",
+            format: i % 2 ? "thread" : "post",
+            audience: "Early SaaS founders",
+            why: "It matches your expertise and goal.",
+          })),
+        });
+      }
+      if (format === "content_draft") {
+        const { idea } = JSON.parse(String(body.input)) as { idea: { format?: string } | null };
+        const thread = String(body.instructions).includes("an X thread") || idea?.format === "thread";
+        return aiResponse({
+          title: "First customers",
+          posts: thread
+            ? ["Most founders look for customers in the wrong place.", "[your example: where you found your first one]", "Start where they already talk."]
+            : ["Most founders look for customers in the wrong place. Start where they already talk."],
+        });
+      }
+      if (format === "content_section") return aiResponse({ text: "A sharper version of this post." });
+      if (format === "content_review") {
+        return aiResponse({
+          assessment: "Clear point, but the hook is generic.",
+          improvements: ["Open with the specific mistake", "Cut the second sentence", "Add your example", "A fourth one"],
+          revised: ["Founders: stop cold-emailing. Go where your customers already talk."],
+        });
+      }
       if (format === "lead_profile") {
         return aiResponse({
           product: "An AI tool that helps SaaS founders find their first customers on X.",

@@ -83,8 +83,9 @@ export async function getUsageBudget(
   const used = {
     xPostReads,
     // Discovery keyword suggestions are scoring-side AI work: same allowance
-    scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords") + cost("lead_icp") + cost("lead_classification"),
-    replyUsd: cost("reply_generation"),
+    scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords") + cost("lead_icp") + cost("lead_classification") + cost("trend_insight"),
+    // Day 31: Content Studio writing shares the reply (writing) budget
+    replyUsd: cost("reply_generation") + cost("content_ideas") + cost("content_generation") + cost("content_review"),
   };
   const monthRemaining = {
     xPostReads: Math.max(0, limits.monthlyXPostReads - used.xPostReads),

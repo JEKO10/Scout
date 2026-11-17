@@ -3,6 +3,7 @@ import "server-only";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
+import { addLeadActivity, findSavedLeadByAuthor } from "@/db/queries/crm";
 import { getLeadCandidates, insertLeads, markCandidatesLeadChecked, type NewLead } from "@/db/queries/leads";
 import type { Profile, ScoutCandidate } from "@/db/schema";
 import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
@@ -86,7 +87,17 @@ export async function classifyLeads(profile: Profile, scoutRunId: string): Promi
     if (!candidate || checked.includes(candidate.id)) continue;
     checked.push(candidate.id);
     const lead = toLead(profile.id, candidate, judgment, now);
-    if (lead) leads.push(lead);
+    if (!lead) continue;
+    // Day 28: a new signal from someone already in the CRM joins their lead;
+    // their status, notes and follow-ups are never touched by a scan
+    const existing = lead.authorPlatformUserId ? await findSavedLeadByAuthor(profile.id, lead.authorPlatformUserId) : undefined;
+    if (existing) {
+      await addLeadActivity(profile.id, existing.id, "new_signal", {
+        detail: { postUrl: lead.postUrl, evidence: lead.evidence, intent: lead.intent, score: lead.score },
+      });
+      continue;
+    }
+    leads.push(lead);
   }
   // Checked once, lead or not; posts the model skipped are checked next scan
   await markCandidatesLeadChecked(profile.id, checked);

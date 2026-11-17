@@ -25,6 +25,7 @@ import type {
   StoredVoiceBrain,
 } from "../lib/ai/schemas/scoutBrain";
 import { PLAN_IDS, type UsageLimits } from "../lib/billing/plans";
+import type { ContentReview, IdeaSuggestion } from "../lib/content/types";
 import type { LeadProfile, LeadScoreBreakdown } from "../lib/leads/types";
 import { REPLY_STYLES } from "../lib/replies/styles";
 import type { LearningProfile } from "../lib/scout/learning";
@@ -37,6 +38,14 @@ import type {
   ScoutRunStats,
   XScanCursor,
 } from "../lib/scout/types";
+import type {
+  DailyCount,
+  TrendInsight,
+  TrendMomentum,
+  TrendOpportunityBreakdown,
+  TrendScoreBreakdown,
+  TrendTiming,
+} from "../lib/trends/types";
 
 const timestamps = {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -554,6 +563,12 @@ export const aiOperationEnum = pgEnum("ai_operation", [
   // Day 27 Lead Scout: an ideal customer profile drafted from the Brain, and buying-intent checks
   "lead_icp",
   "lead_classification",
+  // Day 30: an AI explanation and content ideas for one trend, on request
+  "trend_insight",
+  // Day 31 Content Studio (paid from the writing budget, like replies)
+  "content_ideas",
+  "content_generation",
+  "content_review",
 ]);
 
 // One row per OpenAI call: actual token usage from the API, and the cost
@@ -1016,6 +1031,17 @@ export type DiscoveryTopic = typeof discoveryTopicsTable.$inferSelect;
 
 export const leadIntentEnum = pgEnum("lead_intent", ["high", "medium", "low"]);
 
+/** Day 28 CRM pipeline, in order */
+export const leadStatusEnum = pgEnum("lead_status", [
+  "new",
+  "researching",
+  "contacted",
+  "replied",
+  "qualified",
+  "won",
+  "lost",
+]);
+
 /**
  * Day 27 Lead Scout: a public X post whose author may need what the user
  * offers, with the evidence. One row per user and post; "not a lead" posts
@@ -1047,13 +1073,207 @@ export const leadsTable = pgTable(
     evidence: text().notNull(),
     reason: text().notNull(),
     suggestedAction: text().notNull(),
+    /** In the CRM (Day 28). Unsaving keeps status, notes and history */
     saved: boolean().notNull().default(false),
+    // Day 28 CRM: the user's own pipeline data; rescans never change it
+    status: leadStatusEnum().notNull().default("new"),
+    followUpAt: timestamp({ withTimezone: true }),
+    followUpNote: text(),
+    followUpDoneAt: timestamp({ withTimezone: true }),
+    lastActivityAt: timestamp({ withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     unique().on(t.profileId, t.platform, t.platformPostId),
     index().on(t.profileId, t.score.desc()),
+    index().on(t.profileId, t.saved, t.status),
+    index().on(t.profileId, t.authorPlatformUserId),
   ],
 );
 
 export type Lead = typeof leadsTable.$inferSelect;
+
+/** Day 28: the user's private notes on a lead */
+export const leadNotesTable = pgTable(
+  "lead_notes",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    leadId: uuid()
+      .notNull()
+      .references(() => leadsTable.id, { onDelete: "cascade" }),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    body: text().notNull(),
+    ...timestamps,
+  },
+  (t) => [index().on(t.leadId, t.createdAt.desc())],
+);
+
+export type LeadNote = typeof leadNotesTable.$inferSelect;
+
+export const leadActivityKindEnum = pgEnum("lead_activity_kind", [
+  "saved",
+  "status_changed",
+  "note_added",
+  "reply_started",
+  "x_opened",
+  "contact_logged",
+  "response_logged",
+  "follow_up_set",
+  "follow_up_done",
+  "new_signal",
+]);
+
+/**
+ * Day 28 lead timeline. `userEntered`: something the user told Scout (a
+ * contact, a response, a status); otherwise something Scout saw happen in
+ * Scout (a save, a reply draft, a link opened). Opening X is never a contact.
+ */
+export const leadActivitiesTable = pgTable(
+  "lead_activities",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    leadId: uuid()
+      .notNull()
+      .references(() => leadsTable.id, { onDelete: "cascade" }),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    kind: leadActivityKindEnum().notNull(),
+    userEntered: boolean().notNull().default(false),
+    detail: jsonb().$type<Record<string, string | number | null>>(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.leadId, t.createdAt.desc())],
+);
+
+export type LeadActivity = typeof leadActivitiesTable.$inferSelect;
+
+export const trendStatusEnum = pgEnum("trend_status", [
+  // Day 30: small but clearly accelerating (comparable history required)
+  "emerging",
+  "rising",
+  "stable",
+  "declining",
+  "newly_detected",
+  "insufficient_history",
+]);
+export const trendConfidenceEnum = pgEnum("trend_confidence", ["low", "medium", "high"]);
+
+/**
+ * Day 29 Trend Scout: what the posts Scout already collected for a user are
+ * about, grouped, with observed momentum. Recomputed after each scan from
+ * stored candidates (no extra X or AI calls); a trend without recent posts
+ * is removed. Representative posts are referenced by ID, not copied.
+ */
+export const trendsTable = pgTable(
+  "trends",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    /** Normalized label: the same trend keeps its row (and ID) across recomputes */
+    key: text().notNull(),
+    label: text().notNull(),
+    /** Words the posts share most, to make a broad label specific */
+    terms: text().array().notNull().default(sql`'{}'::text[]`),
+    summary: text(),
+    /** Why it matters to the user: the scoring's own reason for its best post */
+    why: text(),
+    discoveryTopicId: uuid().references(() => discoveryTopicsTable.id, { onDelete: "set null" }),
+    status: trendStatusEnum().notNull(),
+    confidence: trendConfidenceEnum().notNull(),
+    score: integer().notNull(),
+    /** Average Scout Brain relevance of its posts, 0–100 */
+    relevance: integer().notNull(),
+    scoreBreakdown: jsonb().$type<TrendScoreBreakdown>().notNull(),
+    momentum: jsonb().$type<TrendMomentum>().notNull(),
+    dailyCounts: jsonb().$type<DailyCount[]>().notNull(),
+    postCount: integer().notNull(),
+    authorCount: integer().notNull(),
+    engagement: integer().notNull(),
+    /** scout_candidates IDs, best first */
+    representativeCandidateIds: uuid().array().notNull(),
+    firstPostAt: timestamp({ withTimezone: true }).notNull(),
+    lastPostAt: timestamp({ withTimezone: true }).notNull(),
+    // Day 30 Trend Intelligence
+    /** How worthwhile it is for this user to take part, 0–100 (deterministic) */
+    opportunityScore: integer().notNull().default(0),
+    opportunityBreakdown: jsonb().$type<TrendOpportunityBreakdown>(),
+    timing: text().$type<TrendTiming>(),
+    /** Kept by the user: survives recomputes even when the trend goes quiet */
+    saved: boolean().notNull().default(false),
+    /** AI explanation and content ideas, cached until the evidence changes */
+    insight: jsonb().$type<TrendInsight>(),
+    insightGeneratedAt: timestamp({ withTimezone: true }),
+    /** The evidence the insight was written from: refresh only when it changes meaningfully */
+    insightBasis: jsonb().$type<{ postCount: number; candidateIds: string[] }>(),
+    /** One generation at a time per trend */
+    insightLockedUntil: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.profileId, t.key), index().on(t.profileId, t.score.desc())],
+);
+
+export type Trend = typeof trendsTable.$inferSelect;
+
+export const contentGoalEnum = pgEnum("content_goal", [
+  "grow_audience",
+  "build_authority",
+  "generate_leads",
+  "start_conversations",
+  "educate",
+  "promote_product",
+]);
+export const contentFormatEnum = pgEnum("content_format", ["post", "thread"]);
+export const contentToneEnum = pgEnum("content_tone", ["professional", "conversational", "bold", "educational"]);
+export const contentLengthEnum = pgEnum("content_length", ["short", "medium", "long"]);
+export const draftStatusEnum = pgEnum("draft_status", ["draft", "ready"]);
+
+/**
+ * Day 31 Content Studio drafts. A thread is an ordered array of posts (one
+ * entry each), never one flattened text. Publishing is always manual: Scout
+ * only records what the user confirms.
+ */
+export const contentDraftsTable = pgTable(
+  "content_drafts",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    title: text().notNull(),
+    goal: contentGoalEnum().notNull(),
+    format: contentFormatEnum().notNull(),
+    tone: contentToneEnum().notNull(),
+    length: contentLengthEnum().notNull(),
+    status: draftStatusEnum().notNull().default("draft"),
+    posts: text().array().notNull(),
+    topic: text(),
+    /** The idea it was written from, if any */
+    idea: jsonb().$type<IdeaSuggestion>(),
+    sourceTrendId: uuid().references(() => trendsTable.id, { onDelete: "set null" }),
+    /** The latest review, kept until the next one */
+    review: jsonb().$type<ContentReview>(),
+    /** The user said they posted it (Scout can't see X) */
+    publishedConfirmedAt: timestamp({ withTimezone: true }),
+    // Day 32 Content Calendar: planning only, never automatic posting
+    /** When the user plans to post it, UTC */
+    plannedAt: timestamp({ withTimezone: true }),
+    /** The IANA time zone the plan was made in, e.g. Europe/Belgrade */
+    timeZone: text(),
+    planNote: text(),
+    /** The post's URL on X, if the user adds it after posting (user-entered, not verified) */
+    publishedUrl: text(),
+    /** Hidden from the calendar and lists, kept */
+    archivedAt: timestamp({ withTimezone: true }),
+    /** A missed plan is recorded once for analytics; the draft itself doesn't change */
+    missedNotedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId, t.updatedAt.desc()), index().on(t.profileId, t.plannedAt)],
+);
+
+export type ContentDraft = typeof contentDraftsTable.$inferSelect;

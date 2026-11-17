@@ -14,6 +14,10 @@ export const AI_OPERATION_LABELS: Record<AiOperation, string> = {
   discovery_keywords: "Discovery search terms",
   lead_icp: "Lead Scout profile",
   lead_classification: "Lead Scout intent checks",
+  trend_insight: "Trend insights",
+  content_ideas: "Content ideas",
+  content_generation: "Content drafts",
+  content_review: "Content reviews",
 };
 
 export type AiCostSummary = {

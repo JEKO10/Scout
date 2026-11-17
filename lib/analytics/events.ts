@@ -23,6 +23,26 @@ export const SERVER_EVENTS = [
   "lead_saved",
   "lead_reply_started",
   "lead_opened_on_x",
+  // Day 29 Trend Scout
+  "trend_viewed",
+  "trend_conversation_opened",
+  // Day 30
+  "trend_saved",
+  "trend_insight_generated",
+  // Day 31 Content Studio
+  "content_ideas_generated",
+  "content_draft_created",
+  "content_draft_edited",
+  "content_reviewed",
+  "content_copied",
+  "content_opened_on_x",
+  "content_publish_confirmed",
+  // Day 32 Content Calendar
+  "content_planned",
+  "content_rescheduled",
+  "content_marked_ready",
+  "content_published_url_saved",
+  "content_plan_missed",
 ] as const;
 
 export type ClientEvent = (typeof CLIENT_EVENTS)[number];
@@ -57,6 +77,17 @@ export const FUNNEL: AnalyticsEvent[] = [
   "lead_saved",
   "lead_reply_started",
   "lead_opened_on_x",
+  "trend_viewed",
+  "trend_conversation_opened",
+  "trend_saved",
+  "trend_insight_generated",
+  "content_ideas_generated",
+  "content_draft_created",
+  "content_reviewed",
+  "content_opened_on_x",
+  "content_publish_confirmed",
+  "content_planned",
+  "content_plan_missed",
   "pricing_view",
   "checkout_started",
   "subscription_activated",

@@ -4,5 +4,5 @@ export default auth.middleware({ loginUrl: "/auth/sign-in" });
 
 export const config = {
   // Protected routes — add more as the app grows
-  matcher: ["/account/:path*", "/dashboard/:path*", "/onboarding/:path*", "/eval/:path*", "/watchlist/:path*", "/opportunities/:path*", "/memory/:path*", "/activity/:path*", "/dev/:path*", "/discovery/:path*", "/leads/:path*"],
+  matcher: ["/account/:path*", "/dashboard/:path*", "/onboarding/:path*", "/eval/:path*", "/watchlist/:path*", "/opportunities/:path*", "/memory/:path*", "/activity/:path*", "/dev/:path*", "/discovery/:path*", "/leads/:path*", "/crm/:path*", "/trends/:path*", "/studio/:path*", "/calendar/:path*"],
 };

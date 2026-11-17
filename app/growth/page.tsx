@@ -168,6 +168,27 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
     );
   }
 
+  // The account is there but has no posts to analyze (yet, or in this period)
+  if (report.posts.length === 0) {
+    const handle = `@${report.account.handle}`;
+    const followers = report.overview.followers.current;
+    const longer = GROWTH_RANGES.find((option) => option > range);
+    return (
+      <main className="workspace shell enter-content">
+        {heading}
+        <EmptyState
+          title={report.oldest ? `No posts from ${handle} in the last ${range} days.` : `${handle} has no posts yet.`}
+          description={
+            report.oldest
+              ? `Growth Intelligence works from your posts. Post on X, then use Refresh from X (once a day)${longer ? `, or look at a longer period` : ""}.`
+              : `Growth Intelligence works from your posts and their numbers. Post on X, give it a few hours to collect views, then use Refresh from X (once a day).${followers !== null ? ` Followers right now: ${followers.toLocaleString("en-US")}.` : ""}`
+          }
+          action={report.oldest && longer ? { href: link({ range: String(longer) }), label: `Show the last ${longer} days` } : undefined}
+        />
+      </main>
+    );
+  }
+
   const o = report.overview;
   const recs = growthRecommendations(report);
   const works = report.findings.filter((finding) => finding.kind === "works").slice(0, 4);

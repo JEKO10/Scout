@@ -86,7 +86,7 @@ export async function getUsageBudget(
   const used = {
     xPostReads: scanXPostReads + growthXPostReads,
     // Discovery keyword suggestions are scoring-side AI work: same allowance
-    scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords") + cost("lead_icp") + cost("lead_classification") + cost("trend_insight"),
+    scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords") + cost("lead_icp") + cost("lead_classification") + cost("trend_insight") + cost("growth_strategy"),
     // Day 31: Content Studio writing shares the reply (writing) budget
     replyUsd: cost("reply_generation") + cost("content_ideas") + cost("content_generation") + cost("content_review"),
   };

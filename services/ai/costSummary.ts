@@ -18,6 +18,7 @@ export const AI_OPERATION_LABELS: Record<AiOperation, string> = {
   content_ideas: "Content ideas",
   content_generation: "Content drafts",
   content_review: "Content reviews",
+  growth_strategy: "Growth strategy",
 };
 
 export type AiCostSummary = {

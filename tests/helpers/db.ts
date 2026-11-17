@@ -44,6 +44,8 @@ export const TEST_LIMITS: Partial<UsageLimits> = {
   maxActiveWatchlist: 10,
   maxCandidatesPerRun: 60,
   dailyPacing: false,
+  // Day 34: room for several strategy generations per test profile
+  maxStrategyGenerationsPerMonth: 20,
 };
 
 /** A profile with a Scout Brain, so scoring runs (against the mocked OpenAI). */

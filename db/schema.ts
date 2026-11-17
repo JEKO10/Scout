@@ -38,6 +38,7 @@ import type {
   ScoutRunStats,
   XScanCursor,
 } from "../lib/scout/types";
+import type { StrategyContent, StrategyEvidence } from "../lib/strategy/types";
 import type {
   DailyCount,
   TrendInsight,
@@ -589,6 +590,8 @@ export const aiOperationEnum = pgEnum("ai_operation", [
   "content_ideas",
   "content_generation",
   "content_review",
+  // Day 34 Growth Strategist: one weekly strategy (paid from the scoring budget)
+  "growth_strategy",
 ]);
 
 // One row per OpenAI call: actual token usage from the API, and the cost
@@ -1413,3 +1416,118 @@ export const postMetricSnapshotsTable = pgTable(
 );
 
 export type PostMetricSnapshot = typeof postMetricSnapshotsTable.$inferSelect;
+
+// ---- Day 34 Growth Strategist ------------------------------------------------
+
+export const growthStrategyStatusEnum = pgEnum("growth_strategy_status", [
+  /** An AI call is running; at most one per profile (partial unique index) */
+  "generating",
+  "active",
+  /** Replaced by a newer strategy: kept as history */
+  "archived",
+  "failed",
+]);
+
+/**
+ * One weekly strategy: the evidence Scout computed (numbers never come from
+ * the AI), the validated AI recommendations, and the user's settings for it.
+ */
+export const growthStrategiesTable = pgTable(
+  "growth_strategies",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    status: growthStrategyStatusEnum().notNull(),
+    /** "evidence": enough history for patterns; "starter": a labeled experimentation plan */
+    mode: text().$type<"evidence" | "starter">().notNull(),
+    objective: text().notNull(),
+    weeklyMinutes: integer().notNull(),
+    /** First day of the 7-day plan, in the user's time zone */
+    weekStart: date({ mode: "string" }).notNull(),
+    evidence: jsonb().$type<StrategyEvidence>().notNull(),
+    /** Null until generated (or when it failed) */
+    content: jsonb().$type<StrategyContent>(),
+    /** Fingerprint of the evidence: an unchanged one doesn't regenerate */
+    evidenceKey: text().notNull(),
+    model: text(),
+    costUsd: doublePrecision(),
+    error: text(),
+    ...timestamps,
+  },
+  (t) => [
+    index().on(t.profileId, t.createdAt.desc()),
+    uniqueIndex("growth_strategies_one_generating").on(t.profileId).where(sql`${t.status} = 'generating'`),
+  ],
+);
+
+export type GrowthStrategy = typeof growthStrategiesTable.$inferSelect;
+
+export const growthTaskStatusEnum = pgEnum("growth_task_status", ["todo", "done", "skipped"]);
+
+/** One action of a weekly plan */
+export const growthPlanTasksTable = pgTable(
+  "growth_plan_tasks",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    strategyId: uuid()
+      .notNull()
+      .references(() => growthStrategiesTable.id, { onDelete: "cascade" }),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    /** The local date it's planned for (can be rescheduled within the plan) */
+    day: date({ mode: "string" }).notNull(),
+    position: integer().notNull(),
+    title: text().notNull(),
+    objective: text().notNull(),
+    activity: text().notNull(),
+    reason: text().notNull(),
+    effortMinutes: integer().notNull(),
+    /** lib/strategy/types STRATEGY_MODULES; the link is built from it, never stored from the AI */
+    module: text().notNull(),
+    evidenceIds: text().array().notNull().default(sql`'{}'::text[]`),
+    status: growthTaskStatusEnum().notNull().default("todo"),
+    doneAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index().on(t.strategyId, t.day), index().on(t.profileId)],
+);
+
+export type GrowthPlanTask = typeof growthPlanTasksTable.$inferSelect;
+
+export const growthExperimentStatusEnum = pgEnum("growth_experiment_status", ["proposed", "active", "completed", "stopped"]);
+
+export type ExperimentObservation = { at: string; text: string };
+
+/** A simple A/B growth experiment: proposed by a strategy or started from a preset */
+export const growthExperimentsTable = pgTable(
+  "growth_experiments",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    strategyId: uuid().references(() => growthStrategiesTable.id, { onDelete: "set null" }),
+    title: text().notNull(),
+    hypothesis: text().notNull(),
+    /** length / hook / time are measured from posts; custom relies on observations */
+    dimension: text().notNull(),
+    variantA: text().notNull(),
+    variantB: text().notNull(),
+    metric: text().notNull(),
+    durationDays: integer().notNull(),
+    minPerVariant: integer().notNull(),
+    actions: text().array().notNull().default(sql`'{}'::text[]`),
+    status: growthExperimentStatusEnum().notNull().default("proposed"),
+    startedAt: timestamp({ withTimezone: true }),
+    endsAt: timestamp({ withTimezone: true }),
+    observations: jsonb().$type<ExperimentObservation[]>().notNull().default([]),
+    conclusion: text(),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId, t.status)],
+);
+
+export type GrowthExperiment = typeof growthExperimentsTable.$inferSelect;

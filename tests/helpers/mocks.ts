@@ -91,7 +91,54 @@ export const ai = {
   /** Day 27: the intent every lead check returns, and an optional fixed quote */
   leadIntent: "high" as "high" | "medium" | "low" | "not_a_lead",
   leadQuote: undefined as string | undefined,
+  /** Day 34: replaces the default strategy answer (gets the parsed input) */
+  strategy: null as null | ((input: Record<string, unknown>) => unknown),
 };
+
+/**
+ * Day 34 default strategy: cites the first evidence IDs, plus things Scout
+ * must reject: an unknown evidence ID, a "do less" without strong evidence,
+ * more tasks than fit, and an unmeasurable variant. (Modules and dimensions
+ * are enums in the JSON schema, which OpenAI enforces.)
+ */
+function defaultStrategy(input: { evidence: { id: string }[]; runningExperiments: { id: string }[] }) {
+  const first = input.evidence[0]?.id;
+  const cited = first ? [first, "E99"] : ["E99"];
+  return {
+    summary: "You post rarely, so the first goal is a steady baseline.",
+    priorities: [
+      { title: "Post three times this week", why: "Consistency gives Scout something to learn from.", evidenceIds: cited },
+      { title: "Join two conversations a day", why: "Replies reach people who don't follow you yet.", evidenceIds: cited },
+      { title: "Test question hooks", why: "A cheap way to learn what gets replies.", evidenceIds: [] },
+    ],
+    doMore: [
+      { text: "Keep writing about your product lessons.", evidenceIds: cited },
+      { text: "Something with no evidence.", evidenceIds: [] },
+    ],
+    doLess: [{ text: "Stop posting threads.", evidenceIds: cited }],
+    tasks: [
+      ...Array.from({ length: 7 }, (_, day) => ({
+        day,
+        title: `Task for day ${day}`,
+        objective: "Build a baseline",
+        activity: "Write one short post about a lesson from your week.",
+        reason: "Steady posting is the baseline.",
+        effortMinutes: 30,
+        module: "studio",
+        evidenceIds: cited,
+      })),
+      { day: 0, title: "Second task", objective: "Join in", activity: "Reply to two conversations.", reason: "Reach.", effortMinutes: 20, module: "opportunities", evidenceIds: [] },
+      { day: 0, title: "Third task the same day", objective: "x", activity: "x", reason: "x", effortMinutes: 10, module: "trends", evidenceIds: [] },
+      { day: 1, title: "Over the daily cap", objective: "x", activity: "x", reason: "x", effortMinutes: 10, module: "growth", evidenceIds: [] },
+      { day: 1, title: "Another over the cap", objective: "x", activity: "x", reason: "x", effortMinutes: 10, module: "growth", evidenceIds: [] },
+    ],
+    experiments: [
+      { title: "Question vs statement", hypothesis: "Questions get more replies.", dimension: "hook", variantA: "question", variantB: "statement", metric: "replies", durationDays: 21, actions: ["Post 5 of each"] },
+      { title: "Bad variant", hypothesis: "x", dimension: "length", variantA: "tiny", variantB: "long", metric: "impressions", durationDays: 14, actions: [] },
+    ],
+    experimentReviews: input.runningExperiments.map((e) => ({ experimentId: e.id, recommendation: "continue", reason: "Not enough posts yet." })),
+  };
+}
 
 let seq = BigInt("1900000000000000000");
 
@@ -324,6 +371,10 @@ export function installMocks() {
           improvements: ["Open with the specific mistake", "Cut the second sentence", "Add your example", "A fourth one"],
           revised: ["Founders: stop cold-emailing. Go where your customers already talk."],
         });
+      }
+      if (format === "growth_strategy") {
+        const input = JSON.parse(String(body.input));
+        return aiResponse(ai.strategy ? ai.strategy(input) : defaultStrategy(input));
       }
       if (format === "lead_profile") {
         return aiResponse({

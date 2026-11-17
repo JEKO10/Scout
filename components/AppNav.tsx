@@ -49,6 +49,7 @@ const icons: Record<string, ReactNode> = {
     </>
   ),
   chart: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+  flag: <path d="M5 21V4M5 4h12l-2.5 4.5L17 13H5" />,
   brain: <path d="M12 5a3 3 0 0 0-5.6-1.5A3 3 0 0 0 4 8a3 3 0 0 0 0 6 3 3 0 0 0 3 4 3 3 0 0 0 5 1zM12 5a3 3 0 0 1 5.6-1.5A3 3 0 0 1 20 8a3 3 0 0 1 0 6 3 3 0 0 1-3 4 3 3 0 0 1-5 1zM12 5v14" />,
   check: <path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />,
   settings: (
@@ -79,6 +80,7 @@ const sections = [
       { href: "/studio", label: "Content Studio", icon: "pen" },
       { href: "/calendar", label: "Calendar", icon: "calendar" },
       { href: "/growth", label: "Growth Intelligence", icon: "chart" },
+      { href: "/strategy", label: "Growth Strategy", icon: "flag" },
     ],
   },
   {

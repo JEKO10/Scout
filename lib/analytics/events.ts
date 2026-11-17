@@ -46,6 +46,9 @@ export const SERVER_EVENTS = [
   // Day 33 Growth Intelligence
   "growth_viewed",
   "growth_refreshed",
+  // Day 34 Growth Strategist
+  "growth_strategy_viewed",
+  "growth_strategy_generated",
 ] as const;
 
 export type ClientEvent = (typeof CLIENT_EVENTS)[number];

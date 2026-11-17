@@ -6644,3 +6644,16 @@ a.stat-card:hover {
   margin-top: 12px;
   font-size: 0.9rem;
 }
+
+.x-mismatch {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--amber);
+  border-radius: var(--radius);
+  background: #fffbeb;
+}
+.x-mismatch p {
+  margin: 0;
+}

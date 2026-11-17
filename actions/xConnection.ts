@@ -3,7 +3,9 @@
 import { refresh } from "next/cache";
 import { z } from "zod";
 
+import { updateProfileXHandle } from "@/db/queries/profiles";
 import { requireProfile } from "@/lib/auth/session";
+import { xHandleSchema } from "@/schemas/onboarding";
 import { disconnectX } from "@/services/x/oauthConnection";
 
 const disconnectSchema = z.object({ deleteHistory: z.boolean() });
@@ -21,4 +23,17 @@ export async function disconnectXAction(input: { deleteHistory: boolean }): Prom
       ? `X disconnected. ${deletedReadings} stored metric readings deleted.`
       : "X disconnected. Metrics Scout already stored stay until you delete them.",
   };
+}
+
+/**
+ * "Use @other instead": the profile's X handle becomes the account the user
+ * just authorized. Ownership is checked again by the OAuth flow that follows;
+ * stored posts of the previous account stay.
+ */
+export async function switchXHandleAction(handle: string): Promise<{ ok: boolean; message: string }> {
+  const { profile } = await requireProfile();
+  const parsed = xHandleSchema.safeParse(handle);
+  if (!parsed.success) return { ok: false, message: "Invalid X handle." };
+  await updateProfileXHandle(profile.id, parsed.data);
+  return { ok: true, message: `Scout now uses @${parsed.data}. Connecting X…` };
 }

@@ -57,7 +57,16 @@ async function xUser(plan: s.Profile["plan"] = "free", { handle = `u${nextId().s
 async function connect(profile: s.Profile, code: string, { error = null as string | null } = {}) {
   const { url, cookie } = createXOAuthStart(profile.id);
   const state = new URL(url).searchParams.get("state");
-  return handleXOAuthCallback(profile, { state, code, error, cookie });
+  return (await handleXOAuthCallback(profile, { state, code, error, cookie })).status;
+}
+
+/** Posts Scout already holds from an X account of this profile (e.g. a public sync) */
+async function storedAccount(profileId: string, handle: string, platformUserId: string, posts = 1) {
+  const [account] = await db.insert(s.socialAccountsTable).values({ profileId, platform: "x", platformUserId, handle }).returning();
+  for (let i = 0; i < posts; i++) {
+    await db.insert(s.postsTable).values({ socialAccountId: account.id, platformPostId: nextId(), content: "A stored post", publishedAt: new Date() });
+  }
+  return account;
 }
 
 /** Own posts on the mocked timeline: `recent` from the last days, `old` from 40+ days ago */
@@ -102,7 +111,7 @@ test("authorize URL: S256 PKCE, read-only scopes, exact callback; flow cookie en
 
 test("callback: bad state, cancel and a missing scope connect nothing; granted tokens are revoked", async () => {
   const { profile, userId } = await xUser();
-  assert.equal(await handleXOAuthCallback(profile, { state: "forged", code: `user:${userId}`, error: null, cookie: undefined }), "invalid_state");
+  assert.equal((await handleXOAuthCallback(profile, { state: "forged", code: `user:${userId}`, error: null, cookie: undefined })).status, "invalid_state");
   assert.equal(await connect(profile, "", { error: "access_denied" }), "cancelled");
   assert.equal(xOAuth.tokenCalls.length, 0, "no code is exchanged without a valid state, or after cancel");
 
@@ -132,9 +141,15 @@ test("connect: the account comes from /2/users/me, tokens are encrypted, other a
   assert.equal(snapshot.followers, 1234, "follower count from the same ownership check");
   assert.equal(snapshot.xPostReads, 0);
 
-  // Someone whose Scout profile is about another X account
+  // Someone whose Scout profile already analyzes another X account
   const bob = await xUser("free");
-  assert.equal(await connect(bob.profile, `user:${alice.userId}`), "handle_mismatch");
+  await storedAccount(bob.profile.id, bob.handle, bob.userId);
+  const refused = await (async () => {
+    const { url, cookie } = createXOAuthStart(bob.profile.id);
+    return handleXOAuthCallback(bob.profile, { state: new URL(url).searchParams.get("state"), code: `user:${alice.userId}`, error: null, cookie });
+  })();
+  assert.deepEqual(refused, { status: "handle_mismatch", authorizedHandle: alice.handle }, "names the account they authorized");
+  assert.equal((await getProfile(bob.profile.id)).xHandle, bob.handle, "the profile isn't changed");
   // Someone without a handle trying to take an account that is already connected
   const carol = await xUser("free", { withHandle: false });
   assert.equal(await connect(carol.profile, `user:${alice.userId}`), "in_use");
@@ -147,6 +162,27 @@ test("connect: the account comes from /2/users/me, tokens are encrypted, other a
   assert.equal(await connect(dave.profile, `user:${dave.userId}`), "connected");
   assert.equal((await getProfile(dave.profile.id)).xHandle, dave.handle);
   assert.ok((await getXConnection(dave.profile.id))!.nextCollectionAt, "Starter: automatic collection planned");
+});
+
+test("another account: the same X account renamed, or a handle with no data, connects and takes the verified handle", async () => {
+  // Renamed on X: Scout holds posts under the old handle, but the X user ID is the same
+  const renamed = await xUser("free", { handle: `old${nextId().slice(-6)}` });
+  await storedAccount(renamed.profile.id, renamed.handle, renamed.userId, 2);
+  const newHandle = `new${nextId().slice(-6)}`;
+  x.users.delete(renamed.handle.toLowerCase());
+  x.users.set(newHandle.toLowerCase(), renamed.userId);
+  assert.equal(await connect(renamed.profile, `user:${renamed.userId}`), "connected");
+  assert.equal((await getProfile(renamed.profile.id)).xHandle, newHandle);
+  const accounts = await db.select().from(s.socialAccountsTable).where(eq(s.socialAccountsTable.profileId, renamed.profile.id));
+  assert.equal(accounts.length, 1, "the same account row, renamed: no duplicate");
+  assert.equal(accounts[0].handle, newHandle);
+
+  // A handle typed in onboarding, never synced: nothing to mix, so the verified account replaces it
+  const typo = await xUser("free");
+  const real = await xUser("free", { withHandle: false });
+  await db.delete(s.profilesTable).where(eq(s.profilesTable.id, real.profile.id));
+  assert.equal(await connect(typo.profile, `user:${real.userId}`), "connected");
+  assert.equal((await getProfile(typo.profile.id)).xHandle, real.handle);
 });
 
 test("refresh: private metrics only for posts inside X's 30-day window, from the plan's X reads, once a day", async () => {

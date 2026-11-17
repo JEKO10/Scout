@@ -123,6 +123,7 @@ async function ScoutSettings() {
       <XConnectionSettings
         data={{
           enabled: xConnection.enabled,
+          profileHandle: profile.xHandle,
           autoEveryHours: xConnection.autoEveryHours,
           connection: xConnection.connection && {
             handle: xConnection.connection.handle,

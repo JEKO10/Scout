@@ -1,9 +1,9 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 
 import db from "@/db";
-import { type SocialAccount, socialAccountsTable } from "@/db/schema";
+import { postsTable, type SocialAccount, socialAccountsTable } from "@/db/schema";
 import type { NormalizedProfile } from "@/lib/posts/types";
 
 export async function upsertSocialAccount(
@@ -85,4 +85,41 @@ export async function getSocialAccountByHandle(
     )
     .limit(1);
   return account;
+}
+
+/**
+ * X OAuth: whether this X user is already one of the profile's accounts
+ * (same account, handle renamed), and how many posts Scout holds from the
+ * account behind the profile's current handle.
+ */
+export async function getXAccountUsage(
+  profileId: string,
+  platformUserId: string,
+  currentHandle: string,
+): Promise<{ sameAccountLinked: boolean; postsFromCurrentHandle: number }> {
+  const [linked, posts] = await Promise.all([
+    db
+      .select({ id: socialAccountsTable.id })
+      .from(socialAccountsTable)
+      .where(
+        and(
+          eq(socialAccountsTable.profileId, profileId),
+          eq(socialAccountsTable.platform, "x"),
+          eq(socialAccountsTable.platformUserId, platformUserId),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ n: count() })
+      .from(postsTable)
+      .innerJoin(socialAccountsTable, eq(socialAccountsTable.id, postsTable.socialAccountId))
+      .where(
+        and(
+          eq(socialAccountsTable.profileId, profileId),
+          eq(socialAccountsTable.platform, "x"),
+          sql`lower(${socialAccountsTable.handle}) = lower(${currentHandle})`,
+        ),
+      ),
+  ]);
+  return { sameAccountLinked: linked.length > 0, postsFromCurrentHandle: posts[0]?.n ?? 0 };
 }

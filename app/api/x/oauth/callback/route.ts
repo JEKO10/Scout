@@ -17,7 +17,11 @@ export async function GET(request: NextRequest) {
     cookie: request.cookies.get(X_OAUTH_COOKIE)?.value,
   });
 
-  const response = NextResponse.redirect(new URL(`/account/settings?x=${result}`, request.url));
+  const target = new URL("/account/settings", request.url);
+  target.searchParams.set("x", result.status);
+  // The verified handle of the account they authorized: shown so they can choose
+  if (result.authorizedHandle) target.searchParams.set("authorized", result.authorizedHandle);
+  const response = NextResponse.redirect(target);
   // One use per state
   response.cookies.set(X_OAUTH_COOKIE, "", { path: X_OAUTH_COOKIE_PATH, maxAge: 0 });
   return response;

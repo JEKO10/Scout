@@ -2,7 +2,7 @@ import "server-only";
 
 import { saveAccountSnapshot } from "@/db/queries/growth";
 import { updateProfileXHandle } from "@/db/queries/profiles";
-import { linkCsvSocialAccount, upsertSocialAccount } from "@/db/queries/socialAccounts";
+import { getXAccountUsage, linkCsvSocialAccount, upsertSocialAccount } from "@/db/queries/socialAccounts";
 import {
   deletePrivateMetricSnapshots,
   deleteXConnection,
@@ -71,7 +71,16 @@ export async function handleXOAuthCallback(
   profile: Pick<Profile, "id" | "plan" | "xHandle">,
   callback: { state: string | null; code: string | null; error: string | null; cookie: string | undefined },
   now = new Date(),
-): Promise<XConnectResult> {
+): Promise<{ status: XConnectResult; authorizedHandle?: string }> {
+  const result = await completeXConnect(profile, callback, now);
+  return typeof result === "string" ? { status: result } : result;
+}
+
+async function completeXConnect(
+  profile: Pick<Profile, "id" | "plan" | "xHandle">,
+  callback: { state: string | null; code: string | null; error: string | null; cookie: string | undefined },
+  now: Date,
+): Promise<XConnectResult | { status: "handle_mismatch"; authorizedHandle: string }> {
   if (!isXOAuthEnabled()) return "not_configured";
   const flow = readXOAuthCookie(callback.state, callback.cookie, profile.id, now.getTime());
   if (!flow) return "invalid_state";
@@ -105,11 +114,16 @@ export async function handleXOAuthCallback(
     return "failed";
   }
 
-  // The X account the Brain and Growth already use: connecting another one
-  // would mix two accounts' data. Changing the handle in Settings comes first.
+  // Another account than the profile's handle. Accepted when it is the same
+  // X account renamed, or when Scout holds nothing from the current handle
+  // (nothing to mix). Otherwise the user chooses: switch Scout to the
+  // account they authorized, or sign in to X as the current one.
   if (profile.xHandle && !sameHandle(profile.xHandle, me.profile.handle)) {
-    await revokeQuietly(tokens);
-    return "handle_mismatch";
+    const usage = await getXAccountUsage(profile.id, me.profile.platformUserId, profile.xHandle);
+    if (!usage.sameAccountLinked && usage.postsFromCurrentHandle > 0) {
+      await revokeQuietly(tokens);
+      return { status: "handle_mismatch", authorizedHandle: me.profile.handle };
+    }
   }
   if (await xUserConnectedElsewhere(me.profile.platformUserId, profile.id)) {
     await revokeQuietly(tokens);

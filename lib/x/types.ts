@@ -16,6 +16,12 @@ export type XApiUser = {
   name: string;
   username: string;
   profile_image_url?: string;
+  /** Requested with user.fields=public_metrics (same request, same price) */
+  public_metrics?: {
+    followers_count?: number;
+    following_count?: number;
+    tweet_count?: number;
+  };
 };
 
 export type XApiUserResponse = {
@@ -35,6 +41,7 @@ export type XApiTweet = {
     retweet_count: number;
     quote_count: number;
     impression_count?: number;
+    bookmark_count?: number;
   };
   // Posts longer than 280 characters are truncated in `text`
   note_tweet?: { text: string };

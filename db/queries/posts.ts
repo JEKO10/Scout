@@ -25,6 +25,13 @@ export async function savePosts(
       set: {
         content: sql`excluded."content"`,
         metrics: sql`excluded."metrics"`,
+        // Day 33: keep what was known when a source doesn't say
+        kind: sql`coalesce(excluded."kind", ${postsTable.kind})`,
+        replyToPostId: sql`coalesce(excluded."replyToPostId", ${postsTable.replyToPostId})`,
+        metricsSource: sql`coalesce(excluded."metricsSource", ${postsTable.metricsSource})`,
+        metricsFetchedAt: sql`coalesce(excluded."metricsFetchedAt", ${postsTable.metricsFetchedAt})`,
+        // Returned again: it exists
+        unavailableAt: null,
         updatedAt: new Date(),
       },
     });

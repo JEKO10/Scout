@@ -116,8 +116,16 @@ export const setLeadStatus = (profileId: string, id: string, status: LeadStatus)
 export const setLeadSavedFlag = (profileId: string, id: string, saved: boolean) => updateOwnedLead(profileId, id, { saved });
 export const setLeadFollowUp = (profileId: string, id: string, followUpAt: Date | null, followUpNote: string | null) =>
   updateOwnedLead(profileId, id, { followUpAt, followUpNote, followUpDoneAt: null });
-export const completeLeadFollowUp = (profileId: string, id: string) =>
-  updateOwnedLead(profileId, id, { followUpDoneAt: new Date() });
+// Done counts for the follow-up as set, even when finished before its time
+// of day (dates are stored at 12:00 UTC); a later date reopens it
+export async function completeLeadFollowUp(profileId: string, id: string) {
+  const rows = await db
+    .update(leadsTable)
+    .set({ followUpDoneAt: sql`greatest(now(), ${leadsTable.followUpAt})` })
+    .where(and(eq(leadsTable.id, id), eq(leadsTable.profileId, profileId)))
+    .returning();
+  return rows[0] ?? null;
+}
 
 export async function deleteLead(profileId: string, id: string): Promise<boolean> {
   const rows = await db

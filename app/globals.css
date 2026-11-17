@@ -5630,3 +5630,105 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Growth Intelligence (Day 33) */
+.growth-refresh {
+  display: grid;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.growth-refresh small,
+.metric small {
+  color: var(--muted-ink);
+  font-size: 12px;
+}
+
+.metric small[data-trend="up"] {
+  color: var(--green);
+}
+
+.metric small[data-trend="down"] {
+  color: var(--destructive);
+}
+
+.growth-na {
+  font-style: italic;
+}
+
+.growth-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.growth-recs {
+  display: grid;
+  gap: 14px;
+  padding-left: 18px;
+}
+
+.growth-recs p {
+  margin: 2px 0;
+}
+
+.growth-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.growth-finding {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.growth-finding[data-kind="weak"],
+.growth-finding[data-kind="interaction_gap"] {
+  border-left-color: var(--destructive);
+}
+
+.growth-finding p {
+  margin: 0;
+}
+
+.growth-table-wrap {
+  overflow-x: auto;
+}
+
+.growth-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.growth-table th,
+.growth-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.growth-table th {
+  color: var(--muted-ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.growth-table td small {
+  display: block;
+  color: var(--muted-ink);
+}
+
+@media (max-width: 860px) {
+  .growth-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

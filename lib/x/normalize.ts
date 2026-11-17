@@ -3,6 +3,7 @@ import type {
   NormalizedCandidatePost,
   NormalizedPost,
   NormalizedProfile,
+  NormalizedProfileCounts,
   PostKind,
 } from "@/lib/posts/types";
 
@@ -21,7 +22,17 @@ export function normalizeXUser(user: XApiUser): NormalizedProfile {
   };
 }
 
+/** Public counts; null where X didn't return one (never a made-up zero) */
+export function normalizeXUserCounts(user: XApiUser): NormalizedProfileCounts {
+  return {
+    followers: user.public_metrics?.followers_count ?? null,
+    following: user.public_metrics?.following_count ?? null,
+    postCount: user.public_metrics?.tweet_count ?? null,
+  };
+}
+
 export function normalizeXPost(tweet: XApiTweet, handle: string): NormalizedPost {
+  const kind = tweetKind(tweet);
   return {
     platformPostId: tweet.id,
     content: tweet.note_tweet?.text ?? tweet.text,
@@ -34,7 +45,13 @@ export function normalizeXPost(tweet: XApiTweet, handle: string): NormalizedPost
         (tweet.public_metrics?.retweet_count ?? 0) +
         (tweet.public_metrics?.quote_count ?? 0),
       impressions: tweet.public_metrics?.impression_count,
+      ...(tweet.public_metrics && { quotes: tweet.public_metrics.quote_count }),
+      ...(tweet.public_metrics?.bookmark_count !== undefined && { bookmarks: tweet.public_metrics.bookmark_count }),
     },
+    kind: kind === "repost" ? undefined : kind,
+    replyToPostId: tweet.referenced_tweets?.find((ref) => ref.type === "replied_to")?.id ?? null,
+    metricsSource: "x_api",
+    metricsFetchedAt: new Date(),
   };
 }
 

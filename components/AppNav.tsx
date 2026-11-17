@@ -14,6 +14,7 @@ const navigation = [
   { href: "/trends", label: "Trends" },
   { href: "/studio", label: "Studio" },
   { href: "/calendar", label: "Calendar" },
+  { href: "/growth", label: "Growth" },
   { href: "/eval", label: "Brain eval" },
   { href: "/memory", label: "Memory" },
   { href: "/account/settings", label: "Settings" },

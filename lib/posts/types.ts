@@ -20,8 +20,21 @@ export type NormalizedPost = {
     likes: number;
     replies: number;
     reposts: number;
+    quotes?: number;
+    bookmarks?: number;
     impressions?: number;
   };
+  /** Day 33: what X says it is; replies carry the post they answer */
+  kind?: "post" | "reply" | "quote";
+  replyToPostId?: string | null;
+  metricsSource?: "x_api" | "csv_import";
+  metricsFetchedAt?: Date;
+};
+
+export type NormalizedProfileCounts = {
+  followers: number | null;
+  following: number | null;
+  postCount: number | null;
 };
 
 export type PostKind = "post" | "reply" | "quote" | "repost";

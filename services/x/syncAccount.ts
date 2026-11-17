@@ -1,5 +1,6 @@
 import "server-only";
 
+import { saveAccountSnapshot } from "@/db/queries/growth";
 import { countPostsBySocialAccount, savePosts } from "@/db/queries/posts";
 import { getProfileById, updateProfileXHandle } from "@/db/queries/profiles";
 import {
@@ -8,7 +9,7 @@ import {
   upsertSocialAccount,
 } from "@/db/queries/socialAccounts";
 import type { SocialAccount } from "@/db/schema";
-import { getXUserByHandle, getXUserPosts } from "@/lib/x/client";
+import { getXUserPosts, getXUserWithCounts } from "@/lib/x/client";
 
 // Every post read is billed by X; enough history for a first Brain test
 const SYNC_POST_LIMIT = 100;
@@ -28,8 +29,9 @@ export async function syncXAccount(
   const profile = await getProfileById(profileId);
   if (!profile?.xHandle) return { status: "no_handle" };
 
-  const xUser = await getXUserByHandle(profile.xHandle);
-  if (!xUser) return { status: "not_found", handle: profile.xHandle };
+  const found = await getXUserWithCounts(profile.xHandle);
+  if (!found) return { status: "not_found", handle: profile.xHandle };
+  const xUser = found.profile;
 
   await linkCsvSocialAccount(profileId, "x", xUser);
   const account = await upsertSocialAccount(profileId, "x", xUser);
@@ -38,6 +40,8 @@ export async function syncXAccount(
   });
   await savePosts(account.id, posts);
   await markSocialAccountSynced(account.id);
+  // Day 33: the follower count came with the same lookup (no extra cost)
+  await saveAccountSnapshot(profileId, account.id, found.counts);
 
   // Store X's canonical casing so the profile and account always match
   if (profile.xHandle !== xUser.handle) {

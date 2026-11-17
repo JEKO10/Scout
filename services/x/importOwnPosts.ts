@@ -73,6 +73,10 @@ export async function importOwnPosts(
         reposts: post.metrics?.reposts ?? 0,
         impressions: post.metrics?.impressions,
       },
+      kind: post.kind === "repost" ? undefined : post.kind,
+      replyToPostId: post.kind === "reply" ? (post.referencedPostIds?.[0] ?? null) : null,
+      metricsSource: "csv_import" as const,
+      metricsFetchedAt: new Date(),
     })),
   );
   await markSocialAccountSynced(account.id);

@@ -5,6 +5,7 @@ import type {
   NormalizedCandidatePost,
   NormalizedPost,
   NormalizedProfile,
+  NormalizedProfileCounts,
 } from "@/lib/posts/types";
 import { getScoutLimits } from "@/lib/scout/testLimits";
 import type { XRunUsage } from "@/lib/scout/types";
@@ -13,6 +14,7 @@ import {
   normalizeXCandidatePost,
   normalizeXPost,
   normalizeXUser,
+  normalizeXUserCounts,
 } from "./normalize";
 import type {
   XApiTimelineResponse,
@@ -145,12 +147,22 @@ async function xFetch<T>(
 export async function getXUserByHandle(
   handle: string,
 ): Promise<NormalizedProfile | null> {
+  return (await getXUserWithCounts(handle))?.profile ?? null;
+}
+
+/**
+ * The same single lookup, also returning the public follower / following /
+ * post counts (Day 33 Growth Intelligence). One user read either way.
+ */
+export async function getXUserWithCounts(
+  handle: string,
+): Promise<{ profile: NormalizedProfile; counts: NormalizedProfileCounts } | null> {
   const body = await xFetch<XApiUserResponse>(
     `/users/by/username/${encodeURIComponent(handle)}`,
-    { "user.fields": "profile_image_url" },
+    { "user.fields": "profile_image_url,public_metrics" },
   );
 
-  return body.data ? normalizeXUser(body.data) : null;
+  return body.data ? { profile: normalizeXUser(body.data), counts: normalizeXUserCounts(body.data) } : null;
 }
 
 export type XTimelineQuery = {
@@ -217,8 +229,9 @@ export async function getXUserPosts(
   platformUserId: string,
   handle: string,
   { limit = 100 }: { limit?: number } = {},
+  stats?: XRequestStats,
 ): Promise<NormalizedPost[]> {
-  const { tweets } = await fetchUserTweets(platformUserId, { limit });
+  const { tweets } = await fetchUserTweets(platformUserId, { limit }, stats);
   return tweets.map((tweet) => normalizeXPost(tweet, handle));
 }
 

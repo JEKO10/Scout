@@ -6,6 +6,8 @@ type Tweet = {
   text: string;
   created_at: string;
   referenced_tweets?: { type: "quoted" | "replied_to" | "retweeted"; id: string }[];
+  /** Day 33: returned as-is when set */
+  public_metrics?: { like_count: number; reply_count: number; retweet_count: number; quote_count: number; impression_count?: number; bookmark_count?: number };
 };
 
 export const x = {
@@ -20,6 +22,8 @@ export const x = {
   delayMs: 0,
   /** Accounts the user lookup finds, by lowercase handle → X user ID */
   users: new Map<string, string>(),
+  /** Day 33: follower counts the lookup returns, by lowercase handle */
+  followers: new Map<string, number>(),
   /** Day 26: what X's recent search returns (any query), and the queries asked */
   search: [] as (Tweet & { author_id: string })[],
   searchQueries: [] as string[],
@@ -333,7 +337,17 @@ export function installMocks() {
       // X answers 200 with errors and no data for unknown accounts
       return Response.json(
         id
-          ? { data: { id, username: handle, name: `Name ${handle}`, profile_image_url: "https://pbs.twimg.com/a.jpg" } }
+          ? {
+              data: {
+                id,
+                username: handle,
+                name: `Name ${handle}`,
+                profile_image_url: "https://pbs.twimg.com/a.jpg",
+                ...(x.followers.has(handle.toLowerCase()) && {
+                  public_metrics: { followers_count: x.followers.get(handle.toLowerCase()), following_count: 10, tweet_count: 100 },
+                }),
+              },
+            }
           : { errors: [{ title: "Not Found Error" }] },
       );
     }

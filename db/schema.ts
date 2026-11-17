@@ -173,13 +173,19 @@ export const postsTable = pgTable(
     platformPostId: text().notNull(),
     content: text().notNull(),
     url: text(),
-    metrics: jsonb().$type<{
-      likes?: number;
-      replies?: number;
-      reposts?: number;
-      impressions?: number;
-    }>(),
+    metrics: jsonb().$type<PostMetrics>(),
     publishedAt: timestamp({ withTimezone: true }).notNull(),
+    // Day 33 Growth Intelligence
+    /** post / reply / quote; null: not known (stored before Day 33) */
+    kind: text().$type<"post" | "reply" | "quote">(),
+    /** Replies only: the post replied to */
+    replyToPostId: text(),
+    /** Where the metrics came from: X's API for this account, or the user's CSV export */
+    metricsSource: text().$type<"x_api" | "csv_import">(),
+    /** When those metrics were read; they are lifetime totals up to then */
+    metricsFetchedAt: timestamp({ withTimezone: true }),
+    /** X no longer returned it (deleted or hidden); left out of analytics */
+    unavailableAt: timestamp({ withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -188,6 +194,20 @@ export const postsTable = pgTable(
     index().on(t.socialAccountId, t.publishedAt.desc()),
   ],
 );
+
+/**
+ * Lifetime totals for one post as X reports them (public_metrics).
+ * `reposts` = reposts + quotes (kept that way since Day 1); `quotes` and
+ * `bookmarks` exist only on posts read from Day 33 on.
+ */
+export type PostMetrics = {
+  likes?: number;
+  replies?: number;
+  reposts?: number;
+  quotes?: number;
+  bookmarks?: number;
+  impressions?: number;
+};
 
 // Other people's accounts the user wants to monitor
 export const watchlistAccountsTable = pgTable(
@@ -1277,3 +1297,37 @@ export const contentDraftsTable = pgTable(
 );
 
 export type ContentDraft = typeof contentDraftsTable.$inferSelect;
+
+// ---- Day 33 Growth Intelligence ---------------------------------------------
+
+/**
+ * One reading of an account's public counts per UTC day (later readings that
+ * day replace it). Also where an analytics refresh records the X reads it
+ * used, so they count against the plan like scan reads do.
+ */
+export const accountMetricSnapshotsTable = pgTable(
+  "account_metric_snapshots",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    socialAccountId: uuid()
+      .notNull()
+      .references(() => socialAccountsTable.id, { onDelete: "cascade" }),
+    platform: platformEnum().notNull(),
+    day: date({ mode: "string" }).notNull(),
+    capturedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    /** null: X didn't return it */
+    followers: integer(),
+    following: integer(),
+    postCount: integer(),
+    /** Posts read from X by Growth refreshes this day (billed, counted in the plan) */
+    xPostReads: integer().notNull().default(0),
+    /** When the user last asked for a refresh this day */
+    refreshedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [unique().on(t.socialAccountId, t.day), index().on(t.profileId, t.day)],
+);
+
+export type AccountMetricSnapshot = typeof accountMetricSnapshotsTable.$inferSelect;

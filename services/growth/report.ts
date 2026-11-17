@@ -9,6 +9,7 @@ import {
   getReplyActivityCounts,
   lastGrowthRefreshAt,
 } from "@/db/queries/growth";
+import { getLatestPrivateMetrics, getXConnection } from "@/db/queries/xConnections";
 import type { Post, Profile } from "@/db/schema";
 import {
   dailySeries,
@@ -18,12 +19,14 @@ import {
   type GrowthPost,
   overview,
   postingTimes,
+  privateMetricsSummary,
   recommendations,
   replyPerformance,
   type Snapshot,
   topicTable,
 } from "@/lib/growth/analyze";
 import type { GrowthRange } from "@/lib/growth/metrics";
+import { isXOAuthEnabled } from "@/lib/x/oauth";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 const DAY = 86_400_000;
@@ -55,19 +58,25 @@ export async function buildGrowthReport(profile: Profile, { range, tz, now = new
   const start = new Date(now.getTime() - range * DAY);
   const previousStart = new Date(start.getTime() - range * DAY);
   const account = await getGrowthAccount(profile.id, profile.xHandle);
-  const [lastRefresh, replyActivity, drafts] = await Promise.all([
+  const oauthEnabled = isXOAuthEnabled();
+  const [lastRefresh, replyActivity, drafts, connection] = await Promise.all([
     lastGrowthRefreshAt(profile.id),
     getReplyActivityCounts(profile.id, start),
     getPublishedDrafts(profile.id),
+    oauthEnabled ? getXConnection(profile.id) : Promise.resolve(undefined),
   ]);
+  /** What Growth can honestly claim about the X connection */
+  const xConnection = connection ? { handle: connection.handle, status: connection.status } : null;
   if (!account) {
-    return { account: null, range, start, now, lastRefresh, replyActivity, confirmedWithoutMetrics: drafts.length } as const;
+    return { account: null, range, start, now, lastRefresh, replyActivity, xConnection, confirmedWithoutMetrics: drafts.length } as const;
   }
 
-  const [rows, oldest, snapshotRows] = await Promise.all([
+  const [rows, oldest, snapshotRows, privateRows] = await Promise.all([
     getGrowthPosts(account.id, previousStart),
     getOldestPostAt(account.id),
     getAccountSnapshots(account.id, new Date(previousStart.getTime() - 14 * DAY)),
+    // Stored readings stay readable after disconnecting, while the feature is on
+    oauthEnabled ? getLatestPrivateMetrics(account.id, previousStart) : Promise.resolve(new Map()),
   ]);
 
   const draftByPostId = new Map(drafts.flatMap((draft) => (statusId(draft.publishedUrl) ? [[statusId(draft.publishedUrl)!, draft] as const] : [])));
@@ -80,6 +89,7 @@ export async function buildGrowthReport(profile: Profile, { range, tz, now = new
     const brainTopic = brainTopics.get(post.platformPostId) ?? null;
     const keyword = !studioTopic && !brainTopic ? (names.find((item) => item.pattern.test(post.content))?.name ?? null) : null;
     const m = post.metrics ?? {};
+    const priv = privateRows.get(post.id);
     return {
       id: post.id,
       platformPostId: post.platformPostId,
@@ -99,6 +109,10 @@ export async function buildGrowthReport(profile: Profile, { range, tz, now = new
       draft: draft ? { id: draft.id, title: draft.title, goal: draft.goal, format: draft.format, fromTrend: Boolean(draft.sourceTrendId) } : null,
       topic: studioTopic ?? brainTopic ?? keyword,
       topicSource: studioTopic ? "studio" : brainTopic ? "brain" : keyword ? "keyword" : null,
+      profileClicks: priv?.metrics.profileClicks ?? null,
+      linkClicks: priv?.metrics.urlClicks ?? null,
+      xEngagements: priv?.metrics.engagements ?? null,
+      privateFetchedAt: priv?.capturedAt ?? null,
     };
   };
 
@@ -118,8 +132,15 @@ export async function buildGrowthReport(profile: Profile, { range, tz, now = new
     now,
     lastRefresh,
     replyActivity,
+    xConnection,
     oldest,
     posts: current,
+    /**
+     * X private metrics over this period's posts, with how many posts they
+     * cover. The verified input for Growth recommendations (and a future AI
+     * strategist): sums of what X reported, never estimates.
+     */
+    privateMetrics: privateMetricsSummary(current),
     overview: overview(current, previous, { complete, previousComplete, snapshots, start, previousStart, now }),
     daily: dailySeries(current, tz),
     followers: followerSeries(snapshots.filter((snap) => snap.day >= start.toISOString().slice(0, 10))),

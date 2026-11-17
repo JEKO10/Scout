@@ -42,6 +42,27 @@ export const X_CAPABILITIES: Record<MetricKey, MetricCapability> = {
   },
 };
 
+/**
+ * X with the user's account connected (OAuth, read-only): the same public
+ * metrics, plus X's private metrics for their own posts from the last 30
+ * days. Older posts keep what Scout read while they were inside the window.
+ */
+export const X_CAPABILITIES_CONNECTED: Record<MetricKey, MetricCapability> = {
+  ...X_CAPABILITIES,
+  profileVisits: {
+    available: true,
+    source: "X private metrics (user_profile_clicks), your posts from the last 30 days, read while X is connected",
+  },
+  linkClicks: {
+    available: true,
+    source: "X private metrics (url_link_clicks), your posts from the last 30 days, read while X is connected",
+  },
+};
+
+export function xCapabilities(connected: boolean): Record<MetricKey, MetricCapability> {
+  return connected ? X_CAPABILITIES_CONNECTED : X_CAPABILITIES;
+}
+
 export const PLATFORM_CAPABILITIES: Record<GrowthPlatform, Partial<Record<MetricKey, MetricCapability>> | null> = {
   x: X_CAPABILITIES,
   // Not connected yet: their metrics will get their own definitions

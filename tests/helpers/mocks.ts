@@ -45,6 +45,37 @@ export function addSearchResults(authorId: string, count: number): string[] {
   return ids;
 }
 
+/**
+ * X OAuth 2.0 (mocked): codes look like "user:<X user ID>" (all scopes) or
+ * "user:<id>:noscope" (users.read withheld). Refresh tokens rotate: each
+ * works once. Access tokens map to the X user they belong to.
+ */
+export const xOAuth = {
+  accessTokens: new Map<string, { userId: string; expiresAt: number }>(),
+  refreshTokens: new Map<string, string>(),
+  /** Every token endpoint call: grant type and form body */
+  tokenCalls: [] as { grant: string; body: Record<string, string>; auth: string | null }[],
+  revoked: [] as string[],
+  /** Authorization header of every user-token request to /2 (not the token endpoint) */
+  userTokenCalls: [] as string[],
+  /** Seconds a new access token lives */
+  expiresIn: 7200,
+  /** Private metrics X returns per post ID; default: impressions 500, 5 profile clicks, 3 link clicks, 40 engagements */
+  privateMetrics: new Map<string, { impression_count: number; user_profile_clicks: number; url_link_clicks: number; engagements: number }>(),
+};
+
+let tokenSeq = 1;
+
+function issueTokens(userId: string, scope = "tweet.read users.read offline.access") {
+  const access = `ua-${tokenSeq}`;
+  const refresh = `ur-${tokenSeq++}`;
+  xOAuth.accessTokens.set(access, { userId, expiresAt: Date.now() + xOAuth.expiresIn * 1000 });
+  xOAuth.refreshTokens.set(refresh, userId);
+  return Response.json({ token_type: "bearer", access_token: access, refresh_token: refresh, expires_in: xOAuth.expiresIn, scope });
+}
+
+const handleOf = (userId: string) => [...x.users.entries()].find(([, id]) => id === userId)?.[0] ?? `u${userId}`;
+
 export const ai = {
   /** Format name of every OpenAI call */
   calls: [] as string[],
@@ -329,6 +360,54 @@ export function installMocks() {
     if (url.hostname !== "api.x.com") return realFetch(input, init);
 
     x.calls.push(url.pathname);
+
+    if (url.pathname === "/2/oauth2/token" || url.pathname === "/2/oauth2/revoke") {
+      const body = Object.fromEntries(new URLSearchParams(String(init?.body ?? "")));
+      const auth = new Headers(init?.headers).get("authorization");
+      if (url.pathname === "/2/oauth2/revoke") {
+        xOAuth.revoked.push(body.token);
+        xOAuth.accessTokens.delete(body.token);
+        xOAuth.refreshTokens.delete(body.token);
+        return Response.json({ revoked: true });
+      }
+      xOAuth.tokenCalls.push({ grant: body.grant_type, body, auth });
+      const bad = () => Response.json({ error: "invalid_grant", error_description: "Value passed for the token was invalid." }, { status: 400 });
+      if (!auth?.startsWith("Basic ")) return Response.json({ error: "unauthorized_client" }, { status: 401 });
+      if (body.grant_type === "authorization_code") {
+        const match = /^user:(\d+)(:noscope)?$/.exec(body.code ?? "");
+        if (!match || !body.code_verifier) return bad();
+        return issueTokens(match[1], match[2] ? "tweet.read offline.access" : undefined);
+      }
+      if (body.grant_type === "refresh_token") {
+        const userId = xOAuth.refreshTokens.get(body.refresh_token);
+        if (!userId) return bad();
+        xOAuth.refreshTokens.delete(body.refresh_token);
+        return issueTokens(userId);
+      }
+      return bad();
+    }
+
+    const bearer = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "") ?? "";
+    const userToken = bearer.startsWith("ua-") ? xOAuth.accessTokens.get(bearer) : undefined;
+    if (bearer.startsWith("ua-")) {
+      xOAuth.userTokenCalls.push(`${url.pathname}`);
+      if (!userToken || userToken.expiresAt < Date.now()) {
+        return new Response(JSON.stringify({ title: "Unauthorized", status: 401 }), { status: 401 });
+      }
+    }
+    if (url.pathname === "/2/users/me") {
+      if (!userToken) return new Response(JSON.stringify({ title: "Unauthorized" }), { status: 403 });
+      const handle = handleOf(userToken.userId);
+      return Response.json({
+        data: {
+          id: userToken.userId,
+          username: handle,
+          name: `Name ${handle}`,
+          profile_image_url: "https://pbs.twimg.com/a.jpg",
+          public_metrics: { followers_count: x.followers.get(handle.toLowerCase()) ?? 1234, following_count: 10, tweet_count: 100 },
+        },
+      });
+    }
     if (x.delayMs) await new Promise((resolve) => setTimeout(resolve, x.delayMs));
     const lookup = url.pathname.match(/^\/2\/users\/by\/username\/([^/]+)$/);
     if (lookup) {
@@ -383,6 +462,25 @@ export function installMocks() {
       .filter((t) => !until || BigInt(t.id) < BigInt(until))
       .filter((t) => !start || t.created_at >= start);
     const page = all.slice(0, max);
+    // Private metrics: the token's own posts only, and like X only posts < 30 days old
+    if (p.get("tweet.fields")?.includes("non_public_metrics")) {
+      if (!userToken || userToken.userId !== userId) {
+        return new Response(JSON.stringify({ title: "Forbidden" }), { status: 403 });
+      }
+      if (page.some((t) => Date.now() - Date.parse(t.created_at) > 30 * 86_400_000)) {
+        return new Response(JSON.stringify({ title: "Invalid Request", detail: "non_public_metrics older than 30 days" }), { status: 400 });
+      }
+      const withPrivate = page.map((t) => {
+        const priv = xOAuth.privateMetrics.get(t.id) ?? { impression_count: 500, user_profile_clicks: 5, url_link_clicks: 3, engagements: 40 };
+        return {
+          ...t,
+          public_metrics: t.public_metrics ?? { like_count: 10, reply_count: 2, retweet_count: 1, quote_count: 0, impression_count: priv.impression_count },
+          non_public_metrics: priv,
+          organic_metrics: { impression_count: priv.impression_count, user_profile_clicks: priv.user_profile_clicks, url_link_clicks: priv.url_link_clicks },
+        };
+      });
+      return Response.json({ data: withPrivate.length ? withPrivate : undefined, meta: { result_count: withPrivate.length } });
+    }
     const expand = p.get("expansions") === "referenced_tweets.id";
     const includes = expand
       ? page

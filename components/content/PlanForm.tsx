@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 
 import { archiveDraftAction, planDraftAction, unplanDraftAction } from "@/actions/content";
+import { InfoHint } from "@/components/InfoHint";
 import { CONTENT_GOALS, type ContentGoal, GOAL_LABEL } from "@/lib/content/types";
 
 /** Time zones offered; the user's current one is always added */
@@ -105,7 +106,7 @@ export function PlanForm({
           </button>
         )}
       </div>
-      <p className="memory-note">Planning only: Scout never posts for you. At that time, open the draft and post it on X.</p>
+      <InfoHint text="Planning only">Planning only: Scout never posts for you. At that time, open the draft and post it on X.</InfoHint>
       {message && (
         <p className="form-message" data-status={message.ok ? "success" : "error"} role="status">
           {message.text}

@@ -5,6 +5,8 @@ import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { TitleWithHint } from "@/components/InfoHint";
+import { InfoHint } from "@/components/InfoHint";
 import { IcpForm } from "@/components/leads/IcpForm";
 import { LeadCard } from "@/components/leads/LeadCard";
 import { getDiscoveryTopics } from "@/db/queries/discovery";
@@ -66,12 +68,15 @@ async function Leads({ searchParams }: { searchParams: PageProps<"/leads">["sear
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Lead Scout</p>
-          <h1>People who may need what you offer.</h1>
-          <p className="lede">
-            Scout checks the most relevant posts from your scans (watchlist and Smart Discovery) for buying intent, and
-            shows the evidence. You decide whether and how to engage.
-          </p>
+          <TitleWithHint
+            title="Lead Scout"
+            hint={
+              <>
+                Scout checks the most relevant posts from your scans (watchlist and Smart Discovery) for buying intent, and shows the evidence. You decide whether and how to engage.
+              </>
+            }
+          />
+          <p className="lede">People who may need what you offer.</p>
         </div>
       </section>
 
@@ -84,10 +89,10 @@ async function Leads({ searchParams }: { searchParams: PageProps<"/leads">["sear
             </div>
           </div>
           <IcpForm initial={profile.leadProfile} />
-          <p className="memory-note">
+          <InfoHint text="How posts are checked">
             Up to {checksPerScan} posts per scan are checked, the most relevant first, from the same AI budget as
             scoring. Each post is checked once.
-          </p>
+          </InfoHint>
         </section>
 
         <section aria-labelledby="leads-title">
@@ -195,10 +200,10 @@ async function Leads({ searchParams }: { searchParams: PageProps<"/leads">["sear
               action={{ href: "/discovery", label: "Set up Smart Discovery" }}
             />
           )}
-          <p className="memory-note">
+          <InfoHint text="About lead scores">
             Lead scores rank posts by customer fit, intent, problem fit, evidence and recency. They aren&apos;t a chance
             of buying. Scout never messages anyone for you.
-          </p>
+          </InfoHint>
         </section>
       </div>
     </main>

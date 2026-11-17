@@ -1,12 +1,27 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Suspense } from "react";
 
 import { TrackedLink, TrackView } from "@/components/analytics/Track";
+import { Logo } from "@/components/Logo";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { getOptionalUser } from "@/lib/auth/session";
 import { PLANS } from "@/lib/billing/plans";
 import { PRICING_TIERS } from "@/lib/billing/pricing";
 import { isCheckoutOpen, readPaddleConfig } from "@/lib/paddle/config";
+
+const FEATURES = [
+  {
+    icon: "search",
+    title: "Opportunity Discovery",
+    body: "Find relevant conversations and high-intent posts, ranked against your Scout Brain.",
+  },
+  { icon: "users", title: "Lead Scout", body: "Spot people asking for what you offer and track them in a simple CRM." },
+  { icon: "trend", title: "Trend Scout", body: "See which topics are picking up in the accounts you follow." },
+  { icon: "pen", title: "Content Studio", body: "Draft posts and threads in your voice, from your ideas and trends." },
+  { icon: "calendar", title: "Content Calendar", body: "Plan what to post and keep a steady rhythm." },
+  { icon: "chart", title: "Growth Intelligence", body: "Measure what works from your real X metrics, and what to try next." },
+];
 
 const STEPS = [
   {
@@ -14,45 +29,19 @@ const STEPS = [
     body: "Answer a few questions, or let Scout read your recent X posts. It builds your Scout Brain: your voice, what you know and what you want from X.",
   },
   {
-    title: "Choose accounts to monitor.",
+    title: "Choose accounts and topics to monitor.",
     body: "Add the founders, experts and creators whose conversations matter to you. Scout scans their new posts for you.",
   },
   {
-    title: "Discover conversations worth joining.",
-    body: "Get a ranked feed of posts where you have something to add, with why each fits and a suggested angle. Draft a reply, edit it, post it yourself.",
+    title: "Join the right conversations.",
+    body: "Get a ranked feed with why each post fits and a suggested angle. Draft a reply, edit it, and post it yourself.",
   },
-];
-
-const FEATURES = [
-  {
-    title: "Personalized Scout Brain",
-    body: "Your voice, interests, expertise and goals in one profile you can read and correct. Every score and draft starts from it.",
-  },
-  {
-    title: "Smart Opportunity Discovery",
-    body: "Each new post is scored 0–100 against your Brain, with the reason it fits. Weak matches stay out of your feed.",
-  },
-  {
-    title: "AI Reply Suggestions",
-    body: "Two drafts in your style for any opportunity. Make them shorter, sharper or more personal, then open X's composer with one click.",
-  },
-  {
-    title: "Automated Monitoring",
-    body: "Scout scans your watchlist on a schedule and can send strong matches to Slack, so you don't have to keep checking.",
-  },
-];
-
-const AUDIENCES = [
-  { title: "Founders", body: "Join conversations where your customers and peers already are." },
-  { title: "Creators", body: "Show up early, with something worth saying, in the threads your audience reads." },
-  { title: "Freelancers", body: "Be visible where potential clients talk about the problems you solve." },
-  { title: "Professionals", body: "Build a reputation in your field one useful reply at a time." },
 ];
 
 const FAQ = [
   {
     q: "Does Scout post on X for me?",
-    a: "No. Scout suggests replies; you choose, edit and post them. “Reply on X” opens X's own composer with your draft, and nothing is published unless you post it.",
+    a: "No. Scout suggests replies and content; you choose, edit and post them. “Reply on X” opens X's own composer with your draft, and nothing is published unless you post it.",
   },
   {
     q: "Do I need to give Scout my X password?",
@@ -60,7 +49,7 @@ const FAQ = [
   },
   {
     q: "What does Scout know about me?",
-    a: "What you tell it in onboarding, the public posts it analyzes for your Scout Brain, your watchlist and the replies you generate. You can review and edit your Brain at any time. See the Privacy Policy for details.",
+    a: "What you tell it in onboarding, the public posts it analyzes for your Scout Brain, your watchlist and the content you generate. You can review and edit your Brain at any time. See the Privacy Policy for details.",
   },
   {
     q: "Are the AI suggestions always right?",
@@ -68,67 +57,67 @@ const FAQ = [
   },
   {
     q: "Is Scout free?",
-    a: "Yes, during the beta the Free plan costs nothing and needs no payment details. Paid plans with more accounts and more frequent scans are coming; you can join their waitlist.",
+    a: "Yes, the Free plan costs nothing and needs no payment details. Paid plans add more accounts, more AI usage and more frequent scans.",
   },
-  {
-    q: "Which platforms does Scout support?",
-    a: "X only, for now.",
-  },
+  { q: "Which platforms does Scout support?", a: "X only, for now." },
 ];
 
 export default function Home() {
   const checkoutOpen = isCheckoutOpen(readPaddleConfig());
 
   return (
-    <main className="landing-page">
+    <main className="mk-page">
       <TrackView name="landing_view" />
-      <nav className="landing-nav shell" aria-label="Main navigation">
-        <Link href="/" className="brand" aria-label="Scout home">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <span>Scout</span>
-        </Link>
-        <Suspense fallback={<NavLinks signedIn={false} />}>
-          <SessionNavLinks />
-        </Suspense>
-      </nav>
+      <header className="mk-nav-wrap">
+        <nav className="mk-nav mk-shell" aria-label="Main navigation">
+          <Logo height={30} />
+          <div className="mk-nav-links">
+            <a href="#features">Product</a>
+            <a href="#how-it-works">How it works</a>
+            <Link href="/pricing">Pricing</Link>
+            <a href="#faq">FAQ</a>
+          </div>
+          <Suspense fallback={<NavActions signedIn={false} />}>
+            <SessionNavActions />
+          </Suspense>
+        </nav>
+      </header>
 
-      <section className="landing-hero shell">
-        <div className="hero-copy enter-content">
-          <p className="eyebrow">Free beta · for X</p>
-          <h1>Find the right conversations. Grow your audience.</h1>
-          <p>
-            Scout monitors conversations on X, finds opportunities relevant to your expertise, and
-            helps you write replies that actually add value.
+      <section className="mk-hero mk-shell">
+        <div className="mk-hero-copy enter-content">
+          <p className="mk-badge">
+            <span aria-hidden="true" /> Build · Discover · Grow
+          </p>
+          <h1>
+            Find opportunities, create better content, and grow on <em>X</em>.
+          </h1>
+          <p className="mk-lede">
+            Scout is your AI co-pilot for X: discover relevant conversations, find potential customers, track
+            trends, create content, and measure what works.
           </p>
           <Suspense fallback={<HeroActions signedIn={false} />}>
             <SessionHeroActions />
           </Suspense>
-          <small className="hero-note">Free during the beta. No card needed.</small>
+          <ul className="mk-checks">
+            <li>No credit card</li>
+            <li>Free plan</li>
+            <li>Built for X</li>
+          </ul>
         </div>
-
-        <ProductPreview />
+        <DashboardPreview />
       </section>
 
-      <section id="how-it-works" className="landing-section shell" aria-labelledby="how-title">
-        <p className="eyebrow">How Scout works</p>
-        <h2 id="how-title">Three steps to your first conversation.</h2>
-        <ol className="landing-steps">
-          {STEPS.map((step, i) => (
-            <li key={step.title}>
-              <span aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
-              <h3>{step.title}</h3>
-              <p>{step.body}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <section className="landing-section shell" aria-labelledby="features-title">
-        <p className="eyebrow">What you get</p>
-        <h2 id="features-title">Less scrolling. Better replies.</h2>
-        <div className="landing-grid">
+      <section id="features" className="mk-section mk-shell" aria-labelledby="features-title">
+        <div className="mk-section-head">
+          <h2 id="features-title">Everything you need to grow on X</h2>
+          <p>A complete toolkit to find opportunities, create content, and turn attention into growth.</p>
+        </div>
+        <div className="mk-features">
           {FEATURES.map((feature) => (
-            <article key={feature.title} className="landing-card">
+            <article key={feature.title} className="mk-feature">
+              <span className="mk-icon">
+                <Icon name={feature.icon} />
+              </span>
               <h3>{feature.title}</h3>
               <p>{feature.body}</p>
             </article>
@@ -136,54 +125,98 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="landing-section shell" aria-labelledby="who-title">
-        <p className="eyebrow">Who it&apos;s for</p>
-        <h2 id="who-title">For people building an audience on X.</h2>
-        <div className="landing-grid landing-grid-four">
-          {AUDIENCES.map((audience) => (
-            <article key={audience.title} className="landing-card">
-              <h3>{audience.title}</h3>
-              <p>{audience.body}</p>
-            </article>
-          ))}
+      <section className="mk-split mk-shell" aria-labelledby="discovery-title">
+        <div>
+          <p className="mk-pill">Opportunity Discovery</p>
+          <h2 id="discovery-title">Find the right conversations, faster.</h2>
+          <p className="mk-lede">
+            Scout scans the accounts and topics you choose for relevant discussions, questions and buying signals, so
+            you can engage at the right moment.
+          </p>
+          <ul className="mk-ticks">
+            <li>Relevant conversations, not noise</li>
+            <li>Why each post fits you, with a suggested angle</li>
+            <li>Save, track, and turn conversations into leads</li>
+          </ul>
+        </div>
+        <OpportunitiesPreview />
+      </section>
+
+      <section className="mk-split mk-split-reverse mk-shell" aria-labelledby="growth-title">
+        <GrowthPreview />
+        <div>
+          <p className="mk-pill">Growth Intelligence</p>
+          <h2 id="growth-title">Turn insights into growth.</h2>
+          <p className="mk-lede">
+            See how your posts perform, what&apos;s working and what isn&apos;t, from your real X metrics. Scout only
+            shows patterns when there&apos;s enough data to trust them.
+          </p>
+          <ul className="mk-ticks">
+            <li>Track impressions, engagement and followers</li>
+            <li>See your top-performing content and topics</li>
+            <li>Get clear, data-backed next steps</li>
+          </ul>
         </div>
       </section>
 
-      <section className="landing-section shell" aria-labelledby="pricing-title">
-        <p className="eyebrow">Pricing</p>
-        <h2 id="pricing-title">Start free. Upgrade when Scout earns it.</h2>
-        <div className="landing-grid landing-pricing">
+      <section id="how-it-works" className="mk-section mk-shell" aria-labelledby="how-title">
+        <div className="mk-section-head">
+          <h2 id="how-title">Up and running in three steps</h2>
+          <p>No X password needed. Scout reads public posts through the official X API.</p>
+        </div>
+        <ol className="mk-steps">
+          {STEPS.map((step, i) => (
+            <li key={step.title}>
+              <span aria-hidden="true">{i + 1}</span>
+              <h3>{step.title}</h3>
+              <p>{step.body}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section id="pricing" className="mk-section mk-shell" aria-labelledby="pricing-title">
+        <div className="mk-section-head">
+          <h2 id="pricing-title">Simple, transparent pricing</h2>
+          <p>Pick the plan that fits your goals. Upgrade or cancel anytime.</p>
+        </div>
+        <div className="mk-pricing">
           {PRICING_TIERS.map((tier) => {
             const plan = PLANS[tier.id];
             const soon = !checkoutOpen && tier.id !== "free";
             return (
-              <article key={tier.id} className="landing-card" data-recommended={tier.recommended || undefined}>
-                <div className="landing-price-title">
+              <article key={tier.id} className="mk-plan" data-recommended={tier.recommended || undefined}>
+                <div className="mk-plan-head">
                   <h3>{tier.name}</h3>
-                  {soon && <span className="pricing-badge pricing-badge-soon">Coming soon</span>}
+                  {tier.recommended && <span className="mk-plan-tag">Most popular</span>}
+                  {soon && <span className="mk-plan-soon">Coming soon</span>}
                 </div>
-                <p className="landing-price">
-                  <strong>${plan.monthlyPriceUsd}</strong>
-                  <span>/month</span>
+                <p className="mk-plan-price">
+                  <strong>${plan.monthlyPriceUsd}</strong> / month
                 </p>
-                <ul className="pricing-features">
-                  {tier.features.slice(tier.id === "free" ? 4 : 1, tier.id === "free" ? 8 : 5).map((feature) => (
+                <p className="mk-plan-desc">{tier.description}</p>
+                <ul className="mk-ticks mk-ticks-small">
+                  {tier.features.slice(tier.id === "free" ? 4 : 0, tier.id === "free" ? 8 : 4).map((feature) => (
                     <li key={feature}>{feature}</li>
                   ))}
                 </ul>
+                <Link
+                  href={tier.id === "free" ? "/auth/sign-up" : "/pricing"}
+                  className={tier.recommended ? "primary-button" : "secondary-button"}
+                >
+                  {tier.id === "free" ? "Get started" : soon ? "See details" : `Start ${tier.name}`}
+                </Link>
               </article>
             );
           })}
         </div>
-        <Link href="/pricing" className="text-link landing-more">
-          Compare plans <span aria-hidden="true">→</span>
-        </Link>
       </section>
 
-      <section className="landing-section shell" aria-labelledby="faq-title">
-        <p className="eyebrow">FAQ</p>
-        <h2 id="faq-title">Questions, answered.</h2>
-        <div className="landing-faq">
+      <section id="faq" className="mk-section mk-shell" aria-labelledby="faq-title">
+        <div className="mk-section-head">
+          <h2 id="faq-title">Questions, answered</h2>
+        </div>
+        <div className="mk-faq">
           {FAQ.map((item) => (
             <details key={item.q}>
               <summary>{item.q}</summary>
@@ -193,7 +226,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="landing-final shell" aria-labelledby="final-title">
+      <section className="mk-final mk-shell" aria-labelledby="final-title">
         <h2 id="final-title">Your next good conversation is already happening.</h2>
         <p>Set up Scout in a few minutes and see what it finds.</p>
         <Suspense fallback={<HeroActions signedIn={false} />}>
@@ -206,66 +239,206 @@ export default function Home() {
   );
 }
 
-/**
- * What a Scout opportunity looks like, built from the app's own card styles.
- * The post is an illustrative example, labeled as such.
- */
-function ProductPreview() {
+// Marketing previews: built from markup, filled with illustrative example
+// data (labeled), never presented as real customers or results.
+
+function DashboardPreview() {
   return (
-    <figure className="landing-preview" aria-label="Example of an opportunity in Scout">
-      <article className="opportunity-card" data-tier="high">
-        <header>
-          <p className="opportunity-score">
-            <strong>86</strong> · Strong match
-          </p>
-          <span className="opportunity-saved">Example</span>
-        </header>
-        <p className="opportunity-author">
-          <span>@saas_founder</span> · 12 min ago
-        </p>
-        <blockquote className="opportunity-post">
-          We doubled our trial length and conversions went down. Has anyone else seen longer trials hurt?
-        </blockquote>
-        <section className="opportunity-section">
-          <h3>Why you should join</h3>
-          <p>You&apos;ve written about trial design and onboarding: a concrete answer here adds real value.</p>
-        </section>
-        <div className="landing-preview-draft">
-          <p className="eyebrow">Your draft · Direct</p>
-          <p>
-            Saw the same. Longer trials let people postpone the aha moment. What moved it for us was a
-            day-3 check-in that pushed one key action.
-          </p>
-          <span className="primary-button landing-preview-button">Reply on X</span>
+    <figure className="mk-preview" aria-label="Illustrative preview of the Scout dashboard">
+      <div className="mk-window">
+        <div className="mk-window-bar" aria-hidden="true">
+          <i />
+          <i />
+          <i />
         </div>
-      </article>
-      <figcaption>Illustrative example of what Scout shows you.</figcaption>
+        <div className="mk-app">
+          <aside aria-hidden="true">
+            {["Home", "Opportunities", "Lead Scout", "Trend Scout", "Content Studio", "Calendar", "Growth"].map(
+              (label, i) => (
+                <span key={label} data-active={i === 0 || undefined}>
+                  {label}
+                </span>
+              ),
+            )}
+          </aside>
+          <div className="mk-app-main">
+            <p className="mk-app-title">Good morning.</p>
+            <p className="mk-app-sub">Here&apos;s what&apos;s happening on X today.</p>
+            <div className="mk-app-stats">
+              <Stat label="Opportunities" value="24" />
+              <Stat label="Leads" value="8" />
+              <Stat label="Reach (7d)" value="128K" />
+              <Stat label="Engagement" value="4.2K" />
+            </div>
+            <div className="mk-app-cols">
+              <div className="mk-card">
+                <p className="mk-card-title">Top opportunities for you</p>
+                {[
+                  ["Looking for a tool to track X growth", "92% match"],
+                  ["Best way to find customers on X?", "87% match"],
+                  ["Launching a B2B SaaS, tips on reach?", "84% match"],
+                ].map(([text, match]) => (
+                  <div key={text} className="mk-row">
+                    <span className="mk-x" aria-hidden="true">
+                      𝕏
+                    </span>
+                    <span>{text}</span>
+                    <b>{match}</b>
+                  </div>
+                ))}
+              </div>
+              <div className="mk-card">
+                <p className="mk-card-title">Trend alert</p>
+                <p className="mk-trend">AI productivity workflows</p>
+                <p className="mk-app-sub">More mentions this week</p>
+                <Spark />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Example data, for illustration.</figcaption>
     </figure>
+  );
+}
+
+function OpportunitiesPreview() {
+  const posts = [
+    { handle: "@buildinginpublic", time: "3h", text: "Looking for a tool to track X growth. Any recommendations?", tags: ["High intent", "Tooling"] },
+    { handle: "@saasfounder", time: "5h", text: "What's the best way to find customers on X these days?", tags: ["Opportunity", "Growth"] },
+    { handle: "@productbuilder", time: "6h", text: "We're launching a new B2B SaaS. Tips on reaching the right audience?", tags: ["Opportunity", "Go-to-market"] },
+  ];
+  return (
+    <figure className="mk-panel" aria-label="Illustrative example of the opportunity feed">
+      <div className="mk-panel-head">
+        <strong>Opportunities</strong>
+        <span>Last 24h</span>
+      </div>
+      <div className="mk-tabs" aria-hidden="true">
+        <span data-active>For you</span>
+        <span>Saved</span>
+        <span>Hidden</span>
+      </div>
+      {posts.map((post) => (
+        <div key={post.handle} className="mk-post">
+          <span className="mk-avatar" aria-hidden="true">
+            {post.handle[1].toUpperCase()}
+          </span>
+          <div>
+            <p className="mk-post-meta">
+              <b>{post.handle}</b> · {post.time}
+            </p>
+            <p>{post.text}</p>
+            <p className="mk-tags">
+              {post.tags.map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
+            </p>
+          </div>
+          <span className="mk-open" aria-hidden="true">
+            Open ↗
+          </span>
+        </div>
+      ))}
+      <figcaption>Example posts, for illustration.</figcaption>
+    </figure>
+  );
+}
+
+function GrowthPreview() {
+  return (
+    <figure className="mk-panel" aria-label="Illustrative example of Growth Intelligence">
+      <div className="mk-panel-head">
+        <strong>Growth</strong>
+        <span>Last 30 days</span>
+      </div>
+      <div className="mk-app-stats">
+        <Stat label="Impressions" value="1.24M" />
+        <Stat label="Engagement" value="39.6K" />
+        <Stat label="Engagement rate" value="3.2%" />
+        <Stat label="Followers" value="+486" />
+      </div>
+      <Spark large />
+      <figcaption>Example data, for illustration.</figcaption>
+    </figure>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mk-stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function Spark({ large = false }: { large?: boolean }) {
+  const line = "M0 52 L14 48 L28 50 L42 41 L56 44 L70 34 L84 37 L98 27 L112 30 L126 18 L140 21 L154 8 L160 4";
+  return (
+    <svg className={large ? "mk-spark mk-spark-large" : "mk-spark"} viewBox="0 0 160 60" preserveAspectRatio="none" aria-hidden="true">
+      <path d={`${line} L160 60 L0 60 Z`} className="mk-spark-area" />
+      <path d={line} className="mk-spark-line" />
+    </svg>
+  );
+}
+
+const iconPaths: Record<string, ReactNode> = {
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6" />
+    </>
+  ),
+  trend: <path d="m3 17 6-6 4 4 8-8M15 7h6v6" />,
+  pen: <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4" />,
+  calendar: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </>
+  ),
+  chart: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+};
+
+function Icon({ name }: { name: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {iconPaths[name]}
+    </svg>
   );
 }
 
 // The landing page stays static; only these links read the session, so a
 // signed-in visitor goes straight to the app instead of the sign-in form.
-async function SessionNavLinks() {
-  return <NavLinks signedIn={Boolean(await getOptionalUser())} />;
+async function SessionNavActions() {
+  return <NavActions signedIn={Boolean(await getOptionalUser())} />;
 }
 
 async function SessionHeroActions() {
   return <HeroActions signedIn={Boolean(await getOptionalUser())} />;
 }
 
-function NavLinks({ signedIn }: { signedIn: boolean }) {
+function NavActions({ signedIn }: { signedIn: boolean }) {
   return signedIn ? (
-    <div>
-      <Link href="/pricing" className="nav-text-link">Pricing</Link>
-      <Link href="/dashboard" className="small-dark-button">Open dashboard</Link>
+    <div className="mk-nav-actions">
+      <Link href="/dashboard" className="primary-button">
+        Open dashboard
+      </Link>
     </div>
   ) : (
-    <div>
-      <Link href="/pricing" className="nav-text-link">Pricing</Link>
-      <Link href="/auth/sign-in" className="nav-text-link">Sign in</Link>
-      <TrackedLink href="/auth/sign-up" event="start_free_click" className="small-dark-button">
-        Start for Free
+    <div className="mk-nav-actions">
+      <Link href="/auth/sign-in" className="secondary-button">
+        Log in
+      </Link>
+      <TrackedLink href="/auth/sign-up" event="start_free_click" className="primary-button">
+        Start for free
       </TrackedLink>
     </div>
   );
@@ -273,16 +446,21 @@ function NavLinks({ signedIn }: { signedIn: boolean }) {
 
 function HeroActions({ signedIn }: { signedIn: boolean }) {
   return (
-    <div className="hero-actions">
+    <div className="mk-hero-actions">
       {signedIn ? (
-        <Link href="/dashboard" className="primary-button">Open your dashboard</Link>
+        <Link href="/dashboard" className="primary-button mk-big">
+          Open your dashboard <span aria-hidden="true">→</span>
+        </Link>
       ) : (
         <>
-          <TrackedLink href="/auth/sign-up" event="start_free_click" className="primary-button">
-            Start for Free
+          <TrackedLink href="/auth/sign-up" event="start_free_click" className="primary-button mk-big">
+            Start for free <span aria-hidden="true">→</span>
           </TrackedLink>
-          <TrackedLink href="/#how-it-works" event="see_how_click" className="text-link">
-            See How It Works <span aria-hidden="true">→</span>
+          <TrackedLink href="/#how-it-works" event="see_how_click" className="secondary-button mk-big">
+            <span className="mk-play" aria-hidden="true">
+              ▶
+            </span>
+            See how it works
           </TrackedLink>
         </>
       )}

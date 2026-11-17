@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Suspense } from "react";
 
 import { CheckoutConfirmation } from "@/components/checkout/CheckoutConfirmation";
+import { Logo } from "@/components/Logo";
 import { readPaddleConfig } from "@/lib/paddle/config";
 
 export const metadata: Metadata = { title: "Payment received" };
@@ -16,10 +16,7 @@ export default function CheckoutSuccessPage({ searchParams }: PageProps<"/checko
   return (
     <main className="landing-page">
       <nav className="landing-nav shell" aria-label="Main navigation">
-        <Link href="/" className="brand" aria-label="Scout home">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <span>Scout</span>
-        </Link>
+        <Logo />
       </nav>
       <section className="shell checkout-page enter-content">
         <p className="eyebrow">Checkout complete</p>

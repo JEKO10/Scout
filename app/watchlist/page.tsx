@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { TitleWithHint } from "@/components/InfoHint";
 import { AddWatchlistAccountForm } from "@/components/watchlist/AddWatchlistAccountForm";
 import { CandidateLabelList } from "@/components/watchlist/CandidateLabelList";
 import { ImportPostsForm } from "@/components/watchlist/ImportPostsForm";
@@ -62,12 +63,15 @@ async function Watchlist() {
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Watchlist</p>
-          <h1>Who should Scout follow?</h1>
-          <p className="lede">
-            Add the accounts whose conversations you want to join. Scout only scans
-            the active ones.
-          </p>
+          <TitleWithHint
+            title="Watchlist"
+            hint={
+              <>
+                Add the accounts whose conversations you want to join. Scout only scans the active ones.
+              </>
+            }
+          />
+          <p className="lede">Who should Scout follow?</p>
         </div>
       </section>
 

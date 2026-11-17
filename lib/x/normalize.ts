@@ -1,3 +1,4 @@
+import type { PostPrivateMetrics } from "@/db/schema";
 import { withQuotedPost } from "@/lib/posts/quotedPost";
 import type {
   NormalizedCandidatePost,
@@ -53,6 +54,26 @@ export function normalizeXPost(tweet: XApiTweet, handle: string): NormalizedPost
     metricsSource: "x_api",
     metricsFetchedAt: new Date(),
   };
+}
+
+/**
+ * X's private metrics for the user's own post (OAuth only). Null when X
+ * returned none, e.g. the post is older than 30 days. A missing field stays
+ * missing: never a made-up zero.
+ */
+export function normalizeXPrivateMetrics(tweet: XApiTweet): PostPrivateMetrics | null {
+  const priv = tweet.non_public_metrics;
+  const organic = tweet.organic_metrics;
+  if (!priv && !organic) return null;
+  const metrics: PostPrivateMetrics = {};
+  const impressions = priv?.impression_count ?? organic?.impression_count;
+  const profileClicks = priv?.user_profile_clicks ?? organic?.user_profile_clicks;
+  const urlClicks = priv?.url_link_clicks ?? organic?.url_link_clicks;
+  if (impressions !== undefined) metrics.impressions = impressions;
+  if (priv?.engagements !== undefined) metrics.engagements = priv.engagements;
+  if (profileClicks !== undefined) metrics.profileClicks = profileClicks;
+  if (urlClicks !== undefined) metrics.urlClicks = urlClicks;
+  return Object.keys(metrics).length ? metrics : null;
 }
 
 function tweetKind(tweet: XApiTweet): PostKind {

@@ -8,6 +8,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { DraftEditor } from "@/components/content/DraftEditor";
 import { PlanForm } from "@/components/content/PlanForm";
 import { PublishedUrlForm } from "@/components/content/PublishedUrlForm";
+import { InfoHint } from "@/components/InfoHint";
 import { getDraft, getProfileTimeZone } from "@/db/queries/content";
 import { getTrend } from "@/db/queries/trends";
 import { requireProfile } from "@/lib/auth/session";
@@ -90,10 +91,10 @@ async function Draft({ params, searchParams }: PageProps<"/studio/[id]">) {
         />
         <PublishedUrlForm draftId={draft.id} initial={draft.publishedUrl ?? ""} />
       </section>
-      <p className="memory-note">
+      <InfoHint text="About [brackets]">
         Square brackets like [your example] mark things only you know: fill them in before posting. Scout doesn&apos;t invent
         experiences, numbers or testimonials.
-      </p>
+      </InfoHint>
     </main>
   );
 }

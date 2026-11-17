@@ -12,6 +12,7 @@ import { NotificationSettings } from "@/components/NotificationSettings";
 import { OpportunitySensitivityForm } from "@/components/OpportunitySensitivityForm";
 import { ProfileForm } from "@/components/ProfileForm";
 import { ReplyPreferencesForm } from "@/components/ReplyPreferencesForm";
+import { XConnectionSettings } from "@/components/XConnectionSettings";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countActiveWatchlist } from "@/db/queries/watchlist";
 import { requireProfile } from "@/lib/auth/session";
@@ -23,6 +24,7 @@ import { BUDGET_MESSAGES, getUsageBudget, maxActiveWatchlist, scanBlockedBy } fr
 import { getNotificationOverview } from "@/services/notifications/overview";
 import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
+import { getXConnectionOverview } from "@/services/x/oauthConnection";
 
 export function generateStaticParams() {
   return Object.values(accountViewPaths).map((path) => ({ path }));
@@ -64,13 +66,14 @@ async function AccountContent({ params }: { params: Params }) {
 
 async function ScoutSettings() {
   const { profile } = await requireProfile();
-  const [data, autoScout, notifications, billing, budget, activeAccounts] = await Promise.all([
+  const [data, autoScout, notifications, billing, budget, activeAccounts, xConnection] = await Promise.all([
     getWorkspaceData(profile.id),
     getAutoScoutStatus(profile),
     getNotificationOverview(profile.id),
     getBillingOverview(profile),
     getUsageBudget(profile),
     countActiveWatchlist(profile.id),
+    getXConnectionOverview(profile),
   ]);
 
   const blockedBy = scanBlockedBy(budget);
@@ -114,6 +117,19 @@ async function ScoutSettings() {
             status: autoScout.lastJob.status,
             skipReason: autoScout.lastJob.skipReason,
             error: autoScout.lastJob.error,
+          },
+        }}
+      />
+      <XConnectionSettings
+        data={{
+          enabled: xConnection.enabled,
+          autoEveryHours: xConnection.autoEveryHours,
+          connection: xConnection.connection && {
+            handle: xConnection.connection.handle,
+            status: xConnection.connection.status,
+            connectedLabel: formatRelative(xConnection.connection.connectedAt),
+            lastCollectedLabel: xConnection.connection.lastCollectedAt ? formatRelative(xConnection.connection.lastCollectedAt) : null,
+            nextCollectionLabel: xConnection.connection.nextCollectionAt ? formatRelative(xConnection.connection.nextCollectionAt) : null,
           },
         }}
       />

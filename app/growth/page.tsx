@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { GrowthBars } from "@/components/growth/GrowthBars";
 import { RefreshGrowthButton } from "@/components/growth/RefreshGrowthButton";
+import { InfoHint, TitleWithHint } from "@/components/InfoHint";
 import { getProfileTimeZone } from "@/db/queries/content";
 import { requireProfile } from "@/lib/auth/session";
 import { isValidTimeZone, zonedParts } from "@/lib/content/calendar";
@@ -27,13 +28,13 @@ import {
 import {
   GROWTH_RANGES,
   type GrowthRange,
-  X_CAPABILITIES,
   X_ENGAGEMENT_DEFINITION,
   X_ENGAGEMENT_RATE_DEFINITION,
+  xCapabilities,
 } from "@/lib/growth/metrics";
 import { track } from "@/services/analytics/track";
 import { getUsageBudget } from "@/services/billing/budget";
-import { GROWTH_REFRESH_MIN_HOURS, GROWTH_REFRESH_POSTS } from "@/services/growth/collect";
+import { GROWTH_REFRESH_MIN_HOURS, GROWTH_REFRESH_POSTS, PRIVATE_METRICS_WINDOW_DAYS } from "@/services/growth/collect";
 import { buildGrowthReport, growthRecommendations } from "@/services/growth/report";
 
 export const metadata: Metadata = { title: "Growth Intelligence" };
@@ -132,14 +133,25 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
   const heading = (
     <section className="workspace-heading">
       <div>
-        <p className="eyebrow">Growth Intelligence</p>
-        <h1>What&apos;s working on X.</h1>
-        <p className="lede">
-          From your real posts and their public X numbers. Missing numbers stay missing; patterns are shown only with enough
-          posts, and they show what goes together, not what caused it.
-        </p>
+        <TitleWithHint
+          title="Growth Intelligence"
+          hint={
+            <>
+              From your real posts and their public X numbers. Missing numbers stay missing; patterns are shown only with enough posts, and they show what goes together, not what caused it.
+            </>
+          }
+        />
+        <p className="lede">What&apos;s working on X.</p>
       </div>
-      <RefreshGrowthButton posts={GROWTH_REFRESH_POSTS} disabledReason={refreshBlocked} />
+      <RefreshGrowthButton
+        posts={GROWTH_REFRESH_POSTS}
+        disabledReason={refreshBlocked}
+        description={
+          report.xConnection?.status === "active"
+            ? `Reads up to ${GROWTH_REFRESH_POSTS} of your posts from the last ${PRIVATE_METRICS_WINDOW_DAYS} days with private metrics, and your follower count. Uses your plan's X reads; once a day.`
+            : undefined
+        }
+      />
     </section>
   );
 
@@ -163,6 +175,18 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
   const sorted = sortPosts(report.posts, sort);
   const r = report.replies;
   const ra = report.replyActivity;
+  const connected = report.xConnection?.status === "active";
+  const caps = xCapabilities(connected);
+  const pm = report.privateMetrics;
+  const privateNote = !report.xConnection && pm.covered > 0
+    ? `From ${pm.covered} of ${pm.total} posts, read while X was connected`
+    : !report.xConnection
+    ? "Connect X in Settings to see this"
+    : report.xConnection.status !== "active" && pm.covered === 0
+      ? "Reconnect X in Settings"
+      : pm.covered === 0
+        ? `No post of this period has private metrics yet (X keeps them ${PRIVATE_METRICS_WINDOW_DAYS + 1} days)`
+        : `From ${pm.covered} of ${pm.total} posts (X keeps them ${PRIVATE_METRICS_WINDOW_DAYS + 1} days)`;
   const sourceLabel = (post: GrowthPost) =>
     post.source === "x_api" ? "Metrics from X" : post.source === "csv_import" ? "From your X export" : "Synced earlier";
 
@@ -170,22 +194,26 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
     <main className="workspace shell enter-content">
       {heading}
 
-      <section className="crm-panel" aria-labelledby="source-title">
-        <h2 id="source-title">Your data</h2>
-        <p className="memory-note">
-          @{report.account.handle} · public X metrics (Scout reads public data; it isn&apos;t signed in to your X account) ·{" "}
-          {report.account.lastSyncedAt ? `last read ${formatRelative(report.account.lastSyncedAt)}` : "never synced"}
-          {report.oldest && ` · posts since ${report.oldest.toISOString().slice(0, 10)}`}
-        </p>
-        <p className="memory-note">
-          Not available: {X_CAPABILITIES.profileVisits.available ? "" : "profile visits and link clicks. "}
-          {!X_CAPABILITIES.profileVisits.available && X_CAPABILITIES.profileVisits.reason}
-        </p>
-        <p className="memory-note">
-          Engagement = {X_ENGAGEMENT_DEFINITION}. Engagement rate = {X_ENGAGEMENT_RATE_DEFINITION}. Numbers are lifetime totals at
-          the time Scout read them, so the newest posts are still collecting views.
-        </p>
-      </section>
+      <div className="growth-source">
+        @{report.account.handle} · {connected ? "X connected: public and private metrics" : "public X metrics"} ·{" "}
+        {report.account.lastSyncedAt ? `last read ${formatRelative(report.account.lastSyncedAt)}` : "never synced"}
+        {report.oldest && ` · posts since ${report.oldest.toISOString().slice(0, 10)}`}
+        <InfoHint label="About this data">
+          {connected ? (
+            <p>
+              Your X account is connected (read-only). Profile clicks and link clicks come from X&apos;s private metrics, which X
+              only has for posts from the last 30 days; older posts keep the last reading Scout took.
+            </p>
+          ) : (
+            <p>Scout reads public data; it isn&apos;t signed in to your X account.</p>
+          )}
+          {!caps.profileVisits.available && <p>Not available: profile visits and link clicks. {caps.profileVisits.reason}</p>}
+          <p>
+            Engagement = {X_ENGAGEMENT_DEFINITION}. Engagement rate = {X_ENGAGEMENT_RATE_DEFINITION}. Numbers are lifetime
+            totals at the time Scout read them, so the newest posts are still collecting views.
+          </p>
+        </InfoHint>
+      </div>
 
       <div className="discovery-filters cal-toolbar">
         <span className="crm-view-toggle" role="group" aria-label="Period">
@@ -229,6 +257,16 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
           <strong>{o.posts.value === null ? `${report.posts.length}+` : num(o.posts.value)}</strong>
           <span>Posts published (incl. replies)</span>
           <Change stat={o.posts} unavailable="Scout may not hold every post of this period" />
+        </div>
+        <div className="metric">
+          <strong>{num(pm.profileClicks)}</strong>
+          <span>Profile clicks</span>
+          <small className={pm.profileClicks === null ? "growth-na" : undefined}>{privateNote}</small>
+        </div>
+        <div className="metric">
+          <strong>{num(pm.linkClicks)}</strong>
+          <span>Link clicks</span>
+          <small className={pm.linkClicks === null ? "growth-na" : undefined}>{privateNote}</small>
         </div>
         <div className="metric">
           <strong>{num(o.avgImpressions.value)}</strong>
@@ -339,7 +377,12 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
 
       <div className="discovery-layout growth-columns">
         <section className="crm-panel" aria-labelledby="times-title">
-          <h2 id="times-title">Posting times ({tz})</h2>
+          <div className="title-with-hint">
+            <h2 id="times-title">Posting times ({tz})</h2>
+            <InfoHint label="About posting times">
+              From your own posts only (needs 30 posts with impressions and 6 per time slot), not general advice.
+            </InfoHint>
+          </div>
           <p>{report.times.finding ?? NOT_ENOUGH_FOR_TIMES}</p>
           <ul className="memory-list">
             {report.times.buckets.map((bucket) => (
@@ -348,7 +391,6 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
               </li>
             ))}
           </ul>
-          <p className="memory-note">From your own posts only (needs 30 posts with impressions and 6 per time slot), not general advice.</p>
         </section>
 
         <section className="crm-panel" aria-labelledby="followers-title">
@@ -365,7 +407,14 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
       </div>
 
       <section className="crm-panel" aria-labelledby="replies-title">
-        <h2 id="replies-title">Replies and conversations ({range} days)</h2>
+        <div className="title-with-hint">
+          <h2 id="replies-title">Replies and conversations ({range} days)</h2>
+          <InfoHint label="How replies are counted">
+            A drafted reply isn&apos;t a posted one, opening X isn&apos;t posting, and your confirmation isn&apos;t
+            verification. &ldquo;Found on X&rdquo; counts your replies that X returned in a sync or refresh and that answer a
+            post you opened from Scout.
+          </InfoHint>
+        </div>
         <div className="metrics-strip crm-metrics">
           <div className="metric">
             <strong>{ra.opportunities}</strong>
@@ -388,10 +437,6 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
             <span>Found on X (verified)</span>
           </div>
         </div>
-        <p className="memory-note">
-          A drafted reply isn&apos;t a posted one, opening X isn&apos;t posting, and your confirmation isn&apos;t verification. &ldquo;Found on
-          X&rdquo; counts your replies that X returned in a sync or refresh and that answer a post you opened from Scout.
-        </p>
         {r.all.count > 0 && (
           <p>
             Your replies this period: {r.all.count}, median {num(r.all.medianLikes)} likes

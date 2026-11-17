@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getXUsageToday, recordXUsage, reserveXRequest } from "@/db/queries/xApiUsage";
+import type { PostPrivateMetrics } from "@/db/schema";
 import type {
   NormalizedCandidatePost,
   NormalizedPost,
@@ -13,6 +14,7 @@ import type { XRunUsage } from "@/lib/scout/types";
 import {
   normalizeXCandidatePost,
   normalizeXPost,
+  normalizeXPrivateMetrics,
   normalizeXUser,
   normalizeXUserCounts,
 } from "./normalize";
@@ -89,8 +91,10 @@ async function xFetch<T>(
   path: string,
   params: Record<string, string | undefined> = {},
   stats?: XRequestStats,
+  /** The user's OAuth 2.0 access token (their own account); default: Scout's app token */
+  userAccessToken?: string,
 ): Promise<T> {
-  const token = process.env.X_BEARER_TOKEN;
+  const token = userAccessToken ?? process.env.X_BEARER_TOKEN;
   if (!token) throw new Error("X_BEARER_TOKEN is not set.");
   const { maxXRetries, maxXRequestsPerDay, maxXPostReadsPerDay } = getScoutLimits();
   // The global spending cap: posts X returned today across all of Scout. A
@@ -191,6 +195,7 @@ async function fetchUserTweets(
   platformUserId: string,
   query: XTimelineQuery,
   stats?: XRequestStats,
+  { userAccessToken, privateMetrics = false }: { userAccessToken?: string; privateMetrics?: boolean } = {},
 ): Promise<{ tweets: XApiTweet[]; included: Map<string, XApiTweet>; hasMore: boolean }> {
   const body = await xFetch<XApiTimelineResponse>(
     `/users/${encodeURIComponent(platformUserId)}/tweets`,
@@ -198,13 +203,16 @@ async function fetchUserTweets(
       // X requires 5–100 results per page
       max_results: String(Math.min(Math.max(query.limit, 5), 100)),
       exclude: query.excludeReplies ? "retweets,replies" : "retweets",
-      "tweet.fields": "created_at,public_metrics,note_tweet,referenced_tweets",
+      "tweet.fields": privateMetrics
+        ? "created_at,public_metrics,non_public_metrics,organic_metrics,note_tweet,referenced_tweets"
+        : "created_at,public_metrics,note_tweet,referenced_tweets",
       since_id: query.sinceId,
       until_id: query.untilId,
       start_time: query.sinceId ? undefined : query.startTime?.toISOString(),
       expansions: query.includeReferenced ? "referenced_tweets.id" : undefined,
     },
     stats,
+    userAccessToken,
   );
 
   const tweets = (body.data ?? []).slice(0, query.limit);
@@ -222,6 +230,40 @@ async function fetchUserTweets(
     included: new Map(included.map((tweet) => [tweet.id, tweet])),
     hasMore: Boolean(body.meta?.next_token) || (body.data?.length ?? 0) > query.limit,
   };
+}
+
+/**
+ * X OAuth: the account the user's token belongs to (ownership proof), with
+ * its public counts. One user read.
+ */
+export async function getXAuthenticatedUser(
+  userAccessToken: string,
+): Promise<{ profile: NormalizedProfile; counts: NormalizedProfileCounts } | null> {
+  const body = await xFetch<XApiUserResponse>(
+    "/users/me",
+    { "user.fields": "profile_image_url,public_metrics" },
+    undefined,
+    userAccessToken,
+  );
+  return body.data ? { profile: normalizeXUser(body.data), counts: normalizeXUserCounts(body.data) } : null;
+}
+
+/**
+ * X OAuth: the user's own posts since `startTime` with their private metrics.
+ * X only has private metrics for posts from the last 30 days, so callers
+ * keep `startTime` inside that window. Posts outside it are never requested.
+ */
+export async function getOwnPostsWithPrivateMetrics(
+  userAccessToken: string,
+  account: { platformUserId: string; handle: string },
+  { limit, startTime }: { limit: number; startTime: Date },
+  stats?: XRequestStats,
+): Promise<{ post: NormalizedPost; privateMetrics: PostPrivateMetrics | null }[]> {
+  const { tweets } = await fetchUserTweets(account.platformUserId, { limit, startTime }, stats, {
+    userAccessToken,
+    privateMetrics: true,
+  });
+  return tweets.map((tweet) => ({ post: normalizeXPost(tweet, account.handle), privateMetrics: normalizeXPrivateMetrics(tweet) }));
 }
 
 /** The user's own posts, for the Scout Brain. */

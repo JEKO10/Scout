@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Suspense } from "react";
 
 import { CheckoutLanding } from "@/components/checkout/CheckoutLanding";
+import { Logo } from "@/components/Logo";
 import { readPaddleConfig } from "@/lib/paddle/config";
 
 export const metadata: Metadata = { title: "Checkout" };
@@ -17,10 +17,7 @@ export default function CheckoutPage({ searchParams }: PageProps<"/checkout">) {
   return (
     <main className="landing-page">
       <nav className="landing-nav shell" aria-label="Main navigation">
-        <Link href="/" className="brand" aria-label="Scout home">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <span>Scout</span>
-        </Link>
+        <Logo />
       </nav>
       <section className="shell checkout-page enter-content">
         <Suspense fallback={<p>Loading checkout…</p>}>

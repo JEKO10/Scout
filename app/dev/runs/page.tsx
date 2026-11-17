@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { TitleWithHint } from "@/components/InfoHint";
 import { countAnalyticsEvents } from "@/db/queries/analytics";
 import { getBillingAlerts } from "@/db/queries/billing";
 import { getRecentFeedback } from "@/db/queries/feedback";
@@ -67,15 +68,15 @@ async function RunAnalyticsView() {
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Development · last {runs.length} runs</p>
-          <h1>Run analytics</h1>
-          <p className="lede">
-            What every scan read, found and cost. X cost is the real X usage the run caused,
-            estimated at ${X_PRICING.postRead} per post and ${X_PRICING.userRead} per account
-            lookup; a run that reused the shared cache costs nothing on X. Plan reads are what
-            your plan is charged: posts delivered to you, whoever fetched them. AI cost comes from
-            recorded token usage. Your X and OpenAI bills are the truth.
-          </p>
+          <TitleWithHint
+            title="Run analytics"
+            hint={
+              <>
+                What every scan read, found and cost. X cost is the real X usage the run caused, estimated at ${X_PRICING.postRead} per post and ${X_PRICING.userRead} per account lookup; a run that reused the shared cache costs nothing on X. Plan reads are what your plan is charged: posts delivered to you, whoever fetched them. AI cost comes from recorded token usage. Your X and OpenAI bills are the truth.
+              </>
+            }
+          />
+          <p className="lede">Development · last {runs.length} runs.</p>
         </div>
       </section>
 

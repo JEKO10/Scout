@@ -13,6 +13,7 @@ import {
   rewritePostAction,
   saveDraftAction,
 } from "@/actions/content";
+import { InfoHint } from "@/components/InfoHint";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   CONTENT_TONES,
@@ -283,14 +284,14 @@ export function DraftEditor({
       <section className="crm-panel" aria-labelledby="publish-title">
         <h2 id="publish-title">Publish on X</h2>
         {format === "post" ? (
-          <p className="memory-note">
+          <InfoHint text="How posting works">
             &ldquo;Open in X&rdquo; opens X&apos;s composer with this text. You post it there; Scout can&apos;t see whether you did.
-          </p>
+          </InfoHint>
         ) : (
-          <p className="memory-note">
+          <InfoHint text="How to post a thread">
             X can&apos;t receive a whole thread from a link. Open the composer with the first post, then add each next post as a
             reply (&ldquo;+&rdquo; in the composer): copy them one by one with the Copy buttons above.
-          </p>
+          </InfoHint>
         )}
         <div className="calibration-actions">
           <a

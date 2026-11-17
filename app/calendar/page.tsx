@@ -6,6 +6,8 @@ import { Suspense } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { PlanForm } from "@/components/content/PlanForm";
 import { TimeZoneHint } from "@/components/content/TimeZoneHint";
+import { TitleWithHint } from "@/components/InfoHint";
+import { InfoHint } from "@/components/InfoHint";
 import { getPlannedDrafts, getProfileTimeZone, getSavedTrendsWithoutContent, getUnplannedDrafts } from "@/db/queries/content";
 import type { ContentDraft } from "@/db/schema";
 import { requireProfile } from "@/lib/auth/session";
@@ -111,12 +113,15 @@ async function Calendar({ searchParams }: { searchParams: PageProps<"/calendar">
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Content Calendar</p>
-          <h1>Plan what you&apos;ll post.</h1>
-          <p className="lede">
-            A plan, not a scheduler: Scout never posts for you. When a post&apos;s time comes, open it, post it on X, and mark it
-            posted.
-          </p>
+          <TitleWithHint
+            title="Content Calendar"
+            hint={
+              <>
+                A plan, not a scheduler: Scout never posts for you. When a post&apos;s time comes, open it, post it on X, and mark it posted.
+              </>
+            }
+          />
+          <p className="lede">Plan what you&apos;ll post.</p>
         </div>
       </section>
 
@@ -162,7 +167,7 @@ async function Calendar({ searchParams }: { searchParams: PageProps<"/calendar">
               <li key={line}>{line}</li>
             ))}
           </ul>
-          <p className="memory-note">From your plan and saved trends. Scout doesn&apos;t suggest posting times until it has your results.</p>
+          <InfoHint text="About these suggestions">From your plan and saved trends. Scout doesn&apos;t suggest posting times until it has your results.</InfoHint>
         </section>
       )}
 

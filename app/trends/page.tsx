@@ -5,6 +5,8 @@ import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { TitleWithHint } from "@/components/InfoHint";
+import { InfoHint } from "@/components/InfoHint";
 import { TrendBars } from "@/components/trends/TrendBars";
 import { getDiscoveryTopics } from "@/db/queries/discovery";
 import { getTrends } from "@/db/queries/trends";
@@ -75,12 +77,15 @@ async function Trends({ searchParams }: { searchParams: PageProps<"/trends">["se
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Trend Scout</p>
-          <h1>What your corner of X is talking about.</h1>
-          <p className="lede">
-            Topics grouped from the posts your scans collected (watchlist and Smart Discovery), ranked by how worthwhile
-            they are for you to join. A sample of your niche, not all of X.
-          </p>
+          <TitleWithHint
+            title="Trend Scout"
+            hint={
+              <>
+                Topics grouped from the posts your scans collected (watchlist and Smart Discovery), ranked by how worthwhile they are for you to join. A sample of your niche, not all of X.
+              </>
+            }
+          />
+          <p className="lede">What your corner of X is talking about.</p>
         </div>
       </section>
 
@@ -152,10 +157,10 @@ async function Trends({ searchParams }: { searchParams: PageProps<"/trends">["se
           </Link>
         </span>
       </form>
-      <p className="memory-note">
+      <InfoHint text="How trends are updated">
         Updated after each scan{updated ? ` · last ${formatRelative(updated)}` : ""} · observation period: last {OBSERVATION_DAYS} days ·
         momentum compares equal 24-hour windows only when your scans covered both.
-      </p>
+      </InfoHint>
 
       {trends.length === 0 ? (
         <EmptyState
@@ -199,7 +204,7 @@ async function Trends({ searchParams }: { searchParams: PageProps<"/trends">["se
               ))}
             </tbody>
           </table>
-          <p className="memory-note">Best first: the top row is the one worth your attention first. Scores aren&apos;t predictions of reach.</p>
+          <InfoHint text="How the list is ordered">Best first: the top row is the one worth your attention first. Scores aren&apos;t predictions of reach.</InfoHint>
         </div>
       ) : (
         <div className="trend-list">

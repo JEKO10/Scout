@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { saveOnboardingAnswersAction } from "@/actions/onboarding";
+import { Logo } from "@/components/Logo";
 import { AboutForm } from "@/components/onboarding/AboutForm";
 import { BuildBrainStep } from "@/components/onboarding/BuildBrainStep";
 import { CompleteSetupButton } from "@/components/onboarding/CompleteSetupButton";
@@ -60,12 +61,7 @@ export default function OnboardingPage(props: PageProps<"/onboarding">) {
   return (
     <main className="onboarding-page">
       <div className="onboarding-nav shell">
-        <Link href="/" className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            S
-          </span>
-          <span>Scout</span>
-        </Link>
+        <Logo />
         <span>Setup</span>
       </div>
       <div className="onboarding-shell enter-content">

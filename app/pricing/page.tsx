@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { TrackView } from "@/components/analytics/Track";
+import { Logo } from "@/components/Logo";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { PricingPlans } from "@/components/pricing/PricingPlans";
 import { getProfileByUserId } from "@/db/queries/profiles";
@@ -25,10 +26,7 @@ export default function PricingPage({ searchParams }: PageProps<"/pricing">) {
     <main className="landing-page pricing-page">
       <TrackView name="pricing_view" />
       <nav className="landing-nav shell" aria-label="Main navigation">
-        <Link href="/" className="brand" aria-label="Scout home">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <span>Scout</span>
-        </Link>
+        <Logo />
         <div>
           <Link href="/dashboard" className="nav-text-link">Dashboard</Link>
         </div>

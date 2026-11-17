@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { StatusSelect } from "@/components/crm/StatusSelect";
 import { EmptyState } from "@/components/EmptyState";
+import { TitleWithHint } from "@/components/InfoHint";
 import { type CrmSort, getActivityKinds, getCrmLeads, getCrmMetrics, getFollowUps } from "@/db/queries/crm";
 import type { Lead } from "@/db/schema";
 import { requireProfile } from "@/lib/auth/session";
@@ -86,12 +87,15 @@ async function Crm({ searchParams }: { searchParams: PageProps<"/crm">["searchPa
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Lead Scout CRM</p>
-          <h1>Your pipeline.</h1>
-          <p className="lede">
-            Leads you saved from <Link href="/leads">Lead Scout</Link>, where they stand, and what to do next. Statuses
-            and contacts are what you record; Scout never messages anyone.
-          </p>
+          <TitleWithHint
+            title="CRM"
+            hint={
+              <>
+                Leads you saved from <Link href="/leads">Lead Scout</Link>, where they stand, and what to do next. Statuses and contacts are what you record; Scout never messages anyone.
+              </>
+            }
+          />
+          <p className="lede">Your pipeline.</p>
         </div>
       </section>
 

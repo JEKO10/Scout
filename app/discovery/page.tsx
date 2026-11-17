@@ -7,6 +7,8 @@ import { AppHeader } from "@/components/AppHeader";
 import { TopicForm } from "@/components/discovery/TopicForm";
 import { TopicList } from "@/components/discovery/TopicList";
 import { EmptyState } from "@/components/EmptyState";
+import { TitleWithHint } from "@/components/InfoHint";
+import { InfoHint } from "@/components/InfoHint";
 import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
 import { toDrafts } from "@/components/opportunities/toDrafts";
 import { RunScoutButton } from "@/components/watchlist/RunScoutButton";
@@ -78,12 +80,15 @@ async function Discovery({ searchParams }: { searchParams: PageProps<"/discovery
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Smart Discovery</p>
-          <h1>Find conversations beyond your watchlist.</h1>
-          <p className="lede">
-            Describe what you want to find. Scout searches recent posts on X during your scans, scores them against
-            your Scout Brain and shows the ones worth a reply.
-          </p>
+          <TitleWithHint
+            title="Smart Discovery"
+            hint={
+              <>
+                Describe what you want to find. Scout searches recent posts on X during your scans, scores them against your Scout Brain and shows the ones worth a reply.
+              </>
+            }
+          />
+          <p className="lede">Find conversations beyond your watchlist.</p>
         </div>
       </section>
 
@@ -121,10 +126,10 @@ async function Discovery({ searchParams }: { searchParams: PageProps<"/discovery
               <h2 id="discovery-feed-title">Discovered conversations</h2>
             </div>
           </div>
-          <p className="memory-note">
+          <InfoHint text="How searches run">
             Searches run with every scan (manual or automatic) and share your plan&apos;s X and AI budget with your
             watchlist. A post already found through your watchlist isn&apos;t scored twice.
-          </p>
+          </InfoHint>
           <RunScoutButton disabled={(activeAccounts === 0 && activeTopics === 0) || blocked !== null} />
           {blocked && <p className="memory-note">{BUDGET_MESSAGES[blocked]}</p>}
 

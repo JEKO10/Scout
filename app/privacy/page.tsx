@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 // DRAFT for review before public launch: not legal advice, not checked by a lawyer.
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" updated="November 16, 2026">
+    <LegalPage title="Privacy Policy" updated="November 17, 2026">
       <p className="legal-review">
         Draft for review. Items in brackets must be completed by the operator before public launch. This draft
         doesn&apos;t claim compliance with any specific law until that has been verified.
@@ -40,6 +40,15 @@ export default function PrivacyPage() {
         <li>
           <strong>What Scout produces:</strong> your Scout Brain, opportunity scores and explanations, reply drafts,
           and when you opened X&apos;s composer from Scout.
+        </li>
+        <li>
+          <strong>Connected X account (optional):</strong> if you connect your X account, you authorize Scout through
+          X to read your profile and your posts, read-only (permissions <code>tweet.read</code>,{" "}
+          <code>users.read</code>, <code>offline.access</code>). Scout can&apos;t post, like, follow or read your
+          messages. Scout stores your X user ID and handle, an access token and refresh token (encrypted), and your
+          posts&apos; metrics, including private ones X shows only to you: impressions, engagements, profile clicks
+          and link clicks, which X provides for posts from the last 30 days. Scout keeps daily readings so it can show
+          your progress after that window.
         </li>
         <li>
           <strong>Integrations:</strong> if you connect Slack, the workspace, channel and an access token (stored
@@ -79,11 +88,13 @@ export default function PrivacyPage() {
       <ul>
         <li>Neon (database and authentication), Vercel (hosting)</li>
         <li>OpenAI (AI scoring and reply drafts)</li>
-        <li>X (reading public posts through the X API)</li>
+        <li>X (reading public posts through the X API and, with your consent, your own private post metrics)</li>
         <li>Slack (only if you connect it, to deliver alerts)</li>
         <li>Paddle (payments, as Merchant of Record for paid plans)</li>
       </ul>
-      <p>We don&apos;t sell your personal data. Some providers may process data outside your country.</p>
+      <p>
+        We don&apos;t sell your personal data and don&apos;t use your X metrics for advertising. Some providers may process data outside your country.
+      </p>
 
       <h2>Retention and deletion</h2>
       <p>
@@ -100,6 +111,10 @@ export default function PrivacyPage() {
       <ul>
         <li>Review and edit your Scout Brain, answers and preferences in Settings.</li>
         <li>Remove monitored accounts, disconnect Slack or turn off automatic scans at any time.</li>
+        <li>
+          Disconnect your X account at any time in Settings: Scout revokes its access at X and deletes the tokens, and
+          if you choose, also deletes the private metrics it stored. Deleting your Scout account deletes all of it.
+        </li>
         <li>
           Ask for a copy of your data, a correction or deletion: <Placeholder>support email</Placeholder>.
         </li>

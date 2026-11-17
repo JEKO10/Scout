@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { ActivityItemActions } from "@/components/activity/ActivityItemActions";
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { TitleWithHint } from "@/components/InfoHint";
 import { getReplyActivity, getReplyIntentStats } from "@/db/queries/replyIntents";
 import { requireProfile } from "@/lib/auth/session";
 import { formatRelative } from "@/lib/format";
@@ -39,12 +40,15 @@ async function Activity() {
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Activity</p>
-          <h1>Your replies.</h1>
-          <p className="lede">
-            Replies you opened on X from Scout. Scout can&apos;t see what you post on X, so they stay
-            unconfirmed unless you mark them posted.
-          </p>
+          <TitleWithHint
+            title="Activity"
+            hint={
+              <>
+                Replies you opened on X from Scout. Scout can&apos;t see what you post on X, so they stay unconfirmed unless you mark them posted.
+              </>
+            }
+          />
+          <p className="lede">Your replies.</p>
         </div>
         <Link href="/opportunities" className="secondary-button">
           Opportunities

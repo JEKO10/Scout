@@ -7,6 +7,8 @@ import { z } from "zod";
 import { AppHeader } from "@/components/AppHeader";
 import { CreateContent } from "@/components/content/CreateContent";
 import { EmptyState } from "@/components/EmptyState";
+import { TitleWithHint } from "@/components/InfoHint";
+import { InfoHint } from "@/components/InfoHint";
 import { getDrafts, getTrendsForContent } from "@/db/queries/content";
 import { getTrend } from "@/db/queries/trends";
 import type { Profile } from "@/db/schema";
@@ -60,19 +62,22 @@ async function Studio({ searchParams }: { searchParams: PageProps<"/studio">["se
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Content Studio</p>
-          <h1>Write posts that sound like you.</h1>
-          <p className="lede">
-            Ideas and drafts from your Scout Brain, your trends and your customers&apos; recurring problems. You edit, you
-            post. Scout never publishes anything.
-          </p>
+          <TitleWithHint
+            title="Content Studio"
+            hint={
+              <>
+                Ideas and drafts from your Scout Brain, your trends and your customers&apos; recurring problems. You edit, you post. Scout never publishes anything.
+              </>
+            }
+          />
+          <p className="lede">Write posts that sound like you.</p>
         </div>
       </section>
 
       <div className="discovery-layout">
         <div>
           <CreateContent defaultGoal={defaultGoal(profile)} trend={trend ? { id: trend.id, label: trend.label } : null} plan={plan} />
-          <p className="memory-note">{CONTENT_REPLY_GENERATIONS_HINT}</p>
+          <InfoHint text="About costs">{CONTENT_REPLY_GENERATIONS_HINT}</InfoHint>
 
           {trends.length > 0 && (
             <section className="crm-panel" aria-labelledby="inspiration-title">

@@ -45,6 +45,13 @@ export type AutoScanSettings = {
   maxAutoRunsPerDay: number;
 };
 
+/**
+ * Growth Intelligence with X connected (OAuth): how often Scout re-reads the
+ * user's own recent posts on its own. null: manual refresh only. Every
+ * collection is paid from the plan's monthly X reads (no extra allowance).
+ */
+export type GrowthCollectionSettings = { autoEveryHours: number | null };
+
 // Order matters for the Postgres enum: new plans are inserted, never reordered
 export const PLAN_IDS = ["free", "starter", "pro", "internal"] as const;
 
@@ -52,7 +59,13 @@ export type PlanId = (typeof PLAN_IDS)[number];
 
 export const PLANS: Record<
   PlanId,
-  { label: string; monthlyPriceUsd: number; limits: UsageLimits; autoScan: AutoScanSettings }
+  {
+    label: string;
+    monthlyPriceUsd: number;
+    limits: UsageLimits;
+    autoScan: AutoScanSettings;
+    growthCollection: GrowthCollectionSettings;
+  }
 > = {
   // Max direct cost ~$1.20/month: 100 reads ($0.50) + $0.50 scoring + $0.20 replies
   free: {
@@ -72,6 +85,8 @@ export const PLANS: Record<
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
+    // Manual refresh only
+    growthCollection: { autoEveryHours: null },
   },
   // Max ~$6/month: 600 reads ($3) + $2.50 scoring + $0.50 replies
   starter: {
@@ -90,6 +105,8 @@ export const PLANS: Record<
       maxTrendInsightsPerDay: 5,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
+    // Weekly: ~4 collections x 20 posts = ~86 of the 600 monthly reads
+    growthCollection: { autoEveryHours: 168 },
   },
   // Max ~$15.50/month: 1,500 reads ($7.50) + $5 scoring + $3 replies
   pro: {
@@ -109,6 +126,8 @@ export const PLANS: Record<
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
+    // Every 3 days: ~10 collections x 20 posts = ~200 of the 1,500 monthly reads
+    growthCollection: { autoEveryHours: 72 },
   },
   // Development and dogfooding accounts: never billed, not paced
   internal: {
@@ -127,6 +146,7 @@ export const PLANS: Record<
       maxTrendInsightsPerDay: 30,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
+    growthCollection: { autoEveryHours: 24 },
   },
 };
 

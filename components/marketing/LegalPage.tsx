@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { Logo } from "@/components/Logo";
+
 import { SiteFooter } from "./SiteFooter";
 
 /** Shared layout of the public legal and trust pages */
@@ -8,10 +10,7 @@ export function LegalPage({ title, updated, children }: { title: string; updated
   return (
     <main className="landing-page">
       <nav className="landing-nav shell" aria-label="Main navigation">
-        <Link href="/" className="brand" aria-label="Scout home">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          <span>Scout</span>
-        </Link>
+        <Logo />
         <div>
           <Link href="/pricing" className="nav-text-link">Pricing</Link>
           <Link href="/auth/sign-up" className="small-dark-button">Start for Free</Link>

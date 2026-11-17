@@ -4,6 +4,7 @@ import type { ResolvedScoutBrain } from "@/services/scout-brain/resolveBrain";
 
 import { AnalyzeBrainButton } from "./AnalyzeBrainButton";
 import { BrainList } from "./BrainList";
+import { InfoHint } from "./InfoHint";
 import { TeachScout, type TeachScoutData } from "./TeachScout";
 
 const dateFormat = new Intl.DateTimeFormat("en", {
@@ -40,12 +41,11 @@ export function ScoutBrainPanel({
 }) {
   const fromOnboarding = brain?.basis === "onboarding";
   return (
-    <section className="brain-section" aria-labelledby="brain-title">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">What Scout learned</p>
+    <section className="dash-card brain-section" aria-labelledby="brain-title">
+      <div className="dash-card-head">
+        <div className="title-with-hint">
           <h2 id="brain-title">Your Scout Brain</h2>
-          <p className="brain-meta">
+          <InfoHint label="About your Scout Brain">
             {brain && fromOnboarding
               ? `Built from your onboarding answers and ${sampleCount} calibration replies · ${dateFormat.format(brain.analyzedAt)}. It sharpens as you use Scout.`
               : brain
@@ -53,7 +53,7 @@ export function ScoutBrainPanel({
               : postCount
                 ? `Scout will read your ${postCount} imported posts and your onboarding answers.`
                 : "Sync your X account first so Scout has posts to learn from."}
-          </p>
+          </InfoHint>
         </div>
         {fromOnboarding && postCount < 5 ? (
           <Link href="/onboarding?step=answers&mode=scratch" className="secondary-button">
@@ -92,6 +92,8 @@ export function ScoutBrainPanel({
       )}
 
       {brain && (
+        <details className="more-list brain-details">
+        <summary>Show what Scout learned: voice, interests and goals</summary>
         <div className="brain-grid">
           <article className="brain-column">
             <p className="eyebrow">Voice</p>
@@ -229,6 +231,7 @@ export function ScoutBrainPanel({
             </BrainGroup>
           </article>
         </div>
+        </details>
       )}
 
       {brain && fromOnboarding && teach && <TeachScout data={teach} />}

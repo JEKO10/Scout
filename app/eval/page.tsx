@@ -6,6 +6,7 @@ import { EvalCaseManager } from "@/components/eval/EvalCaseManager";
 import { EvalRunner } from "@/components/eval/EvalRunner";
 import { EvalScorecardView } from "@/components/eval/EvalScorecardView";
 import { RunEvalButton } from "@/components/eval/RunEvalButton";
+import { TitleWithHint } from "@/components/InfoHint";
 import { getEvalCases, getEvalRuns } from "@/db/queries/eval";
 import { requireProfile } from "@/lib/auth/session";
 import { computeScorecard } from "@/services/brain-eval/scorecard";
@@ -52,12 +53,15 @@ async function Eval() {
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Day 6 · Brain eval</p>
-          <h1>Would you actually post this?</h1>
-          <p className="lede">
-            Scout reads {cases.length} posts it has never seen, decides whether you
-            should engage, and drafts a reply. You judge every one.
-          </p>
+          <TitleWithHint
+            title="Brain eval"
+            hint={
+              <>
+                Scout reads {cases.length} posts it has never seen, decides whether you should engage, and drafts a reply. You judge every one.
+              </>
+            }
+          />
+          <p className="lede">Would you actually post this?</p>
         </div>
         {brain && cases.length > 0 && <RunEvalButton hasRun={Boolean(latestRun)} />}
       </section>

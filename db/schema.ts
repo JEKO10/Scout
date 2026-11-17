@@ -1331,3 +1331,85 @@ export const accountMetricSnapshotsTable = pgTable(
 );
 
 export type AccountMetricSnapshot = typeof accountMetricSnapshotsTable.$inferSelect;
+
+// ---- X OAuth 2.0: the user's own X account, signed in (private metrics) -----
+
+export const xConnectionStatusEnum = pgEnum("x_connection_status", [
+  "active",
+  /** Token revoked, expired without a refresh token, or a scope missing: connect again */
+  "needs_reconnect",
+]);
+
+/**
+ * The user's X account, connected with OAuth 2.0 (PKCE) so Scout can read
+ * that account's private post metrics. Separate from Neon Auth: signing in to
+ * Scout never depends on it. One X account belongs to one Scout profile.
+ * Tokens are encrypted (lib/crypto/tokens.ts) and never sent to the browser.
+ */
+export const xConnectionsTable = pgTable("x_connections", {
+  id: uuid().primaryKey().defaultRandom(),
+  profileId: uuid()
+    .notNull()
+    .unique()
+    .references(() => profilesTable.id, { onDelete: "cascade" }),
+  socialAccountId: uuid()
+    .notNull()
+    .references(() => socialAccountsTable.id, { onDelete: "cascade" }),
+  /** Verified with GET /2/users/me using the user's own token */
+  xUserId: text().notNull().unique(),
+  handle: text().notNull(),
+  /** Space-separated, as X granted them */
+  scopes: text().notNull(),
+  encryptedAccessToken: text().notNull(),
+  /** Null when X didn't issue one (no offline.access): reconnect after 2 h */
+  encryptedRefreshToken: text(),
+  accessTokenExpiresAt: timestamp({ withTimezone: true }).notNull(),
+  status: xConnectionStatusEnum().notNull().default("active"),
+  lastError: text(),
+  connectedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  /** Held while a token refresh or a collection runs: one at a time */
+  busyUntil: timestamp({ withTimezone: true }),
+  lastCollectedAt: timestamp({ withTimezone: true }),
+  lastAutoCollectedAt: timestamp({ withTimezone: true }),
+  /** Starter/Pro automatic collection; null: none planned */
+  nextCollectionAt: timestamp({ withTimezone: true }),
+  ...timestamps,
+});
+
+export type XConnection = typeof xConnectionsTable.$inferSelect;
+
+/** X's private metrics for one of the user's own posts (OAuth, posts < 30 days old) */
+export type PostPrivateMetrics = {
+  impressions?: number;
+  /** X's own count: every interaction, clicks included (not Scout's likes + replies + reposts) */
+  engagements?: number;
+  profileClicks?: number;
+  urlClicks?: number;
+};
+
+/**
+ * One reading of a post's metrics per UTC day (a later reading that day
+ * replaces it). Keeps the history after X's 30-day window for private
+ * metrics closes. Deleted with the post, the account or the profile.
+ */
+export const postMetricSnapshotsTable = pgTable(
+  "post_metric_snapshots",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    postId: uuid()
+      .notNull()
+      .references(() => postsTable.id, { onDelete: "cascade" }),
+    day: date({ mode: "string" }).notNull(),
+    capturedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    source: text().$type<"x_oauth">().notNull(),
+    publicMetrics: jsonb().$type<PostMetrics>(),
+    /** null: X returned none for this post */
+    privateMetrics: jsonb().$type<PostPrivateMetrics>(),
+  },
+  (t) => [unique().on(t.postId, t.day), index().on(t.profileId, t.day)],
+);
+
+export type PostMetricSnapshot = typeof postMetricSnapshotsTable.$inferSelect;

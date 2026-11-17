@@ -12,6 +12,11 @@ process.env.SLACK_CLIENT_ID = "test-client-id";
 process.env.SLACK_CLIENT_SECRET = "test-client-secret";
 process.env.TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 process.env.APP_URL = "https://scout.test";
+// X OAuth (mocked): off unless a test turns it on; automatic collection off
+process.env.X_CLIENT_ID = "test-x-client";
+process.env.X_CLIENT_SECRET = "test-x-secret";
+process.env.X_OAUTH_ENABLED = "false";
+process.env.X_ANALYTICS_AUTO_ENABLED = "false";
 
 config({ path: ".env.local", quiet: true });
 config({ quiet: true });

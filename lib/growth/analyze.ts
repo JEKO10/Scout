@@ -25,6 +25,16 @@ export type GrowthPost = {
   draft: { id: string; title: string; goal: ContentGoal; format: ContentFormat; fromTrend: boolean } | null;
   topic: string | null;
   topicSource: "studio" | "brain" | "keyword" | null;
+  /**
+   * X private metrics (OAuth): the latest reading Scout holds. Undefined or
+   * null: never read (not connected, or the post was already older than 30
+   * days). Never a zero standing in for "unknown".
+   */
+  profileClicks?: number | null;
+  linkClicks?: number | null;
+  /** X's own engagements count (all interactions, clicks included) */
+  xEngagements?: number | null;
+  privateFetchedAt?: Date | null;
 };
 
 export type Snapshot = { day: string; followers: number | null };
@@ -564,4 +574,36 @@ export function sortPosts(posts: GrowthPost[], sort: PostSort): GrowthPost[] {
     if (y === null) return -1;
     return y - x;
   });
+}
+
+// ---- X private metrics (OAuth) -----------------------------------------------
+
+export type PrivateMetricsSummary = {
+  /** Posts in the period that have a private reading */
+  covered: number;
+  total: number;
+  /** Sums over covered posts only; null when no post has the metric */
+  profileClicks: number | null;
+  linkClicks: number | null;
+  xEngagements: number | null;
+  /** The oldest reading among them: how fresh the sums are at worst */
+  oldestReadingAt: Date | null;
+};
+
+/** Sums of X's private metrics over the posts that have them; nothing is extrapolated */
+export function privateMetricsSummary(posts: GrowthPost[]): PrivateMetricsSummary {
+  const covered = posts.filter((post) => post.privateFetchedAt);
+  const sum = (key: "profileClicks" | "linkClicks" | "xEngagements") => {
+    const values = covered.map((post) => post[key]).filter((value): value is number => typeof value === "number");
+    return values.length ? values.reduce((a, b) => a + b, 0) : null;
+  };
+  const times = covered.map((post) => post.privateFetchedAt!.getTime());
+  return {
+    covered: covered.length,
+    total: posts.length,
+    profileClicks: sum("profileClicks"),
+    linkClicks: sum("linkClicks"),
+    xEngagements: sum("xEngagements"),
+    oldestReadingAt: times.length ? new Date(Math.min(...times)) : null,
+  };
 }

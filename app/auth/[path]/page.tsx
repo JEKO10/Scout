@@ -1,9 +1,9 @@
 import { AuthView } from "@neondatabase/auth-ui";
 import { authViewPaths } from "@neondatabase/auth-ui/server";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { Logo } from "@/components/Logo";
 import { getOptionalUser } from "@/lib/auth/session";
 
 export function generateStaticParams() {
@@ -15,10 +15,7 @@ type Params = PageProps<"/auth/[path]">["params"];
 export default function AuthPage({ params, searchParams }: PageProps<"/auth/[path]">) {
   return (
     <main className="auth-page">
-      <Link href="/" className="brand auth-brand">
-        <span className="brand-mark" aria-hidden="true">S</span>
-        <span>Scout</span>
-      </Link>
+      <Logo className="auth-brand" />
       <section className="auth-layout enter-content">
         <div className="auth-message">
           <p className="eyebrow">Your signal, amplified</p>

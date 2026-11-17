@@ -7,6 +7,7 @@ import { z } from "zod";
 import { AppHeader } from "@/components/AppHeader";
 import { LeadWorkspace } from "@/components/crm/LeadWorkspace";
 import { StatusSelect } from "@/components/crm/StatusSelect";
+import { InfoHint } from "@/components/InfoHint";
 import { getCrmLead } from "@/db/queries/crm";
 import type { LeadActivity } from "@/db/schema";
 import { requireProfile } from "@/lib/auth/session";
@@ -111,9 +112,9 @@ async function LeadDetail({ params }: PageProps<"/crm/[id]">) {
             The post that found them · {formatRelative(lead.postedAt)}
           </h2>
           <blockquote className="opportunity-post">{lead.content}</blockquote>
-          <p className="memory-note">
+          <InfoHint text="About this data">
             Saved from public X data. If the post was deleted on X the link won&apos;t open, but what Scout saw stays here.
-          </p>
+          </InfoHint>
           <section className="opportunity-section">
             <h3>Why it&apos;s a lead</h3>
             <p>{lead.reason}</p>
@@ -123,10 +124,10 @@ async function LeadDetail({ params }: PageProps<"/crm/[id]">) {
             <h3>Suggested next step from the scan</h3>
             <p>{lead.suggestedAction}</p>
           </section>
-          <p className="memory-note">
+          <InfoHint text="Score breakdown">
             Lead score {lead.score}: customer fit {b.icpFit}/30 · intent {b.intentStrength}/35 · problem fit {b.problemFit}/20 ·
             evidence {b.evidence}/10 · recency {b.recency}/5. A ranking aid, not a chance of buying.
-          </p>
+          </InfoHint>
 
           <section className="crm-panel" aria-labelledby="timeline-title">
             <h2 id="timeline-title">Timeline</h2>

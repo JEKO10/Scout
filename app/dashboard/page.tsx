@@ -5,21 +5,22 @@ import { Suspense } from "react";
 import { AiCostPanel } from "@/components/AiCostPanel";
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { InfoHint } from "@/components/InfoHint";
 import { MissedPosts } from "@/components/missed/MissedPosts";
-import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
-import { toDrafts } from "@/components/opportunities/toDrafts";
 import { ScoutBrainPanel } from "@/components/ScoutBrainPanel";
 import { RunScoutButton } from "@/components/watchlist/RunScoutButton";
 import { XAccountCard } from "@/components/XAccountCard";
 import { XTestingPanel } from "@/components/XTestingPanel";
 import { getWorkspaceData } from "@/db/queries/opportunities";
 import { countPostsBySocialAccount } from "@/db/queries/posts";
-import { getCurrentReplies, getLastReplyStyles, getPostedReplies } from "@/db/queries/replies";
+import { getPostedReplies } from "@/db/queries/replies";
 import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
 import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
+import { formatRelative } from "@/lib/format";
 import { getAiCostSummary } from "@/services/ai/costSummary";
 import { buildUserMemory } from "@/services/memory/buildUserMemory";
+import { opportunityTier } from "@/services/opportunities/score";
 import { getScoutTestStatus } from "@/services/scout/testStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 import { teachPrompts } from "@/services/scout-brain/teachPrompts";
@@ -76,25 +77,19 @@ async function Dashboard() {
   // getWorkspaceData sorts by score, so these are the best open ones
   const topOpportunities = data.opportunities
     .filter((opportunity) => opportunity.status === "new")
-    .slice(0, 3);
+    .slice(0, 5);
   const activeAccounts = data.watchlist.filter((account) => account.isActive).length;
-  const [topReplies, lastStyles] = await Promise.all([
-    getCurrentReplies(
-      profile.id,
-      topOpportunities.map((opportunity) => opportunity.id),
-    ),
-    getLastReplyStyles(profile.id),
-  ]);
   const firstName = (profile.displayName ?? user.name ?? "there").split(" ")[0];
 
   return (
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Your workspace</p>
-          <h1>Good to see you, {firstName}.</h1>
+          <h1>Welcome back, {firstName}</h1>
           <p className="lede">
-            Every relevant conversation and every post, in one calm place.
+            {newOpportunities
+              ? `${newOpportunities} new ${newOpportunities === 1 ? "opportunity is" : "opportunities are"} waiting for you.`
+              : "Here's what's happening with your growth."}
           </p>
         </div>
         <div className="workspace-actions">
@@ -105,72 +100,53 @@ async function Dashboard() {
         </div>
       </section>
 
-      <section className="metrics-strip" aria-label="Workspace summary">
-        <Metric value={data.opportunities.length} label="Opportunities" />
-        <Metric value={newOpportunities} label="New matches" />
-        <Metric value={data.posts.length} label="Posts analyzed" />
-        <Metric
-          value={compactNumber.format(totalImpressions)}
-          label="Total impressions"
-        />
+      <section className="stat-cards" aria-label="Workspace summary">
+        <StatCard icon="target" value={newOpportunities} label="New opportunities" href="/opportunities" />
+        <StatCard icon="eye" value={activeAccounts} label="Watched accounts" href="/watchlist" />
+        <StatCard icon="doc" value={data.posts.length} label="Your posts analyzed" />
+        <StatCard icon="chart" value={compactNumber.format(totalImpressions)} label="Impressions" href="/growth" />
       </section>
 
-      <ScoutBrainPanel
-        brain={brain}
-        postCount={data.posts.length}
-        sampleCount={calibration.length}
-        teach={
-          brain?.basis === "onboarding"
-            ? {
-                prompts: teachPrompts(
-                  brain,
-                  opinions.map((sample) => sample.promptPost),
-                ),
-                opinions: opinions.map((sample) => ({
-                  id: sample.id,
-                  prompt: sample.promptPost,
-                  text: sample.userReply,
-                })),
-                calibrationCount: calibration.length,
-                postedCount: postedReplies.length,
-              }
-            : undefined
-        }
-        interactionCount={memory.interactionCount}
-      />
-
-      {/* Day 21: rate a few posts Scout didn't surface; its own boundary, never blocks the page */}
-      <Suspense fallback={null}>
-        <MissedPosts profile={profile} />
-      </Suspense>
-
       <div className="dashboard-grid">
-        <section className="feed-section" aria-labelledby="opportunities-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Best first</p>
-              <h2 id="opportunities-title">Top opportunities</h2>
-              <p className="memory-note">
+        <section className="dash-card" aria-labelledby="opportunities-title">
+          <div className="dash-card-head">
+            <div className="title-with-hint">
+              <h2 id="opportunities-title">Today&apos;s opportunities</h2>
+              <InfoHint label="How scores work">
                 Scores run from 0 to 100: how well a post fits your topics, goals and expertise, how fresh it is and
                 whether a reply from you would add something. Higher is worth your time sooner.
-              </p>
+              </InfoHint>
             </div>
             <Link href="/opportunities" className="text-link">
-              View all {newOpportunities} <span aria-hidden="true">→</span>
+              View all <span aria-hidden="true">→</span>
             </Link>
           </div>
 
           {topOpportunities.length ? (
-            <div className="opportunity-feed">
-              {topOpportunities.map((opportunity) => (
-                <OpportunityCard
-                  key={opportunity.id}
-                  opportunity={opportunity}
-                  replies={toDrafts(topReplies.get(opportunity.id))}
-                  defaultStyles={lastStyles ?? undefined}
-                />
-              ))}
-            </div>
+            <ul className="opportunity-list">
+              {topOpportunities.map((opportunity) => {
+                const score = Math.round(opportunity.score ?? 0);
+                return (
+                  <li key={opportunity.id}>
+                    <Link href={`/opportunities/${opportunity.id}`}>
+                      <span className="mini-avatar" aria-hidden="true">
+                        {(opportunity.authorHandle ?? "?").charAt(0).toUpperCase()}
+                      </span>
+                      <span className="opportunity-list-text">
+                        <span className="opportunity-list-meta">
+                          {opportunity.authorHandle ? `@${opportunity.authorHandle}` : "Unknown author"}
+                          {opportunity.postedAt && ` · ${formatRelative(opportunity.postedAt)}`}
+                        </span>
+                        <span className="opportunity-list-post">{opportunity.content}</span>
+                      </span>
+                      <span className="score-badge" data-tier={opportunityTier(score)} title="Opportunity score">
+                        {score}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
             <EmptyState
               title="No strong opportunities right now."
@@ -218,7 +194,7 @@ async function Dashboard() {
             </div>
             {data.watchlist.length ? (
               <ul className="watchlist-preview">
-                {data.watchlist.slice(0, 6).map((account) => (
+                {data.watchlist.slice(0, 5).map((account) => (
                   <li key={account.id}>
                     <span className="mini-avatar" aria-hidden="true">
                       {account.handle.charAt(0).toUpperCase()}
@@ -244,47 +220,51 @@ async function Dashboard() {
         </aside>
       </div>
 
-      <section className="posts-section" aria-labelledby="posts-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Writing history</p>
-            <h2 id="posts-title">All your posts</h2>
-          </div>
+      {/* Day 21: rate a few posts Scout didn't surface; its own boundary, never blocks the page */}
+      <Suspense fallback={null}>
+        <MissedPosts profile={profile} />
+      </Suspense>
+
+      <ScoutBrainPanel
+        brain={brain}
+        postCount={data.posts.length}
+        sampleCount={calibration.length}
+        teach={
+          brain?.basis === "onboarding"
+            ? {
+                prompts: teachPrompts(
+                  brain,
+                  opinions.map((sample) => sample.promptPost),
+                ),
+                opinions: opinions.map((sample) => ({
+                  id: sample.id,
+                  prompt: sample.promptPost,
+                  text: sample.userReply,
+                })),
+                calibrationCount: calibration.length,
+                postedCount: postedReplies.length,
+              }
+            : undefined
+        }
+        interactionCount={memory.interactionCount}
+      />
+
+      <section className="dash-card posts-section" aria-labelledby="posts-title">
+        <div className="dash-card-head">
+          <h2 id="posts-title">Your recent posts</h2>
           <span className="count-label">{data.posts.length} posts</span>
         </div>
 
         {data.posts.length ? (
-          <div className="post-list">
-            {data.posts.map(({ post, account }, index) => (
-              <article className="post-row" key={post.id}>
-                <div className="post-index" aria-hidden="true">
-                  {String(index + 1).padStart(2, "0")}
-                </div>
-                <div className="post-body">
-                  <p>{post.content}</p>
-                  <div className="post-meta">
-                    <span>@{account.handle}</span>
-                    <span>{formatDate(post.publishedAt)}</span>
-                    <span>{compactNumber.format(post.metrics?.impressions ?? 0)} views</span>
-                    <span>{post.metrics?.likes ?? 0} likes</span>
-                    <span>{post.metrics?.replies ?? 0} replies</span>
-                  </div>
-                </div>
-                {post.url && (
-                  <a
-                    href={post.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="icon-link"
-                    aria-label="Open original post"
-                    title="Open original post"
-                  >
-                    ↗
-                  </a>
-                )}
-              </article>
-            ))}
-          </div>
+          <>
+            <PostList posts={data.posts.slice(0, 5)} />
+            {data.posts.length > 5 && (
+              <details className="more-list">
+                <summary>Show all {data.posts.length} posts</summary>
+                <PostList posts={data.posts.slice(5)} />
+              </details>
+            )}
+          </>
         ) : (
           <EmptyState
             title="No posts connected"
@@ -297,12 +277,85 @@ async function Dashboard() {
   );
 }
 
-function Metric({ value, label }: { value: string | number; label: string }) {
+function PostList({ posts }: { posts: Awaited<ReturnType<typeof getWorkspaceData>>["posts"] }) {
   return (
-    <div className="metric">
-      <strong>{value}</strong>
-      <span>{label}</span>
+    <div className="post-list">
+      {posts.map(({ post, account }) => (
+        <article className="post-row" key={post.id}>
+          <div className="post-body">
+            <p>{post.content}</p>
+            <div className="post-meta">
+              <span>@{account.handle}</span>
+              <span>{formatDate(post.publishedAt)}</span>
+              {post.metrics?.impressions != null && <span>{compactNumber.format(post.metrics.impressions)} views</span>}
+              {post.metrics?.likes != null && <span>{post.metrics.likes} likes</span>}
+              {post.metrics?.replies != null && <span>{post.metrics.replies} replies</span>}
+            </div>
+          </div>
+          {post.url && (
+            <a
+              href={post.url}
+              target="_blank"
+              rel="noreferrer"
+              className="icon-link"
+              aria-label="Open original post"
+              title="Open original post"
+            >
+              ↗
+            </a>
+          )}
+        </article>
+      ))}
     </div>
+  );
+}
+
+const statIcons = {
+  target: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  doc: <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5" />,
+  chart: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+};
+
+function StatCard({
+  icon,
+  value,
+  label,
+  href,
+}: {
+  icon: keyof typeof statIcons;
+  value: string | number;
+  label: string;
+  href?: string;
+}) {
+  const body = (
+    <>
+      <span className="stat-card-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          {statIcons[icon]}
+        </svg>
+      </span>
+      <span className="stat-card-label">{label}</span>
+      <strong>{value}</strong>
+    </>
+  );
+  return href ? (
+    <Link href={href} className="stat-card">
+      {body}
+    </Link>
+  ) : (
+    <div className="stat-card">{body}</div>
   );
 }
 

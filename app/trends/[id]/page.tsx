@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { z } from "zod";
 
 import { AppHeader } from "@/components/AppHeader";
+import { InfoHint } from "@/components/InfoHint";
 import { OpenConversationLink } from "@/components/trends/OpenConversationLink";
 import { TrendActions } from "@/components/trends/TrendActions";
 import { TrendBars } from "@/components/trends/TrendBars";
@@ -102,7 +103,7 @@ async function TrendDetail({ params }: PageProps<"/trends/[id]">) {
         </div>
       </section>
       {trend.opportunityBreakdown && (
-        <p className="memory-note">Opportunity score: {opportunityExplanation(trend.opportunityBreakdown)}. Not a prediction of reach or followers.</p>
+        <InfoHint text="About the opportunity score">Opportunity score: {opportunityExplanation(trend.opportunityBreakdown)}. Not a prediction of reach or followers.</InfoHint>
       )}
 
       <div className="discovery-layout">
@@ -123,10 +124,10 @@ async function TrendDetail({ params }: PageProps<"/trends/[id]">) {
             </li>
             {trend.terms.length > 0 && <li>Often mentioned: {trend.terms.join(", ")}</li>}
           </ul>
-          <p className="memory-note">
+          <InfoHint text="Score breakdown">
             Trend score {trend.score}: momentum {b.momentum}/35 · relevance {b.relevance}/35 · engagement {b.engagement}/10 ·
             sources {b.sources}/10 · freshness {b.freshness}/10. A sample Scout collected for you, not all of X.
-          </p>
+          </InfoHint>
 
           {insight ? (
             <section className="ai-insight" aria-labelledby="insight-title">
@@ -207,9 +208,9 @@ async function TrendDetail({ params }: PageProps<"/trends/[id]">) {
               <section className="opportunity-section">
                 <h3>Why it matters to you</h3>
                 <p>{trend.why}</p>
-                <p className="memory-note">
+                <InfoHint text="Where this comes from">
                   From the scoring of its best post. &ldquo;Explain this trend&rdquo; writes a fuller AI interpretation and content ideas.
-                </p>
+                </InfoHint>
               </section>
             )
           )}

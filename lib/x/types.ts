@@ -43,6 +43,19 @@ export type XApiTweet = {
     impression_count?: number;
     bookmark_count?: number;
   };
+  /** X OAuth, the user's own posts from the last 30 days only */
+  non_public_metrics?: {
+    impression_count?: number;
+    url_link_clicks?: number;
+    user_profile_clicks?: number;
+    engagements?: number;
+  };
+  /** X OAuth, the user's own posts: organic (unpromoted) counts */
+  organic_metrics?: {
+    impression_count?: number;
+    url_link_clicks?: number;
+    user_profile_clicks?: number;
+  };
   // Posts longer than 280 characters are truncated in `text`
   note_tweet?: { text: string };
   referenced_tweets?: {

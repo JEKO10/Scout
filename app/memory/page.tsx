@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { TitleWithHint } from "@/components/InfoHint";
 import { LearnedPanel } from "@/components/memory/LearnedPanel";
 import { ReplyRules } from "@/components/memory/ReplyRules";
 import { requireProfile } from "@/lib/auth/session";
@@ -44,12 +45,15 @@ async function Memory() {
     <main className="workspace shell enter-content">
       <section className="workspace-heading">
         <div>
-          <p className="eyebrow">Scout memory · last {memory.windowDays} days</p>
-          <h1>What Scout remembers.</h1>
-          <p className="lede">
-            Built from what you accepted, edited and skipped. A pattern only counts once
-            it repeats {MIN_REPEATS}+ times.
-          </p>
+          <TitleWithHint
+            title="Memory"
+            hint={
+              <>
+                Built from what you accepted, edited and skipped. A pattern only counts once it repeats {MIN_REPEATS}+ times.
+              </>
+            }
+          />
+          <p className="lede">What Scout remembers from the last {memory.windowDays} days.</p>
         </div>
       </section>
 

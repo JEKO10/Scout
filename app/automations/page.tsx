@@ -9,10 +9,13 @@ import { AutomationRowControls, MarkReadButton, ReviewItemControls } from "@/com
 import { EmptyState } from "@/components/EmptyState";
 import { TitleWithHint } from "@/components/InfoHint";
 import { getAutomation } from "@/db/queries/automations";
+import { getProfileTimeZone } from "@/db/queries/content";
 import { isMissingSchemaError } from "@/db/schemaErrors";
 import { requireProfile } from "@/lib/auth/session";
+import { dueLabel } from "@/lib/automations/format";
 import { AUTOMATION_TEMPLATES } from "@/lib/automations/templates";
 import { ACTION_INFO, type AutomationConditions, TRIGGER_INFO } from "@/lib/automations/types";
+import { isValidTimeZone, zonedParts } from "@/lib/content/calendar";
 import { formatRelative } from "@/lib/format";
 import { loadAutomationsView } from "@/services/automations/manage";
 
@@ -83,6 +86,9 @@ async function Automations({ searchParams }: { searchParams: PageProps<"/automat
       ? { name: template.name, description: template.description, trigger: template.trigger, conditions: template.conditions, actions: template.actions, enabled: true, templateKey: template.key }
       : EMPTY;
   const unread = view.notifications.filter((n) => !n.readAt);
+  // Plan reminders are due on a day in the user's time zone
+  const savedTz = await getProfileTimeZone(profile.id);
+  const today = zonedParts(new Date(), savedTz && isValidTimeZone(savedTz) ? savedTz : "UTC").date;
 
   return (
     <main className="workspace shell enter-content">
@@ -143,7 +149,7 @@ async function Automations({ searchParams }: { searchParams: PageProps<"/automat
                   <span className="strategy-pill">{item.kind === "reminder" ? "Reminder" : "Review"}</span>
                   {item.body && <p className="memory-note">{item.body}</p>}
                   <p className="memory-note">
-                    {item.sourceModule} · {item.dueAt ? `due ${formatRelative(item.dueAt)}` : formatRelative(item.createdAt)} ·{" "}
+                    {item.sourceModule} · {dueLabel(item, today, formatRelative)} ·{" "}
                     <Link href={item.href} className="text-link">
                       Open
                     </Link>

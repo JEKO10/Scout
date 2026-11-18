@@ -13,6 +13,7 @@ import { and, eq } from "drizzle-orm";
 import db from "@/db";
 import { getAutomation, listQueue, setItemStatus } from "@/db/queries/automations";
 import * as s from "@/db/schema";
+import { dayLabel, dueLabel } from "@/lib/automations/format";
 import { type AutomationEvent, matchConditions, validateAutomation } from "@/lib/automations/rules";
 import { AUTOMATION_TEMPLATES } from "@/lib/automations/templates";
 import { ACTIONS_FOR, AUTOMATION_ACTIONS } from "@/lib/automations/types";
@@ -342,4 +343,16 @@ test("isolation: an automation only ever sees its owner's data", async () => {
   assert.equal((await editAutomation(await getProfile(other.id), created.id, { name: "Hijack", trigger: "new_opportunity", actions: ["notify"] })).ok, false);
   assert.equal((await removeAutomation(await getProfile(other.id), created.id)).ok, false);
   await setOverrides(owner.id, {});
+});
+
+test("due labels: plan tasks read by day in the user's time zone, other reminders by time", () => {
+  assert.equal(dayLabel("2026-11-18", "2026-11-18"), "today");
+  assert.equal(dayLabel("2026-11-17", "2026-11-18"), "yesterday");
+  assert.equal(dayLabel("2026-11-19", "2026-11-18"), "tomorrow");
+  assert.equal(dayLabel("2026-11-15", "2026-11-18"), "on Nov 15");
+  const relative = () => "in 2 hours";
+  const task = { entityType: "strategy_task", dueAt: new Date("2026-11-18T00:00:00Z"), createdAt: new Date() };
+  assert.equal(dueLabel(task, "2026-11-18", relative), "due today", "not 'due 21 hours ago'");
+  assert.equal(dueLabel({ ...task, entityType: "content" }, "2026-11-18", relative), "due in 2 hours");
+  assert.equal(dueLabel({ ...task, dueAt: null }, "2026-11-18", relative), "in 2 hours");
 });

@@ -7137,3 +7137,18 @@ a.stat-card:hover {
 .automation-templates p {
   margin: 4px 0 8px;
 }
+
+/* ---- Day 37 X connection ---- */
+.x-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.x-account img {
+  border-radius: 999px;
+}
+.strategy-pill[data-state="sync_failed"],
+.strategy-pill[data-state="needs_reauthorization"] {
+  background: #fee2e2;
+  color: var(--red);
+}

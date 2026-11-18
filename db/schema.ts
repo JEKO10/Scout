@@ -1375,6 +1375,8 @@ export const xConnectionsTable = pgTable("x_connections", {
   busyUntil: timestamp({ withTimezone: true }),
   lastCollectedAt: timestamp({ withTimezone: true }),
   lastAutoCollectedAt: timestamp({ withTimezone: true }),
+  /** Day 37: the one-time import of recent history after connecting; null: not done yet */
+  initialImportAt: timestamp({ withTimezone: true }),
   /** Starter/Pro automatic collection; null: none planned */
   nextCollectionAt: timestamp({ withTimezone: true }),
   ...timestamps,

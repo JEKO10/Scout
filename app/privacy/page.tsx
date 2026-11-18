@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 // DRAFT for review before public launch: not legal advice, not checked by a lawyer.
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" updated="November 17, 2026">
+    <LegalPage title="Privacy Policy" updated="November 18, 2026">
       <p className="legal-review">
         Draft for review. Items in brackets must be completed by the operator before public launch. This draft
         doesn&apos;t claim compliance with any specific law until that has been verified.
@@ -48,7 +48,9 @@ export default function PrivacyPage() {
           messages. Scout stores your X user ID and handle, an access token and refresh token (encrypted), and your
           posts&apos; metrics, including private ones X shows only to you: impressions, engagements, profile clicks
           and link clicks, which X provides for posts from the last 30 days. Scout keeps daily readings so it can show
-          your progress after that window.
+          your progress after that window. Scout reads this data only when you ask (an optional one-time import of your last 29
+          days, and Growth refreshes, at most once a day) or on your plan&apos;s automatic schedule if enabled, never more than
+          once a day.
         </li>
         <li>
           <strong>Integrations:</strong> if you connect Slack, the workspace, channel and an access token (stored

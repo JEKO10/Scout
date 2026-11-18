@@ -6,6 +6,7 @@ import { z } from "zod";
 import { updateProfileXHandle } from "@/db/queries/profiles";
 import { requireProfile } from "@/lib/auth/session";
 import { xHandleSchema } from "@/schemas/onboarding";
+import { collectConnectedGrowthData } from "@/services/growth/collect";
 import { disconnectX } from "@/services/x/oauthConnection";
 
 const disconnectSchema = z.object({ deleteHistory: z.boolean() });
@@ -36,4 +37,15 @@ export async function switchXHandleAction(handle: string): Promise<{ ok: boolean
   if (!parsed.success) return { ok: false, message: "Invalid X handle." };
   await updateProfileXHandle(profile.id, parsed.data);
   return { ok: true, message: `Scout now uses @${parsed.data}. Connecting X…` };
+}
+
+/**
+ * Day 37: the one-time import of the last 29 days (up to the plan's import
+ * size), from the plan's X reads. Shown with its cost before the click.
+ */
+export async function importXHistoryAction(): Promise<{ ok: boolean; message: string }> {
+  const { profile } = await requireProfile();
+  const result = await collectConnectedGrowthData(profile, "import");
+  if (result.ok) refresh();
+  return result;
 }

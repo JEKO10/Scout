@@ -2,7 +2,7 @@ import "server-only";
 
 import { saveAccountSnapshot } from "@/db/queries/growth";
 import { updateProfileXHandle } from "@/db/queries/profiles";
-import { getXAccountUsage, linkCsvSocialAccount, upsertSocialAccount } from "@/db/queries/socialAccounts";
+import { getSocialAccountById, getXAccountUsage, linkCsvSocialAccount, upsertSocialAccount } from "@/db/queries/socialAccounts";
 import {
   deletePrivateMetricSnapshots,
   deleteXConnection,
@@ -13,7 +13,7 @@ import {
   xUserConnectedElsewhere,
 } from "@/db/queries/xConnections";
 import type { Profile, XConnection } from "@/db/schema";
-import { PLANS } from "@/lib/billing/plans";
+import { effectiveLimits, PLANS } from "@/lib/billing/plans";
 import { decryptToken, encryptToken } from "@/lib/crypto/tokens";
 import { getXAuthenticatedUser, XApiBudgetError, XApiRequestError } from "@/lib/x/client";
 import {
@@ -26,6 +26,7 @@ import {
   XOAuthError,
   type XTokenSet,
 } from "@/lib/x/oauth";
+import { grantedScopes } from "@/lib/x/permissions";
 
 // Connecting, using and disconnecting the user's own X account (OAuth 2.0).
 // Tokens are decrypted only in this module; nothing it returns contains one.
@@ -227,19 +228,41 @@ export async function disconnectX(profileId: string, { deleteHistory = false }: 
 }
 
 /** What Settings shows: never a token */
-export async function getXConnectionOverview(profile: Pick<Profile, "id" | "plan">) {
+export async function getXConnectionOverview(profile: Pick<Profile, "id" | "plan" | "usageLimitOverrides">, now = new Date()) {
   const enabled = isXOAuthEnabled();
   const connection = enabled ? await getXConnection(profile.id) : undefined;
+  const account = connection ? await getSocialAccountById(profile.id, connection.socialAccountId) : undefined;
+  const importCap = effectiveLimits(profile.plan, profile.usageLimitOverrides).maxInitialImportPosts;
+  const state: XConnectionState | null = !connection
+    ? null
+    : connection.status === "needs_reconnect"
+      ? "needs_reauthorization"
+      : connection.busyUntil && connection.busyUntil > now
+        ? "syncing"
+        : connection.lastError
+          ? "sync_failed"
+          : "connected";
   return {
     enabled,
     autoEveryHours: PLANS[profile.plan].growthCollection.autoEveryHours,
-    connection: connection ? {
-      handle: connection.handle,
-      status: connection.status,
-      connectedAt: connection.connectedAt,
-      lastCollectedAt: connection.lastCollectedAt,
-      nextCollectionAt: connection.nextCollectionAt,
-      hasRefreshToken: Boolean(connection.encryptedRefreshToken),
-    } : null,
+    importCap,
+    connection: connection
+      ? {
+          handle: connection.handle,
+          displayName: account?.displayName ?? null,
+          avatarUrl: account?.avatarUrl ?? null,
+          state,
+          status: connection.status,
+          lastError: connection.lastError,
+          scopes: grantedScopes(connection.scopes),
+          connectedAt: connection.connectedAt,
+          lastCollectedAt: connection.lastCollectedAt,
+          nextCollectionAt: connection.nextCollectionAt,
+          initialImportAt: connection.initialImportAt,
+          hasRefreshToken: Boolean(connection.encryptedRefreshToken),
+        }
+      : null,
   };
 }
+
+export type XConnectionState = "connected" | "syncing" | "needs_reauthorization" | "sync_failed";

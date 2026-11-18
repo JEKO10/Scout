@@ -16,11 +16,13 @@ import { getSnapshotsForProfile } from "@/db/queries/growth";
 import { getXConnection } from "@/db/queries/xConnections";
 import * as s from "@/db/schema";
 import { decryptToken } from "@/lib/crypto/tokens";
+import { buildEvidence } from "@/lib/strategy/plan";
 import { createXOAuthStart, readXOAuthCookie } from "@/lib/x/oauth";
+import { canUse, X_PUBLISH_SCOPES, X_READ_SCOPES } from "@/lib/x/permissions";
 import { getUsageBudget } from "@/services/billing/budget";
-import { refreshGrowthData, runDueGrowthCollections } from "@/services/growth/collect";
+import { collectConnectedGrowthData, refreshGrowthData, runDueGrowthCollections } from "@/services/growth/collect";
 import { buildGrowthReport } from "@/services/growth/report";
-import { disconnectX, handleXOAuthCallback } from "@/services/x/oauthConnection";
+import { disconnectX, getXConnectionOverview, handleXOAuthCallback } from "@/services/x/oauthConnection";
 
 import { cleanup, getProfile, newProfile, rememberXUsage, setOverrides } from "./helpers/db";
 import { installMocks, nextId, x, xOAuth } from "./helpers/mocks";
@@ -370,4 +372,130 @@ test("feature off: a connected profile falls back to the public refresh and the 
   assert.ok(x.calls.some((path) => path.startsWith("/2/users/by/username")), "public path");
   const report = await buildGrowthReport(profile, { range: 30, tz: "UTC" });
   assert.equal(report.xConnection, null);
+});
+
+// ---- Day 37 --------------------------------------------------------------------------
+
+test("callback replay: the same callback a second time exchanges nothing and changes nothing", async () => {
+  const { profile, userId } = await xUser("free");
+  const { url, cookie } = createXOAuthStart(profile.id);
+  const callback = { state: new URL(url).searchParams.get("state"), code: `user:${userId}`, error: null, cookie };
+  assert.equal((await handleXOAuthCallback(profile, callback)).status, "connected");
+  const before = (await getXConnection(profile.id))!;
+  assert.equal((await handleXOAuthCallback(await getProfile(profile.id), callback)).status, "failed", "X refuses a used code");
+  const after = (await getXConnection(profile.id))!;
+  assert.equal(after.encryptedAccessToken, before.encryptedAccessToken, "tokens untouched");
+});
+
+test("initial import: once, sized by the plan and the X reads left, deduplicated with later refreshes", async () => {
+  const { profile, userId } = await xUser("free");
+  await connect(profile, `user:${userId}`);
+  ownPosts(userId, { recent: 28, old: 2 });
+  await setOverrides(profile.id, { maxInitialImportPosts: 25 });
+  const p = await getProfile(profile.id);
+  const reads = (await getUsageBudget(p)).used.xPostReads;
+
+  const imported = await collectConnectedGrowthData(p, "import");
+  assert.ok(imported.ok, imported.message);
+  assert.match(imported.message, /^Imported 25 posts/);
+  assert.equal((await getUsageBudget(p)).used.xPostReads, reads + 25, "counted in the plan's X reads");
+  assert.ok((await getXConnection(profile.id))!.initialImportAt);
+  const again = await collectConnectedGrowthData(p, "import");
+  assert.equal(again.ok, false);
+  assert.match(again.message, /already imported/);
+
+  // A later refresh reads the newest posts again: upserted, never duplicated
+  assert.ok((await refreshGrowthData(p, new Date(Date.now() + 21 * 3_600_000))).ok);
+  const stored = await db
+    .select()
+    .from(s.postsTable)
+    .innerJoin(s.socialAccountsTable, eq(s.socialAccountsTable.id, s.postsTable.socialAccountId))
+    .where(eq(s.socialAccountsTable.profileId, profile.id));
+  assert.equal(new Set(stored.map((r) => r.posts.platformPostId)).size, stored.length);
+  assert.equal(stored.length, 25);
+});
+
+test("initial import: partial when the plan has fewer X reads left; none under 5, without calling X", async () => {
+  const { profile, userId } = await xUser("free");
+  await connect(profile, `user:${userId}`);
+  ownPosts(userId, { recent: 20 });
+  await setOverrides(profile.id, { maxInitialImportPosts: 25, monthlyXPostReads: 12 });
+  const partial = await collectConnectedGrowthData(await getProfile(profile.id), "import");
+  assert.ok(partial.ok, partial.message);
+  assert.match(partial.message, /^Imported 12 posts/);
+
+  const other = await xUser("free");
+  await connect(other.profile, `user:${other.userId}`);
+  await setOverrides(other.profile.id, { monthlyXPostReads: 3 });
+  x.calls.length = 0;
+  const refused = await collectConnectedGrowthData(await getProfile(other.profile.id), "import");
+  assert.equal(refused.ok, false);
+  assert.equal(x.calls.length, 0);
+});
+
+test("partial responses: posts without private metrics stay null; Growth counts them as missing", async () => {
+  const { profile, userId } = await xUser("free");
+  await connect(profile, `user:${userId}`);
+  const [withMetrics, without] = ownPosts(userId, { recent: 2 });
+  xOAuth.noPrivate.add(without);
+  assert.ok((await refreshGrowthData(profile)).ok);
+  const report = await buildGrowthReport(profile, { range: 30, tz: "UTC" });
+  assert.equal(report.privateMetrics!.covered, 1);
+  assert.equal(report.privateMetrics!.total, 2);
+  assert.equal(report.posts!.find((p) => p.platformPostId === without)!.profileClicks, null, "never zero");
+  assert.ok(report.posts!.find((p) => p.platformPostId === withMetrics)!.profileClicks! > 0);
+});
+
+test("sync status: a failed sync shows as failed with a reason; a successful one clears it", async () => {
+  const { profile, userId } = await xUser("free");
+  await connect(profile, `user:${userId}`);
+  ownPosts(userId, { recent: 2 });
+  x.failures.set(userId, ["500", "500"]);
+  assert.equal((await refreshGrowthData(profile)).ok, false);
+  let overview = await getXConnectionOverview(await getProfile(profile.id));
+  assert.equal(overview.connection!.state, "sync_failed");
+  assert.match(overview.connection!.lastError ?? "", /^Sync failed: X answered 500/);
+  assert.deepEqual(overview.connection!.scopes, ["tweet.read", "users.read", "offline.access"]);
+
+  assert.ok((await refreshGrowthData(profile, new Date(Date.now() + 21 * 3_600_000))).ok);
+  overview = await getXConnectionOverview(await getProfile(profile.id));
+  assert.equal(overview.connection!.state, "connected");
+  assert.equal(overview.connection!.lastError, null);
+  assert.equal(overview.connection!.displayName, `Name ${profile.xHandle}`);
+});
+
+test("publishing boundary: read-only scopes, no publishing capability, no write calls to X", () => {
+  assert.ok(!X_READ_SCOPES.some((scope) => scope.includes("write")));
+  assert.ok((X_PUBLISH_SCOPES as readonly string[]).includes("tweet.write"), "documented for a future reconnect");
+  const { url } = createXOAuthStart("someone");
+  assert.doesNotMatch(new URL(url).searchParams.get("scope")!, /write|like|follow|dm/);
+  assert.equal(canUse({ status: "active", scopes: "tweet.read users.read offline.access" }, "analytics"), true);
+  assert.equal(canUse({ status: "active", scopes: "tweet.read users.read offline.access" }, "publish"), false);
+  assert.equal(canUse({ status: "active", scopes: "tweet.read users.read tweet.write" }, "publish"), false, "the scope alone isn't enough: publishing is off");
+  assert.equal(canUse({ status: "needs_reconnect", scopes: "tweet.read users.read" }, "analytics"), false);
+  assert.deepEqual(xOAuth.writeCalls, [], "nothing in these tests wrote to X");
+});
+
+test("strategy evidence names verified metrics; no follower claim without follower data", () => {
+  const evidence = buildEvidence({
+    hasAccount: true,
+    handle: "me",
+    findings: [],
+    postsWithImpressions90: 0,
+    span90: null,
+    span30: null,
+    overview30: null,
+    posts30: 3,
+    postsPrevious30: null,
+    replyActivity30: { opportunities: 0, generated: 0, opened: 0, confirmed: 0 },
+    privateMetrics: { covered: 3, total: 4, profileClicks: 15, linkClicks: 9, xEngagements: 120, oldestReadingAt: new Date() },
+    xConnected: true,
+    trends: [],
+    leads: { highIntentNew: 0, total: 0 },
+    content: { readyDrafts: 0, plannedNext7: 0, confirmedLast30: 0 },
+    previousSnapshot: null,
+  });
+  const verified = evidence.items.find((i) => i.text.startsWith("Verified with your connected X account"))!;
+  assert.match(verified.text, /3 of 4 recent posts: 15 profile clicks, 9 link clicks/);
+  assert.ok(evidence.missing.some((m) => m.startsWith("No follower readings")));
 });

@@ -539,6 +539,38 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
           </div>
         )}
       </section>
+      <section className="crm-panel" aria-labelledby="quality-title">
+        <h2 id="quality-title">Data quality</h2>
+        <ul className="strategy-list">
+          <li>
+            Last sync:{" "}
+            {report.account.lastSyncedAt ? formatRelative(report.account.lastSyncedAt) : "never"}
+            {connected ? " (with your connected X account)" : " (public data)"}.
+          </li>
+          <li>
+            Observation period:{" "}
+            {report.posts.length
+              ? `${report.posts.length} posts from ${zonedParts(report.posts.reduce((a, b) => (a.publishedAt < b.publishedAt ? a : b)).publishedAt, tz).date} to ${zonedParts(report.posts.reduce((a, b) => (a.publishedAt > b.publishedAt ? a : b)).publishedAt, tz).date}`
+              : "no posts in this period"}
+            {!o.complete && " (Scout doesn't hold every post of the period)"}.
+          </li>
+          <li>
+            Available: impressions, likes, replies, reposts{connected ? ", profile clicks and link clicks (posts from the last 30 days)" : ""}.
+            Engagement = {X_ENGAGEMENT_DEFINITION}; engagement rate = {X_ENGAGEMENT_RATE_DEFINITION}.
+          </li>
+          <li>
+            Missing:{" "}
+            {[
+              !connected && "profile clicks and link clicks (connect X in Settings)",
+              connected && pm.covered < pm.total && `private metrics for ${pm.total - pm.covered} posts (older than 30 days when read, or not read while connected)`,
+              o.followers.net === null && "follower change (needs readings on two different days)",
+            ]
+              .filter(Boolean)
+              .join("; ") || "nothing for this period"}
+            .
+          </li>
+        </ul>
+      </section>
     </main>
   );
 }

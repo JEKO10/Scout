@@ -3,7 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import { disconnectXAction, switchXHandleAction } from "@/actions/xConnection";
+import { disconnectXAction, importXHistoryAction, switchXHandleAction } from "@/actions/xConnection";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 const oauthMessages: Record<string, { ok: boolean; text: string }> = {
@@ -22,13 +22,29 @@ export type XConnectionData = {
   /** The X handle Scout analyzes (profile) */
   profileHandle: string | null;
   autoEveryHours: number | null;
+  /** Posts the one-time history import reads (plan) */
+  importCap: number;
   connection: {
     handle: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+    state: "connected" | "syncing" | "needs_reauthorization" | "sync_failed";
     status: "active" | "needs_reconnect";
+    lastError: string | null;
+    /** What X granted, in plain words */
+    permissions: string[];
     connectedLabel: string;
     lastCollectedLabel: string | null;
     nextCollectionLabel: string | null;
+    imported: boolean;
   } | null;
+};
+
+const STATE_LABEL: Record<NonNullable<XConnectionData["connection"]>["state"], string> = {
+  connected: "Connected",
+  syncing: "Syncing…",
+  needs_reauthorization: "Needs reauthorization",
+  sync_failed: "Last sync failed",
 };
 
 function cadence(hours: number | null): string {
@@ -55,6 +71,7 @@ export function XConnectionSettings({ data }: { data: XConnectionData }) {
   const mismatch = authorized && /^[A-Za-z0-9_]{1,15}$/.test(authorized) && !message ? authorized : null;
   const [switching, setSwitching] = useState(false);
   const [keepHelp, setKeepHelp] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   if (!data.enabled && !connection) return null;
 
@@ -64,8 +81,8 @@ export function XConnectionSettings({ data }: { data: XConnectionData }) {
         <p className="eyebrow">Growth</p>
         <h2>X analytics</h2>
         <p>
-          Connect your X account so Growth Intelligence can show your real impressions, profile clicks and link clicks.
-          Read-only: Scout can&apos;t post, like, follow or read your messages.
+          Connect your X account to understand what&apos;s working, track your growth and receive personalized
+          recommendations. Read-only: Scout can&apos;t post, like, follow or read your messages.
         </p>
       </div>
 
@@ -78,16 +95,27 @@ export function XConnectionSettings({ data }: { data: XConnectionData }) {
                 {connection
                   ? connection.status === "needs_reconnect"
                     ? "Scout lost access (revoked on X or expired). Connect again."
-                    : `Connected ${connection.connectedLabel}${connection.lastCollectedLabel ? ` · last read ${connection.lastCollectedLabel}` : ""}`
+                    : `${STATE_LABEL[connection.state]} · connected ${connection.connectedLabel} · last successful sync ${connection.lastCollectedLabel ?? "not yet"}${connection.state === "sync_failed" && connection.lastError ? ` · ${connection.lastError}` : ""}`
                   : "You sign in on X and choose to allow read access. Your Scout login doesn't change."}
               </small>
             </span>
             <div className="notification-inline">
               {connection ? (
                 <>
-                  <span>@{connection.handle}</span>
-                  {connection.status === "needs_reconnect" && data.enabled && (
-                    <a className="secondary-button" href="/api/x/oauth/start">
+                  <span className="x-account">
+                    {connection.avatarUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={connection.avatarUrl} alt="" width={28} height={28} />
+                    )}
+                    <span>
+                      {connection.displayName && <strong>{connection.displayName} </strong>}@{connection.handle}
+                    </span>
+                    <span className="strategy-pill" data-state={connection.state}>
+                      {STATE_LABEL[connection.state]}
+                    </span>
+                  </span>
+                  {data.enabled && (
+                    <a className={connection.status === "needs_reconnect" ? "primary-button" : "secondary-button"} href="/api/x/oauth/start">
                       Reconnect
                     </a>
                   )}
@@ -104,12 +132,46 @@ export function XConnectionSettings({ data }: { data: XConnectionData }) {
                   </button>
                 </>
               ) : (
-                <a className="primary-button" href="/api/x/oauth/start">
-                  Connect X
+                <a className="primary-button" href="/api/x/oauth/start" onClick={() => setConnecting(true)} aria-busy={connecting}>
+                  {connecting ? "Connecting…" : "Connect X"}
                 </a>
               )}
             </div>
           </div>
+          {connection && (
+            <div className="field-row">
+              <span className="field-label">
+                <strong>Permissions</strong>
+                <small>{connection.permissions.join(" · ")}. Nothing that posts or writes.</small>
+              </span>
+            </div>
+          )}
+          {connection?.status === "active" && !connection.imported && (
+            <div className="field-row">
+              <span className="field-label">
+                <strong>Import recent history</strong>
+                <small>
+                  Once: up to {data.importCap} of your posts from the last 29 days, with their private metrics (X only keeps those
+                  for 30 days). Uses up to {data.importCap} of your plan&apos;s X reads (about ${(data.importCap * 0.005).toFixed(2)}).
+                </small>
+              </span>
+              <div className="notification-inline">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      const result = await importXHistoryAction();
+                      setMessage({ ok: result.ok, text: result.message });
+                    })
+                  }
+                >
+                  Import
+                </button>
+              </div>
+            </div>
+          )}
           <div className="field-row">
             <span className="field-label">
               <strong>Updates</strong>
@@ -208,6 +270,7 @@ export function XConnectionSettings({ data }: { data: XConnectionData }) {
         <ul className="confirm-dialog-list">
           <li>Scout revokes its access on X and deletes its tokens.</li>
           <li>Growth goes back to public metrics: profile clicks and link clicks become unavailable.</li>
+          <li>No more syncs. Your posts and follower readings stay; private metrics stay unless you delete them below.</li>
         </ul>
         <label className="checkbox-row">
           <input type="checkbox" checked={deleteHistory} onChange={(event) => setDeleteHistory(event.target.checked)} />

@@ -258,7 +258,7 @@ export function buildEvidence(input: EvidenceInput): StrategyEvidence {
   if (pm && pm.covered > 0 && (pm.profileClicks !== null || pm.linkClicks !== null)) {
     add({
       kind: "metric",
-      text: `X private metrics on ${pm.covered} of ${pm.total} recent posts: ${pm.profileClicks !== null ? `${fmt(pm.profileClicks)} profile clicks` : "profile clicks unknown"}, ${pm.linkClicks !== null ? `${fmt(pm.linkClicks)} link clicks` : "link clicks unknown"}.`,
+      text: `Verified with your connected X account (private metrics) on ${pm.covered} of ${pm.total} recent posts: ${pm.profileClicks !== null ? `${fmt(pm.profileClicks)} profile clicks` : "profile clicks unknown"}, ${pm.linkClicks !== null ? `${fmt(pm.linkClicks)} link clicks` : "link clicks unknown"}.`,
       source: "growth",
       sampleSize: pm.covered,
       confidence: null,

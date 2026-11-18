@@ -62,6 +62,12 @@ export const xOAuth = {
   expiresIn: 7200,
   /** Private metrics X returns per post ID; default: impressions 500, 5 profile clicks, 3 link clicks, 40 engagements */
   privateMetrics: new Map<string, { impression_count: number; user_profile_clicks: number; url_link_clicks: number; engagements: number }>(),
+  /** Day 37: posts X returns without private metrics (a partial response) */
+  noPrivate: new Set<string>(),
+  /** Authorization codes already exchanged (code + verifier): X codes are single-use */
+  usedCodes: new Set<string>(),
+  /** Any non-GET request to the X API other than the OAuth token endpoints (posting, liking…) */
+  writeCalls: [] as string[],
 };
 
 let tokenSeq = 1;
@@ -420,6 +426,7 @@ export function installMocks() {
     if (url.hostname !== "api.x.com") return realFetch(input, init);
 
     x.calls.push(url.pathname);
+    if ((init?.method ?? "GET").toUpperCase() !== "GET" && !url.pathname.startsWith("/2/oauth2/")) xOAuth.writeCalls.push(`${init?.method} ${url.pathname}`);
 
     if (url.pathname === "/2/oauth2/token" || url.pathname === "/2/oauth2/revoke") {
       const body = Object.fromEntries(new URLSearchParams(String(init?.body ?? "")));
@@ -436,6 +443,9 @@ export function installMocks() {
       if (body.grant_type === "authorization_code") {
         const match = /^user:(\d+)(:noscope)?$/.exec(body.code ?? "");
         if (!match || !body.code_verifier) return bad();
+        const used = `${body.code}|${body.code_verifier}`;
+        if (xOAuth.usedCodes.has(used)) return bad();
+        xOAuth.usedCodes.add(used);
         return issueTokens(match[1], match[2] ? "tweet.read offline.access" : undefined);
       }
       if (body.grant_type === "refresh_token") {
@@ -532,6 +542,7 @@ export function installMocks() {
       }
       const withPrivate = page.map((t) => {
         const priv = xOAuth.privateMetrics.get(t.id) ?? { impression_count: 500, user_profile_clicks: 5, url_link_clicks: 3, engagements: 40 };
+        if (xOAuth.noPrivate.has(t.id)) return { ...t, public_metrics: t.public_metrics ?? { like_count: 1, reply_count: 0, retweet_count: 0, quote_count: 0, impression_count: 100 } };
         return {
           ...t,
           public_metrics: t.public_metrics ?? { like_count: 10, reply_count: 2, retweet_count: 1, quote_count: 0, impression_count: priv.impression_count },

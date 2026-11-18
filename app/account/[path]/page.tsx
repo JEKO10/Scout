@@ -19,6 +19,7 @@ import { requireProfile } from "@/lib/auth/session";
 import { REPLY_USD_PER_GENERATION } from "@/lib/billing/pricing";
 import { formatRelative } from "@/lib/format";
 import { detectPreferenceConflicts, normalizeReplyPreferences } from "@/lib/scout/replyPreferences";
+import { SCOPE_LABEL } from "@/lib/x/permissions";
 import { getBillingOverview } from "@/services/billing/account";
 import { BUDGET_MESSAGES, getUsageBudget, maxActiveWatchlist, scanBlockedBy } from "@/services/billing/budget";
 import { getNotificationOverview } from "@/services/notifications/overview";
@@ -125,9 +126,16 @@ async function ScoutSettings() {
           enabled: xConnection.enabled,
           profileHandle: profile.xHandle,
           autoEveryHours: xConnection.autoEveryHours,
+          importCap: xConnection.importCap,
           connection: xConnection.connection && {
             handle: xConnection.connection.handle,
+            displayName: xConnection.connection.displayName,
+            avatarUrl: xConnection.connection.avatarUrl,
+            state: xConnection.connection.state ?? "connected",
             status: xConnection.connection.status,
+            lastError: xConnection.connection.lastError,
+            permissions: xConnection.connection.scopes.map((scope) => SCOPE_LABEL[scope] ?? scope),
+            imported: Boolean(xConnection.connection.initialImportAt),
             connectedLabel: formatRelative(xConnection.connection.connectedAt),
             lastCollectedLabel: xConnection.connection.lastCollectedAt ? formatRelative(xConnection.connection.lastCollectedAt) : null,
             nextCollectionLabel: xConnection.connection.nextCollectionAt ? formatRelative(xConnection.connection.nextCollectionAt) : null,

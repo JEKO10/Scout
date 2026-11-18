@@ -60,6 +60,12 @@ export type UsageLimits = {
    * skipped events, duplicates and retries don't count (approved 2026-11-18).
    */
   maxAutomationRunsPerMonth: number;
+  /**
+   * Day 37: posts read in the one-time history import after connecting X
+   * (last 29 days, private metrics; from the plan's monthly X reads, $0.005
+   * each; never more than the reads left). Approved 2026-11-18.
+   */
+  maxInitialImportPosts: number;
 };
 
 /** Automatic Scout (Day 18): how often a plan may scan on its own. */
@@ -111,6 +117,7 @@ export const PLANS: Record<
       maxPeerRefreshesPerMonth: 0,
       maxActiveAutomations: 1,
       maxAutomationRunsPerMonth: 25,
+      maxInitialImportPosts: 25,
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
@@ -137,6 +144,7 @@ export const PLANS: Record<
       maxPeerRefreshesPerMonth: 4,
       maxActiveAutomations: 5,
       maxAutomationRunsPerMonth: 250,
+      maxInitialImportPosts: 50,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
     // Weekly: ~4 collections x 20 posts = ~86 of the 600 monthly reads
@@ -162,6 +170,7 @@ export const PLANS: Record<
       maxPeerRefreshesPerMonth: 8,
       maxActiveAutomations: 15,
       maxAutomationRunsPerMonth: 1000,
+      maxInitialImportPosts: 100,
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
@@ -188,6 +197,7 @@ export const PLANS: Record<
       maxPeerRefreshesPerMonth: 40,
       maxActiveAutomations: 50,
       maxAutomationRunsPerMonth: 5000,
+      maxInitialImportPosts: 100,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
     growthCollection: { autoEveryHours: 24 },

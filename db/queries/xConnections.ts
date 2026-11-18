@@ -96,7 +96,7 @@ export async function claimXConnection(profileId: string, now = new Date(), minu
 
 export async function releaseXConnection(
   connectionId: string,
-  patch: Partial<Pick<XConnection, "lastCollectedAt" | "lastAutoCollectedAt" | "nextCollectionAt" | "lastError">> = {},
+  patch: Partial<Pick<XConnection, "lastCollectedAt" | "lastAutoCollectedAt" | "nextCollectionAt" | "lastError" | "initialImportAt">> = {},
 ): Promise<void> {
   await db
     .update(xConnectionsTable)

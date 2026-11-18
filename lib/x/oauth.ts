@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { appUrl } from "@/lib/appUrl";
 import { decryptToken, encryptToken } from "@/lib/crypto/tokens";
+import { X_READ_SCOPES } from "@/lib/x/permissions";
 
 // X OAuth 2.0 Authorization Code with PKCE, for connecting the user's own X
 // account (Growth Intelligence private metrics). Scout is a confidential
@@ -17,7 +18,7 @@ import { decryptToken, encryptToken } from "@/lib/crypto/tokens";
  * tweet.read + users.read for GET /2/users/me and /2/users/:id/tweets,
  * offline.access for a refresh token (access tokens last 2 hours).
  */
-export const X_OAUTH_SCOPES = ["tweet.read", "users.read", "offline.access"] as const;
+export const X_OAUTH_SCOPES = X_READ_SCOPES;
 
 const AUTHORIZE_URL = "https://x.com/i/oauth2/authorize";
 const TOKEN_URL = "https://api.x.com/2/oauth2/token";

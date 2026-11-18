@@ -123,3 +123,13 @@ export async function getXAccountUsage(
   ]);
   return { sameAccountLinked: linked.length > 0, postsFromCurrentHandle: posts[0]?.n ?? 0 };
 }
+
+/** One of the profile's accounts by ID (never another profile's) */
+export async function getSocialAccountById(profileId: string, id: string): Promise<SocialAccount | undefined> {
+  const [account] = await db
+    .select()
+    .from(socialAccountsTable)
+    .where(and(eq(socialAccountsTable.profileId, profileId), eq(socialAccountsTable.id, id)))
+    .limit(1);
+  return account;
+}

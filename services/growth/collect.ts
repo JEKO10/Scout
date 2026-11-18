@@ -14,7 +14,7 @@ import {
   setNextCollectionAt,
 } from "@/db/queries/xConnections";
 import type { Profile } from "@/db/schema";
-import { PLAN_IDS, PLANS } from "@/lib/billing/plans";
+import { effectiveLimits, PLAN_IDS, PLANS } from "@/lib/billing/plans";
 import {
   getOwnPostsWithPrivateMetrics,
   getXAuthenticatedUser,
@@ -111,6 +111,8 @@ export async function refreshGrowthData(profile: Profile, now = new Date()): Pro
 export const PRIVATE_METRICS_WINDOW_DAYS = 29;
 /** An automatic collection leaves at least this many X reads for scans */
 export const AUTO_COLLECTION_RESERVE_READS = GROWTH_REFRESH_POSTS;
+/** X returns at least 5 posts per page: an import smaller than that isn't worth a request */
+export const MIN_IMPORT_POSTS = 5;
 
 /** Global cap on automatic collections per UTC day; 0 (the default) means none */
 export function autoCollectionDailyCap(): number {
@@ -128,30 +130,47 @@ export function autoCollectionDailyCap(): number {
  */
 export async function collectConnectedGrowthData(
   profile: Profile,
-  trigger: "manual" | "auto",
+  trigger: "manual" | "auto" | "import",
   now = new Date(),
 ): Promise<GrowthRefreshResult> {
-  const last = await lastGrowthRefreshAt(profile.id);
-  if (last && now.getTime() - last.getTime() < GROWTH_REFRESH_MIN_HOURS * 3_600_000) {
-    const hours = Math.ceil(GROWTH_REFRESH_MIN_HOURS - (now.getTime() - last.getTime()) / 3_600_000);
-    return { ok: false, message: `Refreshed recently. You can refresh again in about ${hours} h.` };
-  }
   const budget = await getUsageBudget(profile, now);
-  const needed = GROWTH_REFRESH_POSTS + (trigger === "auto" ? AUTO_COLLECTION_RESERVE_READS : 0);
-  if (budget.remaining.xPostReads < needed) {
-    return {
-      ok: false,
-      message: `A refresh reads up to ${GROWTH_REFRESH_POSTS} posts from X; your plan has ${budget.remaining.xPostReads} X reads left right now (scans use the same allowance).`,
-    };
+  let limit = GROWTH_REFRESH_POSTS;
+  if (trigger === "import") {
+    // Day 37: one larger read right after connecting, sized by the plan and
+    // what's left of its X reads (a partial import beats none)
+    const cap = effectiveLimits(profile.plan, profile.usageLimitOverrides).maxInitialImportPosts;
+    limit = Math.min(cap, budget.remaining.xPostReads);
+    if (limit < MIN_IMPORT_POSTS) {
+      return { ok: false, message: `An import needs at least ${MIN_IMPORT_POSTS} X reads; your plan has ${budget.remaining.xPostReads} left right now.` };
+    }
+  } else {
+    const last = await lastGrowthRefreshAt(profile.id);
+    if (last && now.getTime() - last.getTime() < GROWTH_REFRESH_MIN_HOURS * 3_600_000) {
+      const hours = Math.ceil(GROWTH_REFRESH_MIN_HOURS - (now.getTime() - last.getTime()) / 3_600_000);
+      return { ok: false, message: `Refreshed recently. You can refresh again in about ${hours} h.` };
+    }
+    const needed = GROWTH_REFRESH_POSTS + (trigger === "auto" ? AUTO_COLLECTION_RESERVE_READS : 0);
+    if (budget.remaining.xPostReads < needed) {
+      return {
+        ok: false,
+        message: `A refresh reads up to ${GROWTH_REFRESH_POSTS} posts from X; your plan has ${budget.remaining.xPostReads} X reads left right now (scans use the same allowance).`,
+      };
+    }
   }
 
   const connection = await claimXConnection(profile.id, now);
   if (!connection) return { ok: false, message: "A refresh is already running, or X needs to be reconnected." };
+  if (trigger === "import" && connection.initialImportAt) {
+    await releaseXConnection(connection.id);
+    return { ok: false, message: "Your recent history was already imported. Refresh from Growth to update it." };
+  }
 
   const stats: XRequestStats = { requests: 0, failed: 0, retried: 0, postsReturned: 0 };
   let counts = { followers: null as number | null, following: null as number | null, postCount: null as number | null };
   let accountId = connection.socialAccountId;
   let collected = false;
+  /** A sync that failed for a reason other than lost access: shown as "Sync failed" */
+  let failure: string | null = null;
   try {
     const token = await getXAccessToken(connection, now);
     const me = await getXAuthenticatedUser(token);
@@ -167,7 +186,7 @@ export async function collectConnectedGrowthData(
     const readings = await getOwnPostsWithPrivateMetrics(
       token,
       { platformUserId: connection.xUserId, handle: me.profile.handle },
-      { limit: GROWTH_REFRESH_POSTS, startTime },
+      { limit, startTime },
       stats,
     );
     const posts = readings.map((reading) => reading.post);
@@ -193,16 +212,21 @@ export async function collectConnectedGrowthData(
     const withPrivate = readings.filter((reading) => reading.privateMetrics).length;
     return {
       ok: true,
-      message: `Updated ${posts.length} posts from the last ${PRIVATE_METRICS_WINDOW_DAYS} days (${withPrivate} with private metrics)${counts.followers !== null ? " and your follower count" : ""}.${unavailable ? ` ${unavailable} no longer on X.` : ""}`,
+      message: `${trigger === "import" ? "Imported" : "Updated"} ${posts.length} posts from the last ${PRIVATE_METRICS_WINDOW_DAYS} days (${withPrivate} with private metrics)${counts.followers !== null ? " and your follower count" : ""}.${unavailable ? ` ${unavailable} no longer on X.` : ""}`,
     };
   } catch (error) {
     if (error instanceof XReconnectRequiredError || (await flagIfUnauthorized(connection, error))) {
       return { ok: false, message: "Scout lost access to your X account. Reconnect X in Settings." };
     }
-    if (error instanceof XApiBudgetError) return { ok: false, message: "Scout's daily X limit is reached. Try again tomorrow." };
+    if (error instanceof XApiBudgetError) {
+      failure = "Scout's daily X limit was reached.";
+      return { ok: false, message: "Scout's daily X limit is reached. Try again tomorrow." };
+    }
     if (error instanceof XApiRequestError) {
+      failure = error.status === 429 ? "X was rate limiting requests." : `X answered ${error.status || "nothing"}.`;
       return { ok: false, message: error.status === 429 ? "X is rate limiting requests. Try again later." : "Couldn't reach X. Try again later." };
     }
+    failure = "Unexpected error.";
     throw error;
   } finally {
     // Reads are billed even when a later step fails: always counted. The
@@ -211,7 +235,9 @@ export async function collectConnectedGrowthData(
       await saveAccountSnapshot(profile.id, accountId, counts, { xPostReads: stats.postsReturned, refreshed: true, now });
     }
     await releaseXConnection(connection.id, {
-      ...(collected && { lastCollectedAt: now }),
+      ...(collected && { lastCollectedAt: now, lastError: null }),
+      ...(failure && { lastError: `Sync failed: ${failure}` }),
+      ...(trigger === "import" && stats.requests > 0 && { initialImportAt: now }),
       ...(trigger === "auto" && { lastAutoCollectedAt: now }),
       // Any collection restarts the cadence: a manual refresh replaces the next automatic one
       ...(stats.requests > 0 && { nextCollectionAt: nextAutoCollectionAt(profile.plan, now) }),

@@ -50,6 +50,8 @@ function baseInput(overrides: Partial<EvidenceInput> = {}): EvidenceInput {
     handle: "me",
     findings: [],
     postsWithImpressions90: 0,
+    span90: null,
+    span30: null,
     overview30: null,
     posts30: 2,
     postsPrevious30: null,
@@ -118,6 +120,11 @@ test("evidence: too little history makes a labeled starter plan and says what's 
   assert.ok(evidence.missing.some((text) => text.includes("No follower readings")));
   assert.ok(evidence.items.every((item) => /^E\d+$/.test(item.id)));
 
+  const quiet = buildEvidence(baseInput({ posts30: 0 }));
+  assert.equal(quiet.items[0].text, "No posts in the last 30 days.", "no '0 posts, about 0.0 a week'");
+  assert.equal(buildEvidence(baseInput({ posts30: 0, postsPrevious30: 4 })).items[0].text, "No posts in the last 30 days. 4 in the 30 days before.");
+  assert.match(buildEvidence(baseInput({ posts30: 9 })).items[0].text, /^You published 9 posts/);
+
   const none = buildEvidence(baseInput({ hasAccount: false, posts30: 0 }));
   assert.ok(none.missing[0].startsWith("No X account synced"));
 });
@@ -128,8 +135,8 @@ test("evidence: only a weak pattern over 8+ posts with more than limited confide
       postsWithImpressions90: 30,
       findings: [
         finding({}),
-        finding({ kind: "weak", groupN: 3, confidence: "limited", text: "Threads did worse." }),
-        finding({ kind: "weak", groupN: 12, confidence: "moderate", text: "Promotional posts did worse." }),
+        finding({ kind: "weak", dimension: "hook", metric: "replies", label: "question-hook", groupN: 3, confidence: "limited" }),
+        finding({ kind: "weak", dimension: "time", label: "morning (5–12h)", groupN: 12, confidence: "moderate" }),
       ],
     }),
   );
@@ -140,6 +147,64 @@ test("evidence: only a weak pattern over 8+ posts with more than limited confide
   assert.equal(fewWeak.supportsReduction, false, "3 posts never justify doing less");
   assert.equal(strongWeak.supportsReduction, true);
   assert.equal(strongWeak.sampleSize, 30);
+  assert.equal(strongWeak.metric, "impressions");
+});
+
+test("evidence: two sides of one comparison are merged; different metrics stay separate", () => {
+  const evidence = buildEvidence(
+    baseInput({
+      postsWithImpressions90: 38,
+      findings: [
+        finding({ kind: "works", dimension: "length", metric: "replies", label: "standard-length (101–280 characters)", groupMedian: 41, restMedian: 2, groupN: 8, restN: 30, confidence: "moderate" }),
+        finding({ kind: "weak", dimension: "length", metric: "replies", label: "short (up to 100 characters)", groupMedian: 1.5, restMedian: 41, groupN: 28, restN: 10, confidence: "good" }),
+        finding({ kind: "works", dimension: "length", metric: "impressions", label: "long (over 280 characters)", groupMedian: 900, restMedian: 400, groupN: 6, restN: 32, confidence: "limited" }),
+      ],
+    }),
+  );
+  const patterns = evidence.items.filter((item) => item.source === "growth" && item.metric);
+  assert.equal(patterns.length, 2, "replies (merged) + impressions (kept apart)");
+  const [replies, impressions] = patterns;
+  assert.equal(replies.kind, "comparison");
+  assert.equal(replies.metric, "replies");
+  assert.match(replies.text, /^Post length, replies per post: standard-length .* median 41 vs 2 .*; short .* median 1\.5 vs 41/);
+  assert.match(replies.text, /One comparison seen from 2 sides/);
+  assert.equal(replies.confidence, "moderate", "the weaker side's confidence");
+  assert.equal(replies.supportsReduction, true, "the weak side has 28 posts");
+  assert.equal(impressions.kind, "works");
+  assert.equal(impressions.metric, "impressions");
+});
+
+test("evidence: the real period is stated; under 21 days confidence drops and no weekly average is shown", () => {
+  const first = new Date("2026-10-18T10:00:00Z");
+  const last = new Date("2026-10-22T18:00:00Z");
+  const evidence = buildEvidence(
+    baseInput({
+      postsWithImpressions90: 38,
+      span90: { first, last },
+      span30: { first, last },
+      posts30: 37,
+      findings: [
+        finding({ kind: "works", dimension: "time", label: "afternoon (12–17h)", confidence: "moderate" }),
+        finding({ kind: "weak", dimension: "hook", metric: "replies", label: "statement-hook", groupN: 12, confidence: "good" }),
+      ],
+    }),
+  );
+  const [afternoon, statement] = evidence.items;
+  assert.equal(afternoon.confidence, "limited", "moderate → limited over 5 days");
+  assert.equal(statement.confidence, "moderate", "good → moderate");
+  assert.equal(statement.supportsReduction, true);
+  for (const item of evidence.items) assert.doesNotMatch(item.text, /90 days/);
+  assert.match(afternoon.text, /Based on 38 posts from Oct 18 to Oct 22 \(5 days\)\./);
+  const cadence = evidence.items.find((item) => item.text.startsWith("You published"))!;
+  assert.match(cadence.text, /all between Oct 18 and Oct 22 \(5 days\): too short a stretch for a weekly average/);
+  assert.doesNotMatch(cadence.text, /about [\d.]+ a week/);
+  assert.ok(evidence.missing.some((text) => text.startsWith("Your analyzed posts cover only 5 days (Oct 18–Oct 22)")));
+
+  const spread = buildEvidence(
+    baseInput({ posts30: 9, postsPrevious30: 4, span30: { first: new Date("2026-10-01T00:00:00Z"), last: new Date("2026-10-28T00:00:00Z") } }),
+  );
+  assert.equal(spread.items[0].text, "You published 9 posts (replies included) in the last 30 days, about 2.1 a week. 4 in the 30 days before.");
+  assert.equal(buildEvidence(baseInput({ posts30: 0, postsPrevious30: 0 })).items[0].text, "No posts in the last 30 days. None in the 30 days before either.");
 });
 
 test("evidence: changes since the last plan are computed, not written by the AI", () => {
@@ -169,6 +234,7 @@ function raw(overrides: Partial<RawStrategy> = {}): RawStrategy {
     summary: "Summary",
     priorities: [{ title: "P1", why: "w", evidenceIds: ["E1"] }],
     doMore: [],
+    toTest: [],
     doLess: [],
     tasks: [],
     experiments: [],
@@ -177,38 +243,38 @@ function raw(overrides: Partial<RawStrategy> = {}): RawStrategy {
   };
 }
 
-test("validation: unknown evidence, unsupported advice, unknown modules and overload are removed", () => {
+test("validation: unknown evidence, unsupported advice, follower claims and unmeasured experiments are removed", () => {
   const evidence = buildEvidence(
     baseInput({
       postsWithImpressions90: 30,
-      findings: [finding({}), finding({ kind: "weak", groupN: 3, confidence: "limited" }), finding({ kind: "weak", groupN: 12, confidence: "good" })],
+      findings: [
+        finding({}),
+        finding({ kind: "weak", dimension: "hook", metric: "replies", label: "question-hook", groupN: 3, confidence: "limited" }),
+        finding({ kind: "weak", dimension: "time", label: "morning (5–12h)", groupN: 12, confidence: "good" }),
+        finding({ kind: "works", dimension: "length", metric: "replies", label: "long (over 280 characters)", groupN: 5, confidence: "limited" }),
+      ],
     }),
   );
+  // E1 topic (moderate), E2 hook (limited, weak), E3 time (good, weak), E4 length (limited, works)
   const result = validateStrategy(
     raw({
       priorities: [
         { title: "Cites real evidence", why: "w", evidenceIds: ["E1", "E99"] },
         { title: "Cites nothing real", why: "w", evidenceIds: ["E99"] },
+        { title: "Try longer posts", why: "Long posts did better on replies.", evidenceIds: ["E4"] },
       ],
       doMore: [
-        { text: "Backed", evidenceIds: ["E1"] },
+        { text: "Backed by a moderate pattern", evidenceIds: ["E1"] },
+        { text: "Only a limited pattern", evidenceIds: ["E4"] },
         { text: "Unbacked", evidenceIds: [] },
+        { text: "These posts grew your followers", evidenceIds: ["E1"] },
       ],
       doLess: [
         { text: "Few posts only", evidenceIds: ["E2"] },
         { text: "Strong weak pattern", evidenceIds: ["E3"] },
       ],
-      tasks: [
-        { day: 0, title: "a", objective: "o", activity: "x", reason: "r", effortMinutes: 50, module: "studio", evidenceIds: ["E1"] },
-        { day: 0, title: "b", objective: "o", activity: "x", reason: "r", effortMinutes: 20, module: "opportunities", evidenceIds: [] },
-        { day: 0, title: "c: third on one day", objective: "o", activity: "x", reason: "r", effortMinutes: 5, module: "trends", evidenceIds: [] },
-        { day: 1, title: "d: unknown module", objective: "o", activity: "x", reason: "r", effortMinutes: 5, module: "admin", evidenceIds: [] },
-        { day: 9, title: "e: outside the week", objective: "o", activity: "x", reason: "r", effortMinutes: 5, module: "growth", evidenceIds: [] },
-        { day: 2, title: "f: over the weekly time", objective: "o", activity: "x", reason: "r", effortMinutes: 60, module: "growth", evidenceIds: [] },
-        { day: 3, title: "g", objective: "o", activity: "x", reason: "r", effortMinutes: 999, module: "leads", evidenceIds: [] },
-      ],
       experiments: [
-        { title: "ok", hypothesis: "h", dimension: "hook", variantA: "question", variantB: "statement", metric: "replies", durationDays: 400, actions: ["a"] },
+        { title: "ok", hypothesis: "h", dimension: "hook", variantA: "question", variantB: "statement", metric: "replies", durationDays: 7, actions: ["a"] },
         { title: "bad variant", hypothesis: "h", dimension: "length", variantA: "tiny", variantB: "long", metric: "impressions", durationDays: 14, actions: [] },
         { title: "already running", hypothesis: "h", dimension: "time", variantA: "morning", variantB: "evening", metric: "impressions", durationDays: 14, actions: [] },
       ],
@@ -220,17 +286,47 @@ test("validation: unknown evidence, unsupported advice, unknown modules and over
     { evidence, weeklyMinutes: 120, activeExperiments: [{ id: "running-1", dimension: "time", variantA: "morning", variantB: "evening" }] },
   )!;
 
-  assert.deepEqual(result.content.priorities.map((p) => p.title), ["Cites real evidence"]);
+  assert.deepEqual(result.content.priorities.map((p) => [p.title, p.basis]), [
+    ["Cites real evidence", "evidence"],
+    ["Try longer posts", "hypothesis"],
+  ]);
   assert.deepEqual(result.content.priorities[0].evidenceIds, ["E1"], "invented IDs dropped");
-  assert.deepEqual(result.content.doMore.map((r) => r.text), ["Backed"]);
+  assert.deepEqual(result.content.priorities[0].measuredBy, ["impressions per post"]);
+  assert.deepEqual(result.content.doMore.map((r) => r.text), ["Backed by a moderate pattern"], "no follower claim without follower evidence");
+  assert.deepEqual(result.content.toTest!.map((r) => [r.text, r.measuredBy]), [["Only a limited pattern", ["replies per post"]]], "limited → worth testing");
   assert.deepEqual(result.content.doLess.map((r) => r.text), ["Strong weak pattern"]);
-  assert.deepEqual(result.tasks.map((t) => t.title), ["a", "b"], "2 a day, known modules, inside the week and the weekly time");
-  assert.ok(result.tasks.reduce((sum, t) => sum + t.effortMinutes, 0) <= 120);
-  assert.deepEqual(result.experiments.map((e) => e.title), ["ok"]);
-  assert.equal(result.experiments[0].durationDays, 42, "duration clamped");
+  assert.deepEqual(result.experiments.map((e) => [e.title, e.durationDays]), [["ok", 14]], "at least 14 days");
   assert.deepEqual(result.content.experimentReviews.map((r) => r.experimentId), ["running-1"]);
 
   assert.equal(validateStrategy(raw({ priorities: [{ title: "x", why: "y", evidenceIds: ["E99"] }] }), { evidence, weeklyMinutes: 120, activeExperiments: [] }), null, "nothing cited: no plan");
+});
+
+test("tasks: spread over the week within daily and weekly time, never cut from the end", () => {
+  const evidence = buildEvidence(baseInput({ postsWithImpressions90: 2 }));
+  const task = (day: number, effortMinutes: number, title: string) => ({ day, title, objective: "o", activity: "a", reason: "r", effortMinutes, module: "studio", evidenceIds: [] });
+  // What the real model proposed for @marclou: 11 tasks, 235 minutes, front-loaded
+  const proposed = [
+    task(0, 35, "d0a"), task(0, 10, "d0b"), task(1, 25, "d1a"), task(1, 20, "d1b"), task(2, 25, "d2a"), task(2, 20, "d2b"),
+    task(3, 20, "d3a"), task(3, 10, "d3b"), task(4, 25, "d4a"), task(5, 20, "d5a"), task(6, 25, "d6a"), task(0, 5, "d0c third"),
+  ];
+  const { tasks } = validateStrategy(raw({ priorities: [{ title: "p", why: "w", evidenceIds: [] }], tasks: proposed }), { evidence, weeklyMinutes: 180, activeExperiments: [] })!;
+  const days = new Set(tasks.map((t) => t.day));
+  assert.deepEqual([...days].sort(), [0, 1, 2, 3, 4, 5, 6], "every day that had a task keeps one");
+  assert.ok(tasks.reduce((sum, t) => sum + t.effortMinutes, 0) <= 180);
+  for (const d of days) {
+    const today = tasks.filter((t) => t.day === d);
+    assert.ok(today.length <= 2);
+    assert.ok(today.reduce((sum, t) => sum + t.effortMinutes, 0) <= 60, "at most a third of the week a day");
+    assert.deepEqual(today.map((t) => t.position), today.map((_, i) => i + 1));
+  }
+  assert.ok(!tasks.some((t) => t.title === "d0c third"));
+
+  // Rest days stay rest days; a heavy day is capped
+  const sparse = validateStrategy(
+    raw({ priorities: [{ title: "p", why: "w", evidenceIds: [] }], tasks: [task(0, 50, "a"), task(0, 30, "b"), task(3, 20, "c")] }),
+    { evidence, weeklyMinutes: 60, activeExperiments: [] },
+  )!.tasks;
+  assert.deepEqual(sparse.map((t) => [t.day, t.title, t.position]), [[0, "b", 1], [3, "c", 1]], "the 50-min task can't fit a 30-min day; nothing moved onto rest days");
 });
 
 test("validation: a starter plan may have uncited priorities but never 'do less'", () => {
@@ -345,7 +441,7 @@ test("generate: two at once make one AI call", async () => {
 
 test("generate: output with nothing usable fails cleanly and keeps no plan", async () => {
   const p = await newProfile();
-  ai.strategy = () => ({ summary: "x", priorities: [], doMore: [], doLess: [], tasks: [], experiments: [], experimentReviews: [] });
+  ai.strategy = () => ({ summary: "x", priorities: [], doMore: [], toTest: [], doLess: [], tasks: [], experiments: [], experimentReviews: [] });
   const result = await generateStrategy(await getProfile(p.id), { objective: "grow_audience", weeklyMinutes: 60 });
   assert.equal(result.ok, false);
   assert.equal(await getActiveStrategy(p.id), undefined);

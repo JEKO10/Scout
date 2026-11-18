@@ -25,7 +25,7 @@ import { estimateCostUsd } from "@/lib/ai/pricing";
 import { effectiveLimits } from "@/lib/billing/plans";
 import { isValidTimeZone, zonedParts } from "@/lib/content/calendar";
 import type { GrowthPost } from "@/lib/growth/analyze";
-import { buildEvidence, experimentResult, planDays, type RawStrategy, validateStrategy } from "@/lib/strategy/plan";
+import { buildEvidence, experimentResult, maxMinutesPerDay, planDays, type RawStrategy, validateStrategy } from "@/lib/strategy/plan";
 import {
   EXPERIMENT_DIMENSIONS,
   EXPERIMENT_METRICS,
@@ -75,12 +75,21 @@ export async function collectStrategyInputs(profile: Profile, now = new Date()) 
   const has90 = "posts" in report90 && report90.account;
   const has30 = "posts" in report30 && report30.account;
   const posts: GrowthPost[] = has90 ? report90.posts : [];
+  const spanOf = (list: GrowthPost[]) => {
+    if (list.length === 0) return null;
+    const times = list.map((post) => post.publishedAt.getTime());
+    return { first: new Date(Math.min(...times)), last: new Date(Math.max(...times)) };
+  };
+  // What patterns rest on: original posts with impressions (as Growth's findings)
+  const analyzed = posts.filter((post) => post.kind !== "reply" && post.impressions !== null);
 
   const evidence = buildEvidence({
     hasAccount: Boolean(has30),
     handle: has30 ? report30.account.handle : null,
     findings: has90 ? report90.findings : [],
-    postsWithImpressions90: posts.filter((post) => post.impressions !== null).length,
+    postsWithImpressions90: analyzed.length,
+    span90: spanOf(analyzed),
+    span30: has30 ? spanOf(report30.posts) : null,
     overview30: has30 ? report30.overview : null,
     posts30: has30 ? report30.posts.length : 0,
     postsPrevious30: has30 && report30.overview.previousComplete ? (report30.overview.posts.previous ?? 0) : null,
@@ -116,7 +125,12 @@ const strategySchema = z.object({
   priorities: z
     .array(z.object({ title: txt(100), why: txt(350), evidenceIds: ids }))
     .describe("Exactly 3 growth priorities for this week, most important first"),
-  doMore: z.array(z.object({ text: txt(250), evidenceIds: ids })).describe("0-4 things to do more of, each backed by evidence"),
+  doMore: z
+    .array(z.object({ text: txt(250), evidenceIds: ids }))
+    .describe("0-4 things to do more of, each backed by a non-limited pattern or an activity/trend/lead/content observation; name the metric"),
+  toTest: z
+    .array(z.object({ text: txt(250), evidenceIds: ids }))
+    .describe("0-3 hypotheses worth testing: positive patterns with limited confidence. Phrase as something to try, not a proven result"),
   doLess: z
     .array(z.object({ text: txt(250), evidenceIds: ids }))
     .describe("0-3 things to do less of; ONLY when an evidence item marked supportsReduction backs it"),
@@ -133,7 +147,7 @@ const strategySchema = z.object({
         evidenceIds: ids,
       }),
     )
-    .describe("The 7-day plan: 0-2 small tasks per day, fitting the user's weekly minutes in total; rest days are fine"),
+    .describe("The 7-day plan: 0-2 small tasks per day, at most limits.maxMinutesPerDay a day and limits.weeklyMinutes in total, spread across the week; rest days are fine"),
   experiments: z
     .array(
       z.object({
@@ -156,12 +170,14 @@ const strategySchema = z.object({
 const INSTRUCTIONS = `You are Scout's growth strategist for one person on X. Turn the evidence Scout computed into a practical plan for the next 7 days.
 Rules:
 - Use ONLY the evidence items, missing-data notes and profile given. Never invent numbers, results, followers, trends, leads or experiences. Do not write any number that isn't in the evidence.
-- Cite evidence IDs for every priority, "do more" and "do less" item. A pattern is an association, not proof of cause: say "posts on X did better", never "X causes".
+- Cite evidence IDs for every priority, "do more", "to test" and "do less" item. A pattern is an association, not proof of cause: say "posts on X did better", never "X causes".
+- Name the metric each pattern measured (impressions per post, replies per post or engagement rate) and recommend only what that metric shows. Impressions and replies are not follower growth: never claim posts grew followers or the audience unless a follower observation shows it.
+- Confidence: "limited" patterns are hypotheses. Put them in toTest (or an experiment), never in doMore. Each evidence item states the real period its posts cover; respect it (a few days of posts is not a sustained trend).
 - "Do less" only when an evidence item with supportsReduction=true backs it. Never recommend dropping something based on a few posts.
 - If mode is "starter", there isn't enough history: say so in the summary, make priorities about building a baseline and testing, and propose experiments. Don't present guesses as findings.
 - Serve the user's objective (customers, leads, authority, audience or conversations), not follower count by default. Use their work, audience, expertise and offer.
-- Tasks: small and realistic, at most 2 a day, total effort within weeklyMinutes. Each links to one Scout module: studio (write posts), calendar (plan content), trends (explore trends), opportunities (reply to conversations), leads (review leads in CRM), growth (review analytics), discovery (search topics).
-- Experiments: dimension length/hook/time only with the listed variant keys (Scout measures those from posts); otherwise dimension "custom" with short variant names. Don't promise significance.
+- Tasks: small and realistic, at most 2 a day and limits.maxMinutesPerDay minutes a day, total within limits.weeklyMinutes, spread over the week (don't pack the first days). Each links to one Scout module: studio (write posts), calendar (plan content), trends (explore trends), opportunities (reply to conversations), leads (review leads in CRM), growth (review analytics), discovery (search topics).
+- Experiments: at least 14 days (5+ posts per variant need time). Dimension length/hook/time only with the listed variant keys (Scout measures those from posts); otherwise dimension "custom" with short variant names. Don't promise significance.
 - Running experiments: recommend continue, modify or stop from their result; "collecting" means not enough posts yet, so usually continue.
 - Plain, specific language. No hashtags, no hype.`;
 
@@ -243,6 +259,7 @@ export async function generateStrategy(profile: Profile, prefs: StrategyPreferen
       measurableVariants: MEASURABLE_VARIANTS,
       modules: Object.fromEntries(STRATEGY_MODULES.map((m) => [m, MODULE_LINK[m].label])),
       planDays: days.map((day, index) => ({ day: index, date: day })),
+      limits: { weeklyMinutes: prefs.weeklyMinutes, maxMinutesPerDay: maxMinutesPerDay(prefs.weeklyMinutes), maxTasksPerDay: 2, minExperimentDays: 14 },
     };
 
     const response = await getOpenAI().responses.parse({

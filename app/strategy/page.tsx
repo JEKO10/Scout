@@ -77,6 +77,12 @@ function Evidence({ ids, items }: { ids: string[]; items: Map<string, EvidenceIt
   );
 }
 
+/** Which metric a recommendation is about, so it isn't read as follower growth */
+function MeasuredBy({ metrics }: { metrics?: string[] }) {
+  if (!metrics?.length) return null;
+  return <small className="strategy-measured">Measured by {metrics.join(" and ")}</small>;
+}
+
 function variantLabel(experiment: GrowthExperiment, variant: string): string {
   if (experiment.dimension === "custom") return variant;
   return MEASURABLE_VARIANTS[experiment.dimension as keyof typeof MEASURABLE_VARIANTS]?.[variant] ?? variant;
@@ -197,7 +203,8 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
   const { evidence, strategy, today } = view;
   const s = evidence.snapshot;
   const items = new Map(evidence.items.map((item) => [item.id, item]));
-  const works = evidence.items.filter((item) => item.kind === "works");
+  // Comparisons (two sides of one pattern) are shown once, with what works
+  const works = evidence.items.filter((item) => item.kind === "works" || item.kind === "comparison");
   const weak = evidence.items.filter((item) => item.kind === "weak");
   const content = strategy?.content ?? null;
   const days = strategy ? planDays(strategy.weekStart) : [];
@@ -302,7 +309,9 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
               {content.priorities.map((p) => (
                 <li key={p.title}>
                   <strong>{p.title}</strong>
+                  {p.basis === "hypothesis" && <span className="strategy-pill strategy-pill-test">Hypothesis to test</span>}
                   <p>{p.why}</p>
+                  <MeasuredBy metrics={p.measuredBy} />
                   <Evidence ids={p.evidenceIds} items={items} />
                 </li>
               ))}
@@ -319,12 +328,30 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
                   {content.doMore.map((r) => (
                     <li key={r.text}>
                       {r.text}
+                      <MeasuredBy metrics={r.measuredBy} />
                       <Evidence ids={r.evidenceIds} items={items} />
                     </li>
                   ))}
                 </ul>
               ) : (
                 <p className="memory-note">Nothing has enough evidence yet. Your experiments will tell.</p>
+              )}
+              {content.toTest && content.toTest.length > 0 && (
+                <>
+                  <h3 className="strategy-subhead">
+                    Worth testing <span className="strategy-pill strategy-pill-test">Hypotheses</span>
+                  </h3>
+                  <p className="memory-note">Promising, but limited evidence so far: try these before relying on them.</p>
+                  <ul className="strategy-recs">
+                    {content.toTest.map((r) => (
+                      <li key={r.text}>
+                        {r.text}
+                        <MeasuredBy metrics={r.measuredBy} />
+                        <Evidence ids={r.evidenceIds} items={items} />
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </section>
             <section className="dash-card" aria-labelledby="less-title">
@@ -340,6 +367,7 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
                   {content.doLess.map((r) => (
                     <li key={r.text}>
                       {r.text}
+                      <MeasuredBy metrics={r.measuredBy} />
                       <Evidence ids={r.evidenceIds} items={items} />
                     </li>
                   ))}

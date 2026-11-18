@@ -28,6 +28,10 @@ import {
   type ExperimentResult,
   type ExperimentReview,
   MEASURABLE_VARIANTS,
+  METRIC_NAME,
+  MIN_EXPERIMENT_DAYS,
+  MIN_SPAN_DAYS,
+  PATTERN_KINDS,
   type Priority,
   type Recommendation,
   STRATEGY_MODULES,
@@ -46,6 +50,10 @@ export type EvidenceInput = {
   findings: Finding[];
   /** Posts of the last 90 days with impressions: what patterns can rest on */
   postsWithImpressions90: number;
+  /** First and last of those posts: the period the patterns really cover */
+  span90: { first: Date; last: Date } | null;
+  /** First and last post of the last 30 days */
+  span30: { first: Date; last: Date } | null;
   overview30: Overview | null;
   posts30: number;
   /** null: Scout doesn't hold the whole previous period */
@@ -61,6 +69,109 @@ export type EvidenceInput = {
 
 const fmt = (value: number) => Math.round(value).toLocaleString("en-US");
 const pct = (value: number, digits = 1) => `${(value * 100).toFixed(digits)}%`;
+const DAY_MS = 86_400_000;
+const day = (date: Date) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+
+/** Calendar days from the first post to the last, both included */
+export function spanDays(span: { first: Date; last: Date }): number {
+  return Math.floor((span.last.getTime() - span.first.getTime()) / DAY_MS) + 1;
+}
+
+/** "38 posts from Oct 18 to Oct 22 (5 days)" */
+function periodText(count: number, span: { first: Date; last: Date }): string {
+  const days = spanDays(span);
+  return days === 1 ? `${count} posts, all on ${day(span.first)}` : `${count} posts from ${day(span.first)} to ${day(span.last)} (${days} days)`;
+}
+
+const RANK: Record<Confidence, number> = { limited: 0, moderate: 1, good: 2 };
+const BY_RANK: Confidence[] = ["limited", "moderate", "good"];
+
+/** Sample size sets the confidence (Growth's rule); a short period lowers it one step */
+export function timeAwareConfidence(confidence: Confidence, days: number | null): Confidence {
+  if (days === null || days >= MIN_SPAN_DAYS) return confidence;
+  return BY_RANK[Math.max(0, RANK[confidence] - 1)];
+}
+
+const DIMENSION_NAME: Record<Finding["dimension"], string> = {
+  topic: "Topic",
+  length: "Post length",
+  hook: "Opening line",
+  goal: "Content goal",
+  trend: "Trend-based posts",
+  time: "Time of day",
+  weekday: "Weekday vs weekend",
+};
+
+const median_ = (metric: Finding["metric"], value: number) => (metric === "engagement_rate" ? pct(value, 2) : value >= 100 ? fmt(value) : String(Math.round(value * 10) / 10));
+
+function side(f: Finding): string {
+  return `${f.label} posts: median ${median_(f.metric, f.groupMedian)} vs ${median_(f.metric, f.restMedian)} for your other posts (${f.groupN} vs ${f.restN} posts)`;
+}
+
+/**
+ * Growth findings as evidence. Findings about the same dimension and metric
+ * (e.g. "standard length did better on replies" and "short did worse on
+ * replies") are one comparison seen from both sides: merged into one item.
+ * Different metrics stay separate. Texts state the real period the posts
+ * cover, never "90 days" for a short burst.
+ */
+export function patternEvidence(findings: Finding[], analyzed: { count: number; span: { first: Date; last: Date } } | null) {
+  const days = analyzed ? spanDays(analyzed.span) : null;
+  const period = analyzed ? periodText(analyzed.count, analyzed.span) : null;
+  const groups = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    const key = finding.kind === "interaction_gap" ? `gap|${finding.dimension}|${finding.group}` : `${finding.dimension}|${finding.metric}`;
+    groups.set(key, [...(groups.get(key) ?? []), finding]);
+  }
+  return [...groups.values()].slice(0, 6).map((members): Omit<EvidenceItem, "id"> => {
+    const confidence = timeAwareConfidence(
+      members.map((f) => f.confidence).sort((a, b) => RANK[a] - RANK[b])[0],
+      days,
+    );
+    const metric = members[0].metric;
+    // One or two weak posts never justify doing less: Growth's weak threshold, more than "limited"
+    const supportsReduction = confidence !== "limited" && members.some((f) => f.kind !== "works" && f.groupN >= MIN_WEAK_GROUP);
+    const suffix = period ? ` Based on ${period}.` : "";
+    const sample = members[0].totalN;
+    if (members[0].kind === "interaction_gap") {
+      const f = members[0];
+      return {
+        kind: "weak",
+        text: `${f.label} posts got more impressions but a lower engagement rate: median engagement rate ${pct(f.groupMedian, 2)} vs ${pct(f.restMedian, 2)} for your other posts (${f.groupN} vs ${f.restN} posts).${suffix}`,
+        source: "growth",
+        sampleSize: sample,
+        confidence,
+        supportsReduction,
+        metric: "engagement_rate",
+      };
+    }
+    if (members.length === 1) {
+      const f = members[0];
+      const better = f.kind === "works";
+      return {
+        kind: better ? "works" : "weak",
+        text: `${capitalize(f.label)} posts did ${better ? "better" : "worse"} on ${METRIC_NAME[metric]}: ${side(f).split(": ")[1]}.${suffix}`,
+        source: "growth",
+        sampleSize: sample,
+        confidence,
+        supportsReduction,
+        metric,
+      };
+    }
+    const ordered = [...members].sort((a, b) => b.groupMedian - a.groupMedian);
+    return {
+      kind: "comparison",
+      text: `${DIMENSION_NAME[members[0].dimension]}, ${METRIC_NAME[metric]}: ${ordered.map(side).join("; ")}. One comparison seen from ${ordered.length} sides, not separate findings.${suffix}`,
+      source: "growth",
+      sampleSize: sample,
+      confidence,
+      supportsReduction,
+      metric,
+    };
+  });
+}
+
+const capitalize = (text: string) => (text.startsWith('"') ? text : text.charAt(0).toUpperCase() + text.slice(1));
 
 /**
  * The observations a strategy may cite, what's missing, and whether there's
@@ -71,24 +182,21 @@ export function buildEvidence(input: EvidenceInput): StrategyEvidence {
   const add = (item: Omit<EvidenceItem, "id">) => items.push({ ...item, id: `E${items.length + 1}` });
   const missing: string[] = [];
 
-  for (const finding of input.findings.slice(0, 6)) {
-    const works = finding.kind === "works";
-    add({
-      kind: works ? "works" : "weak",
-      text: `${finding.text} ${finding.evidence}`,
-      source: "growth",
-      sampleSize: finding.totalN,
-      confidence: finding.confidence,
-      // One or two weak posts never justify doing less: Growth's weak threshold, and more than "limited"
-      supportsReduction: !works && finding.groupN >= MIN_WEAK_GROUP && finding.confidence !== "limited",
-    });
-  }
+  const analyzed = input.span90 ? { count: input.postsWithImpressions90, span: input.span90 } : null;
+  for (const item of patternEvidence(input.findings, analyzed)) add(item);
 
   if (input.hasAccount) {
+    const before =
+      input.postsPrevious30 === null ? "" : input.postsPrevious30 === 0 ? " None in the 30 days before either." : ` ${input.postsPrevious30} in the 30 days before.`;
+    const noPrevious = input.postsPrevious30 === null ? " Scout doesn't hold the full 30 days before, so there's no comparison." : before;
+    const days30 = input.span30 ? spanDays(input.span30) : null;
+    // A weekly average only when the posts are spread over most of the period
     const cadence =
-      input.postsPrevious30 === null
-        ? `You published ${input.posts30} posts (replies included) in the last 30 days, about ${(input.posts30 / 4.3).toFixed(1)} a week. Scout doesn't hold the full 30 days before, so there's no comparison.`
-        : `You published ${input.posts30} posts (replies included) in the last 30 days, about ${(input.posts30 / 4.3).toFixed(1)} a week, vs ${input.postsPrevious30} in the 30 days before.`;
+      input.posts30 === 0
+        ? `No posts in the last 30 days.${before}`
+        : days30 !== null && days30 < MIN_SPAN_DAYS
+          ? `You published ${input.posts30} posts (replies included) in the last 30 days, all ${days30 === 1 ? `on ${day(input.span30!.first)}` : `between ${day(input.span30!.first)} and ${day(input.span30!.last)} (${days30} days)`}: too short a stretch for a weekly average.${noPrevious}`
+          : `You published ${input.posts30} posts (replies included) in the last 30 days, about ${(input.posts30 / 4.3).toFixed(1)} a week.${noPrevious}`;
     add({ kind: "metric", text: cadence, source: "growth", sampleSize: input.posts30, confidence: null, supportsReduction: false });
 
     const o = input.overview30;
@@ -96,7 +204,7 @@ export function buildEvidence(input: EvidenceInput): StrategyEvidence {
       const rate = o.engagementRate.value;
       add({
         kind: "metric",
-        text: `Last 30 days: median ${fmt(o.medianImpressions)} impressions per post over ${o.postsWithImpressions} posts with impressions${rate !== null ? `, engagement rate ${pct(rate, 2)}` : ""}${o.engagementRate.change !== null ? ` (${o.engagementRate.change >= 0 ? "+" : ""}${pct(o.engagementRate.change, 0)} vs the previous 30 days)` : ""}.`,
+        text: `Last 30 days: median ${fmt(o.medianImpressions)} impressions per post over ${o.postsWithImpressions} posts with impressions${input.span30 ? ` (published ${day(input.span30.first)}–${day(input.span30.last)})` : ""}${rate !== null ? `, engagement rate ${pct(rate, 2)}` : ""}${o.engagementRate.change !== null ? ` (${o.engagementRate.change >= 0 ? "+" : ""}${pct(o.engagementRate.change, 0)} vs the previous 30 days)` : ""}.`,
         source: "growth",
         sampleSize: o.postsWithImpressions,
         confidence: null,
@@ -183,6 +291,12 @@ export function buildEvidence(input: EvidenceInput): StrategyEvidence {
   }
 
   const enough = input.postsWithImpressions90 >= MIN_TOTAL;
+  if (enough && input.span90 && spanDays(input.span90) < MIN_SPAN_DAYS) {
+    const days = spanDays(input.span90);
+    missing.push(
+      `Your analyzed posts cover only ${days} ${days === 1 ? "day" : "days"} (${day(input.span90.first)}–${day(input.span90.last)}): patterns may reflect that stretch, not your usual performance. Confidence stays lower until they cover ${MIN_SPAN_DAYS}+ days.`,
+    );
+  }
   if (input.hasAccount && !enough) {
     missing.push(
       `Only ${input.postsWithImpressions90} posts with impressions in the last 90 days: too few to compare topics, formats or posting times (needs ${MIN_TOTAL}+).`,
@@ -241,6 +355,7 @@ export type RawStrategy = {
   summary: string;
   priorities: { title: string; why: string; evidenceIds: string[] }[];
   doMore: { text: string; evidenceIds: string[] }[];
+  toTest: { text: string; evidenceIds: string[] }[];
   doLess: { text: string; evidenceIds: string[] }[];
   tasks: {
     day: number;
@@ -293,6 +408,11 @@ export const MAX_TASKS_PER_DAY = 2;
 export const MAX_TASKS = 10;
 export const MAX_NEW_EXPERIMENTS = 2;
 
+/** Most minutes one day may take: the week's time spread over at least three days */
+export function maxMinutesPerDay(weeklyMinutes: number): number {
+  return Math.max(30, Math.ceil(weeklyMinutes / 3));
+}
+
 const clip = (value: string, max: number) => value.replace(/\s+/g, " ").trim().slice(0, max);
 
 /**
@@ -317,51 +437,92 @@ export function validateStrategy(
   const byId = new Map(evidence.items.map((item) => [item.id, item]));
   const cite = (ids: string[]) => [...new Set(ids.filter((id) => byId.has(id)))];
   const starter = evidence.mode === "starter";
+  const cited = (ids: string[]) => ids.map((id) => byId.get(id)!);
+  const isPattern = (id: string) => PATTERN_KINDS.includes(byId.get(id)!.kind);
+  /** Metrics of the cited patterns: what the recommendation is actually about */
+  const measuredBy = (ids: string[]) => [...new Set(cited(ids).flatMap((item) => (item.metric ? [METRIC_NAME[item.metric]] : [])))];
+  /** Backed by more than limited patterns: a pattern with moderate+ confidence, or a non-pattern observation */
+  const solid = (ids: string[]) => ids.some((id) => !isPattern(id) || byId.get(id)!.confidence !== "limited");
+  // Impressions and replies aren't follower growth: a follower claim needs follower evidence
+  const followerClaimOk = (text: string, ids: string[]) => !/follower/i.test(text) || cited(ids).some((item) => /follower/i.test(item.text));
+  const recommendation = (r: { text: string; evidenceIds: string[] }): Recommendation => {
+    const ids = cite(r.evidenceIds);
+    const metrics = measuredBy(ids);
+    return { text: clip(r.text, 300), evidenceIds: ids, ...(metrics.length && { measuredBy: metrics }) };
+  };
 
   const priorities: Priority[] = raw.priorities
-    .map((p) => ({ title: clip(p.title, 120), why: clip(p.why, 400), evidenceIds: cite(p.evidenceIds) }))
+    .map((p) => {
+      const ids = cite(p.evidenceIds);
+      const metrics = measuredBy(ids);
+      return {
+        title: clip(p.title, 120),
+        why: clip(p.why, 400),
+        evidenceIds: ids,
+        basis: ids.length > 0 && !solid(ids) ? ("hypothesis" as const) : ("evidence" as const),
+        ...(metrics.length && { measuredBy: metrics }),
+      };
+    })
     // Evidence plans cite their reasons; a starter plan is labeled as such instead
-    .filter((p) => p.title && (starter || p.evidenceIds.length > 0))
+    .filter((p) => p.title && (starter || p.evidenceIds.length > 0) && followerClaimOk(`${p.title} ${p.why}`, p.evidenceIds))
     .slice(0, 3);
   if (priorities.length === 0) return null;
 
-  const doMore: Recommendation[] = raw.doMore
-    .map((r) => ({ text: clip(r.text, 300), evidenceIds: cite(r.evidenceIds) }))
-    .filter((r) => r.text && r.evidenceIds.length > 0)
-    .slice(0, 4);
+  // "Do more" only on solid evidence; positive patterns with limited confidence become hypotheses to test
+  const positive = [...raw.doMore, ...raw.toTest]
+    .map(recommendation)
+    .filter((r) => r.text && r.evidenceIds.length > 0 && followerClaimOk(r.text, r.evidenceIds));
+  const doMore = positive.filter((r) => solid(r.evidenceIds)).slice(0, 4);
+  const toTest = positive.filter((r) => !solid(r.evidenceIds)).slice(0, 3);
   const doLess: Recommendation[] = starter
     ? []
     : raw.doLess
-        .map((r) => ({ text: clip(r.text, 300), evidenceIds: cite(r.evidenceIds) }))
-        .filter((r) => r.text && r.evidenceIds.some((id) => byId.get(id)!.supportsReduction))
+        .map(recommendation)
+        .filter((r) => r.text && r.evidenceIds.some((id) => byId.get(id)!.supportsReduction) && followerClaimOk(r.text, r.evidenceIds))
         .slice(0, 3);
 
-  const perDay = new Map<number, number>();
-  let minutes = 0;
-  const tasks: ValidTask[] = [];
-  for (const t of [...raw.tasks].sort((a, b) => a.day - b.day)) {
-    const day = Math.trunc(t.day);
-    if (day < 0 || day > 6) continue;
-    if (!(STRATEGY_MODULES as readonly string[]).includes(t.module)) continue;
-    if ((perDay.get(day) ?? 0) >= MAX_TASKS_PER_DAY || tasks.length >= MAX_TASKS) continue;
-    const effort = Math.min(90, Math.max(5, Math.round(t.effortMinutes / 5) * 5 || 15));
-    if (minutes + effort > weeklyMinutes) continue;
-    const title = clip(t.title, 120);
-    if (!title) continue;
-    minutes += effort;
-    perDay.set(day, (perDay.get(day) ?? 0) + 1);
-    tasks.push({
-      day,
-      position: perDay.get(day)!,
-      title,
-      objective: clip(t.objective, 200),
-      activity: clip(t.activity, 400),
-      reason: clip(t.reason, 300),
-      effortMinutes: effort,
-      module: t.module as StrategyModule,
-      evidenceIds: cite(t.evidenceIds),
-    });
+  // Tasks: spread over the week instead of cutting the last days. Round-robin
+  // by day (each day's first task, then each day's second), within the
+  // weekly time, the daily maximum and 2 tasks a day. Empty days stay rest days.
+  const dailyMax = maxMinutesPerDay(weeklyMinutes);
+  const byDay = new Map<number, RawStrategy["tasks"]>();
+  for (const t of raw.tasks) {
+    const d = Math.trunc(t.day);
+    if (d < 0 || d > 6 || !(STRATEGY_MODULES as readonly string[]).includes(t.module) || !clip(t.title, 120)) continue;
+    byDay.set(d, [...(byDay.get(d) ?? []), t]);
   }
+  const effortOf = (t: RawStrategy["tasks"][number]) => Math.min(90, Math.max(5, Math.round(t.effortMinutes / 5) * 5 || 15));
+  const dayMinutes = new Map<number, number>();
+  const picked: { t: RawStrategy["tasks"][number]; day: number; slot: number }[] = [];
+  let minutes = 0;
+  for (let slot = 0; slot < MAX_TASKS_PER_DAY; slot++) {
+    for (let d = 0; d <= 6; d++) {
+      const t = byDay.get(d)?.[slot];
+      if (!t || picked.length >= MAX_TASKS) continue;
+      const effort = effortOf(t);
+      if (minutes + effort > weeklyMinutes || (dayMinutes.get(d) ?? 0) + effort > dailyMax) continue;
+      minutes += effort;
+      dayMinutes.set(d, (dayMinutes.get(d) ?? 0) + effort);
+      picked.push({ t, day: d, slot });
+    }
+  }
+  const position = new Map<number, number>();
+  const tasks: ValidTask[] = picked
+    .sort((a, b) => a.day - b.day || a.slot - b.slot)
+    .map(({ t, day: d }) => {
+      position.set(d, (position.get(d) ?? 0) + 1);
+      return {
+        day: d,
+        position: position.get(d)!,
+        title: clip(t.title, 120),
+        objective: clip(t.objective, 200),
+        activity: clip(t.activity, 400),
+        reason: clip(t.reason, 300),
+        effortMinutes: effortOf(t),
+        module: t.module as StrategyModule,
+        evidenceIds: cite(t.evidenceIds),
+      };
+    });
 
   const running = new Set(activeExperiments.map((e) => `${e.dimension}:${e.variantA}:${e.variantB}`));
   const experiments: ValidExperiment[] = [];
@@ -385,7 +546,7 @@ export function validateStrategy(
       variantA,
       variantB,
       metric: e.metric as ExperimentMetric,
-      durationDays: Math.min(42, Math.max(7, Math.round(e.durationDays) || 21)),
+      durationDays: Math.min(42, Math.max(MIN_EXPERIMENT_DAYS, Math.round(e.durationDays) || 21)),
       minPerVariant: EXPERIMENT_MIN_PER_VARIANT,
       actions: e.actions.map((a) => clip(a, 200)).filter(Boolean).slice(0, 4),
     });
@@ -397,7 +558,7 @@ export function validateStrategy(
     .map((r) => ({ experimentId: r.experimentId, recommendation: r.recommendation as ExperimentReview["recommendation"], reason: clip(r.reason, 300) }));
 
   return {
-    content: { summary: clip(raw.summary, 600), priorities, doMore, doLess, experimentReviews },
+    content: { summary: clip(raw.summary, 600), priorities, doMore, toTest, doLess, experimentReviews },
     tasks,
     experiments,
   };

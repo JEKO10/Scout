@@ -6864,3 +6864,18 @@ a.stat-card:hover {
     grid-template-columns: 1fr;
   }
 }
+.strategy-pill-test {
+  margin-left: 8px;
+  background: #fff7e6;
+  color: #9a5b00;
+}
+.strategy-subhead {
+  margin: 18px 0 4px;
+  font-size: 0.95rem;
+}
+.strategy-measured {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted-ink);
+  font-size: 0.8rem;
+}

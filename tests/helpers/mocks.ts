@@ -115,6 +115,7 @@ function defaultStrategy(input: { evidence: { id: string }[]; runningExperiments
       { text: "Keep writing about your product lessons.", evidenceIds: cited },
       { text: "Something with no evidence.", evidenceIds: [] },
     ],
+    toTest: [],
     doLess: [{ text: "Stop posting threads.", evidenceIds: cited }],
     tasks: [
       ...Array.from({ length: 7 }, (_, day) => ({
@@ -133,7 +134,7 @@ function defaultStrategy(input: { evidence: { id: string }[]; runningExperiments
       { day: 1, title: "Another over the cap", objective: "x", activity: "x", reason: "x", effortMinutes: 10, module: "growth", evidenceIds: [] },
     ],
     experiments: [
-      { title: "Question vs statement", hypothesis: "Questions get more replies.", dimension: "hook", variantA: "question", variantB: "statement", metric: "replies", durationDays: 21, actions: ["Post 5 of each"] },
+      { title: "Question vs statement", hypothesis: "Questions get more replies.", dimension: "hook", variantA: "question", variantB: "statement", metric: "replies", durationDays: 7, actions: ["Post 5 of each"] },
       { title: "Bad variant", hypothesis: "x", dimension: "length", variantA: "tiny", variantB: "long", metric: "impressions", durationDays: 14, actions: [] },
     ],
     experimentReviews: input.runningExperiments.map((e) => ({ experimentId: e.id, recommendation: "continue", reason: "Not enough posts yet." })),

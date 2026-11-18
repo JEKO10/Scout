@@ -44,7 +44,12 @@ export const MODULE_LINK: Record<StrategyModule, { href: string; label: string }
  */
 export type EvidenceItem = {
   id: string;
-  kind: "works" | "weak" | "activity" | "trend" | "lead" | "content" | "metric";
+  /**
+   * works / weak: one group vs the rest of the posts. comparison: two or more
+   * groups of the same dimension on the same metric (e.g. standard vs short
+   * posts), merged so one comparison never counts as two pieces of evidence.
+   */
+  kind: "works" | "weak" | "comparison" | "activity" | "trend" | "lead" | "content" | "metric";
   /** Plain statement with the numbers, shown to the user next to recommendations */
   text: string;
   source: "growth" | "opportunities" | "trends" | "leads" | "studio" | "calendar";
@@ -53,7 +58,23 @@ export type EvidenceItem = {
   confidence: Confidence | null;
   /** Strong enough to justify doing less of something (a weak pattern over enough posts) */
   supportsReduction: boolean;
+  /** Patterns: the metric that was compared; recommendations must speak about this metric */
+  metric?: "impressions" | "engagement_rate" | "replies";
 };
+
+/** Patterns, from Growth findings (as opposed to counts of activity) */
+export const PATTERN_KINDS: EvidenceItem["kind"][] = ["works", "weak", "comparison"];
+
+export const METRIC_NAME: Record<NonNullable<EvidenceItem["metric"]>, string> = {
+  impressions: "impressions per post",
+  engagement_rate: "engagement rate",
+  replies: "replies per post",
+};
+
+/** Posts must cover at least this many days before a pattern counts as more than limited */
+export const MIN_SPAN_DAYS = 21;
+/** Experiments run at least this long (5+ posts per variant need time) */
+export const MIN_EXPERIMENT_DAYS = 14;
 
 /** Numbers compared between strategies (computed, never from the AI) */
 export type StrategySnapshot = {
@@ -76,8 +97,20 @@ export type StrategyEvidence = {
   changes: string[];
 };
 
-export type Recommendation = { text: string; evidenceIds: string[] };
-export type Priority = { title: string; why: string; evidenceIds: string[] };
+export type Recommendation = {
+  text: string;
+  evidenceIds: string[];
+  /** The metrics of the cited patterns, computed by Scout (absent on plans made before) */
+  measuredBy?: string[];
+};
+export type Priority = {
+  title: string;
+  why: string;
+  evidenceIds: string[];
+  /** "hypothesis": rests only on limited-confidence patterns, to test rather than act on */
+  basis?: "evidence" | "hypothesis";
+  measuredBy?: string[];
+};
 export type ExperimentReview = { experimentId: string; recommendation: "continue" | "modify" | "stop"; reason: string };
 
 /** The validated AI part of a strategy */
@@ -85,6 +118,8 @@ export type StrategyContent = {
   summary: string;
   priorities: Priority[];
   doMore: Recommendation[];
+  /** Positive patterns with limited confidence: hypotheses worth testing (absent on older plans) */
+  toTest?: Recommendation[];
   doLess: Recommendation[];
   experimentReviews: ExperimentReview[];
 };

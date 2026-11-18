@@ -14,6 +14,7 @@ import {
   type GrowthStrategy,
   leadsTable,
   trendsTable,
+  watchlistAccountsTable,
 } from "@/db/schema";
 import type { ValidExperiment, ValidTask } from "@/lib/strategy/plan";
 import type { StrategyContent, StrategyEvidence } from "@/lib/strategy/types";
@@ -26,7 +27,7 @@ import type { StrategyContent, StrategyEvidence } from "@/lib/strategy/types";
 export async function getStrategyModuleCounts(profileId: string, now: Date) {
   const in7 = new Date(now.getTime() + 7 * 86_400_000);
   const ago30 = new Date(now.getTime() - 30 * 86_400_000);
-  const [leads, drafts, trends] = await Promise.all([
+  const [leads, drafts, trends, watched] = await Promise.all([
     db
       .select({
         highIntentNew: sql<number>`count(*) filter (where ${leadsTable.intent} = 'high' and ${leadsTable.status} = 'new')::int`,
@@ -48,11 +49,17 @@ export async function getStrategyModuleCounts(profileId: string, now: Date) {
       .where(and(eq(trendsTable.profileId, profileId), inArray(trendsTable.status, ["emerging", "rising"])))
       .orderBy(desc(trendsTable.opportunityScore), desc(trendsTable.score))
       .limit(3),
+    db
+      .select({ handle: watchlistAccountsTable.handle })
+      .from(watchlistAccountsTable)
+      .where(and(eq(watchlistAccountsTable.profileId, profileId), eq(watchlistAccountsTable.isActive, true)))
+      .limit(6),
   ]);
   return {
     leads: { highIntentNew: leads[0]?.highIntentNew ?? 0, total: leads[0]?.total ?? 0 },
     content: { readyDrafts: drafts[0]?.ready ?? 0, plannedNext7: drafts[0]?.planned ?? 0, confirmedLast30: drafts[0]?.confirmed ?? 0 },
     trends,
+    watchedHandles: watched.map((w) => w.handle),
   };
 }
 
@@ -104,7 +111,7 @@ export async function getStrategyHistory(profileId: string, limit = 12) {
  */
 export async function startStrategyGeneration(
   profileId: string,
-  values: Pick<GrowthStrategy, "mode" | "objective" | "weeklyMinutes" | "weekStart" | "evidence" | "evidenceKey">,
+  values: Pick<GrowthStrategy, "mode" | "objective" | "weeklyMinutes" | "weekStart" | "evidence" | "evidenceKey" | "stage" | "peerMode">,
   now = new Date(),
   staleMinutes = 3,
 ): Promise<GrowthStrategy | null> {
@@ -271,7 +278,7 @@ export async function countActiveExperiments(profileId: string): Promise<number>
 export async function updateExperiment(
   profileId: string,
   id: string,
-  values: Partial<Pick<GrowthExperiment, "status" | "startedAt" | "endsAt" | "conclusion">>,
+  values: Partial<Pick<GrowthExperiment, "status" | "startedAt" | "endsAt" | "conclusion" | "durationDays">>,
 ): Promise<boolean> {
   const rows = await db
     .update(growthExperimentsTable)

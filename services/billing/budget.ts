@@ -2,12 +2,16 @@ import "server-only";
 
 import { getAiCostByOperation, getScoringCostPerCandidate } from "@/db/queries/aiUsage";
 import { sumGrowthXPostReads } from "@/db/queries/growth";
+import { sumPeerXPostReads } from "@/db/queries/peers";
 import { sumRunXPostReads } from "@/db/queries/scoutRuns";
 import { getXUsageToday } from "@/db/queries/xApiUsage";
 import type { Profile } from "@/db/schema";
+import { isMissingSchemaError, missingSchemaMessage } from "@/db/schemaErrors";
 import { effectiveLimits, type PlanId, type UsageLimits } from "@/lib/billing/plans";
 import { getScoutLimits } from "@/lib/scout/testLimits";
 import type { BudgetExhausted } from "@/lib/scout/types";
+
+const PEER_MIGRATION = "20261118002427_peer_intelligence";
 
 /** Used until the profile has scored runs to average over */
 const DEFAULT_SCORING_USD_PER_CANDIDATE = 0.01;
@@ -72,10 +76,18 @@ export async function getUsageBudget(
   now = new Date(),
 ): Promise<UsageBudget> {
   const periodStart = currentPeriodStart(now);
-  const [scanXPostReads, growthXPostReads, aiRows, perCandidate] = await Promise.all([
+  const [scanXPostReads, growthXPostReads, peerXPostReads, aiRows, perCandidate] = await Promise.all([
     sumRunXPostReads(profile.id, periodStart),
     // Day 33: Growth refreshes read the user's own posts from the same allowance
     sumGrowthXPostReads(profile.id, periodStart),
+    // Day 35: peer refreshes (when enabled) read from the same allowance. A
+    // database without the peer tables has recorded no refresh: 0 is exact,
+    // and the missing migration is logged, not hidden.
+    sumPeerXPostReads(profile.id, periodStart).catch((error: unknown) => {
+      if (!isMissingSchemaError(error)) throw error;
+      console.error(missingSchemaMessage("Peer refresh accounting", PEER_MIGRATION));
+      return 0;
+    }),
     getAiCostByOperation(profile.id, periodStart),
     getScoringCostPerCandidate(profile.id, new Date(now.getTime() - 30 * 86_400_000)),
   ]);
@@ -84,7 +96,7 @@ export async function getUsageBudget(
 
   const limits = effectiveLimits(profile.plan, profile.usageLimitOverrides);
   const used = {
-    xPostReads: scanXPostReads + growthXPostReads,
+    xPostReads: scanXPostReads + growthXPostReads + peerXPostReads,
     // Discovery keyword suggestions are scoring-side AI work: same allowance
     scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords") + cost("lead_icp") + cost("lead_classification") + cost("trend_insight") + cost("growth_strategy"),
     // Day 31: Content Studio writing shares the reply (writing) budget

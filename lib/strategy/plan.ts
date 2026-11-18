@@ -18,8 +18,10 @@ import {
   timeOfDay,
 } from "@/lib/growth/analyze";
 
+import { strategyStage, validateRoadmap } from "./peers";
 import {
   type EvidenceItem,
+  evidenceTypeOf,
   EXPERIMENT_DIMENSIONS,
   EXPERIMENT_METRICS,
   EXPERIMENT_MIN_PER_VARIANT,
@@ -34,11 +36,15 @@ import {
   PATTERN_KINDS,
   type Priority,
   type Recommendation,
+  type RoadmapWeek,
+  type SourceType,
   STRATEGY_MODULES,
   type StrategyContent,
   type StrategyEvidence,
   type StrategyModule,
+  type StrategyObjective,
   type StrategySnapshot,
+  type StrategyStage,
 } from "./types";
 
 // ---- Evidence --------------------------------------------------------------------
@@ -65,6 +71,13 @@ export type EvidenceInput = {
   leads: { highIntentNew: number; total: number };
   content: { readyDrafts: number; plannedNext7: number; confirmedLast30: number };
   previousSnapshot: StrategySnapshot | null;
+  /** Day 35: peer observations (already built from stored data) and their gaps */
+  peerItems?: Omit<EvidenceItem, "id">[];
+  peerMissing?: string[];
+  /** Day 35: what the user told Scout about themselves, citable as profile context */
+  profileContext?: string[];
+  /** Day 35: accounts and conversations Scout already found for the user */
+  engagementTargets?: string | null;
 };
 
 const fmt = (value: number) => Math.round(value).toLocaleString("en-US");
@@ -179,7 +192,7 @@ const capitalize = (text: string) => (text.startsWith('"') ? text : text.charAt(
  */
 export function buildEvidence(input: EvidenceInput): StrategyEvidence {
   const items: EvidenceItem[] = [];
-  const add = (item: Omit<EvidenceItem, "id">) => items.push({ ...item, id: `E${items.length + 1}` });
+  const add = (item: Omit<EvidenceItem, "id">) => items.push({ ...item, evidenceType: item.evidenceType ?? evidenceTypeOf(item), id: `E${items.length + 1}` });
   const missing: string[] = [];
 
   const analyzed = input.span90 ? { count: input.postsWithImpressions90, span: input.span90 } : null;
@@ -305,6 +318,22 @@ export function buildEvidence(input: EvidenceInput): StrategyEvidence {
     missing.push("No pattern in your posts passed Scout's thresholds (5+ posts per group and a 25%+ difference): nothing clearly works better or worse yet.");
   }
 
+  // Day 35: who the user is (for a zero-post plan), accounts worth engaging with, and peers
+  for (const text of input.profileContext ?? []) {
+    add({ kind: "profile", evidenceType: "profile_context", text, source: "growth", sampleSize: null, confidence: null, supportsReduction: false });
+  }
+  if (input.engagementTargets) {
+    add({ kind: "activity", evidenceType: "scout_activity", text: input.engagementTargets, source: "opportunities", sampleSize: null, confidence: null, supportsReduction: false });
+  }
+  for (const item of input.peerItems ?? []) add(item);
+  missing.push(...(input.peerMissing ?? []));
+
+  const stage = strategyStage({
+    postsWithImpressions90: input.postsWithImpressions90,
+    span90Days: input.span90 ? spanDays(input.span90) : null,
+    ownPatternConfidences: items.filter((item) => PATTERN_KINDS.includes(item.kind) && item.confidence).map((item) => item.confidence!),
+  });
+
   const snapshot: StrategySnapshot = {
     postsLast30: input.posts30,
     postsPrevious30: input.postsPrevious30,
@@ -315,6 +344,7 @@ export function buildEvidence(input: EvidenceInput): StrategyEvidence {
   };
 
   return {
+    stage,
     items,
     missing,
     mode: enough ? "evidence" : "starter",
@@ -378,7 +408,23 @@ export type RawStrategy = {
     actions: string[];
   }[];
   experimentReviews: { experimentId: string; recommendation: string; reason: string }[];
+  /** Day 35: four weeks of direction */
+  roadmap?: { week: number; objective: string; activities: string[]; milestone: string; modules: string[]; measure: string[] }[];
 };
+
+/** Numbers in a text, normalized ("8,048" → "8048", "1.13%" → "1.13") */
+function numbersIn(text: string): string[] {
+  return (text.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map((n) => n.replace(/,/g, ""));
+}
+
+/**
+ * Numbers a recommendation may use: the ones in the evidence and the
+ * missing-data notes, plus small counts (up to 14: "3 posts", "2 replies a
+ * day", "14 days"). Anything else is an invented metric.
+ */
+export function unsupportedNumbers(text: string, allowed: Set<string>): string[] {
+  return numbersIn(text).filter((n) => !allowed.has(n) && !(Number(n) <= 14 && Number.isInteger(Number(n))));
+}
 
 export type ValidTask = {
   day: number;
@@ -413,6 +459,12 @@ export function maxMinutesPerDay(weeklyMinutes: number): number {
   return Math.max(30, Math.ceil(weeklyMinutes / 3));
 }
 
+const STAGE_SUMMARY: Record<StrategyStage, string> = {
+  starting: "There isn't enough of your own data yet, so this plan builds a baseline: first posts, relevant conversations and small experiments.",
+  learning: "You have some data, but not enough to be sure yet: this plan compares early patterns with your hypotheses and keeps testing.",
+  evidence: "This plan builds on patterns in your own posts and uses peers only for new ideas to test.",
+};
+
 const clip = (value: string, max: number) => value.replace(/\s+/g, " ").trim().slice(0, max);
 
 /**
@@ -428,10 +480,12 @@ export function validateStrategy(
     evidence,
     weeklyMinutes,
     activeExperiments,
+    objective = "grow_audience",
   }: {
     evidence: StrategyEvidence;
     weeklyMinutes: number;
     activeExperiments: { id: string; dimension: string; variantA: string; variantB: string }[];
+    objective?: StrategyObjective;
   },
 ): { content: StrategyContent; tasks: ValidTask[]; experiments: ValidExperiment[] } | null {
   const byId = new Map(evidence.items.map((item) => [item.id, item]));
@@ -441,44 +495,78 @@ export function validateStrategy(
   const isPattern = (id: string) => PATTERN_KINDS.includes(byId.get(id)!.kind);
   /** Metrics of the cited patterns: what the recommendation is actually about */
   const measuredBy = (ids: string[]) => [...new Set(cited(ids).flatMap((item) => (item.metric ? [METRIC_NAME[item.metric]] : [])))];
-  /** Backed by more than limited patterns: a pattern with moderate+ confidence, or a non-pattern observation */
-  const solid = (ids: string[]) => ids.some((id) => !isPattern(id) || byId.get(id)!.confidence !== "limited");
+  const typeOf = (id: string) => evidenceTypeOf(byId.get(id)!);
+  /**
+   * Backed by more than a hypothesis: one of the user's own patterns with
+   * moderate+ confidence, or a measured own/Scout observation. Peer
+   * observations and profile context never are: they suggest what to test.
+   */
+  const solid = (ids: string[]) =>
+    ids.some((id) => {
+      const type = typeOf(id);
+      if (type === "peer_observation" || type === "profile_context") return false;
+      return !isPattern(id) || byId.get(id)!.confidence !== "limited";
+    });
+  /** Where a recommendation comes from, for the user */
+  const sourcesOf = (ids: string[]): SourceType[] => (ids.length ? [...new Set(ids.map(typeOf))] : ["hypothesis"]);
+  const influencedBy = (ids: string[]) => [...new Set(cited(ids).flatMap((item) => item.peerHandles ?? []))];
+  // Every number must come from the evidence (or be a small count)
+  const allowedNumbers = new Set([...evidence.items.map((item) => item.text), ...evidence.missing].flatMap(numbersIn));
+  const grounded = (text: string) => unsupportedNumbers(text, allowedNumbers).length === 0;
+  const stage: StrategyStage = evidence.stage ?? (evidence.mode === "starter" ? "starting" : "evidence");
   // Impressions and replies aren't follower growth: a follower claim needs follower evidence
   const followerClaimOk = (text: string, ids: string[]) => !/follower/i.test(text) || cited(ids).some((item) => /follower/i.test(item.text));
   const recommendation = (r: { text: string; evidenceIds: string[] }): Recommendation => {
     const ids = cite(r.evidenceIds);
     const metrics = measuredBy(ids);
-    return { text: clip(r.text, 300), evidenceIds: ids, ...(metrics.length && { measuredBy: metrics }) };
+    const peers = influencedBy(ids);
+    return {
+      text: clip(r.text, 300),
+      evidenceIds: ids,
+      ...(metrics.length && { measuredBy: metrics }),
+      sources: sourcesOf(ids),
+      ...(peers.length && { influencedBy: peers }),
+    };
   };
 
   const priorities: Priority[] = raw.priorities
     .map((p) => {
       const ids = cite(p.evidenceIds);
       const metrics = measuredBy(ids);
+      const peers = influencedBy(ids);
       return {
         title: clip(p.title, 120),
         why: clip(p.why, 400),
         evidenceIds: ids,
-        basis: ids.length > 0 && !solid(ids) ? ("hypothesis" as const) : ("evidence" as const),
+        basis: solid(ids) ? ("evidence" as const) : ("hypothesis" as const),
         ...(metrics.length && { measuredBy: metrics }),
+        sources: sourcesOf(ids),
+        ...(peers.length && { influencedBy: peers }),
       };
     })
     // Evidence plans cite their reasons; a starter plan is labeled as such instead
-    .filter((p) => p.title && (starter || p.evidenceIds.length > 0) && followerClaimOk(`${p.title} ${p.why}`, p.evidenceIds))
+    .filter(
+      (p) =>
+        p.title &&
+        (starter || p.evidenceIds.length > 0) &&
+        followerClaimOk(`${p.title} ${p.why}`, p.evidenceIds) &&
+        grounded(`${p.title} ${p.why}`),
+    )
     .slice(0, 3);
   if (priorities.length === 0) return null;
 
   // "Do more" only on solid evidence; positive patterns with limited confidence become hypotheses to test
   const positive = [...raw.doMore, ...raw.toTest]
     .map(recommendation)
-    .filter((r) => r.text && r.evidenceIds.length > 0 && followerClaimOk(r.text, r.evidenceIds));
+    .filter((r) => r.text && r.evidenceIds.length > 0 && followerClaimOk(r.text, r.evidenceIds) && grounded(r.text));
   const doMore = positive.filter((r) => solid(r.evidenceIds)).slice(0, 4);
   const toTest = positive.filter((r) => !solid(r.evidenceIds)).slice(0, 3);
   const doLess: Recommendation[] = starter
     ? []
     : raw.doLess
         .map(recommendation)
-        .filter((r) => r.text && r.evidenceIds.some((id) => byId.get(id)!.supportsReduction) && followerClaimOk(r.text, r.evidenceIds))
+        // Only the user's own weak patterns: never peers alone
+        .filter((r) => r.text && r.evidenceIds.some((id) => byId.get(id)!.supportsReduction && typeOf(id) === "own_analytics") && followerClaimOk(r.text, r.evidenceIds) && grounded(r.text))
         .slice(0, 3);
 
   // Tasks: spread over the week instead of cutting the last days. Round-robin
@@ -558,7 +646,19 @@ export function validateStrategy(
     .map((r) => ({ experimentId: r.experimentId, recommendation: r.recommendation as ExperimentReview["recommendation"], reason: clip(r.reason, 300) }));
 
   return {
-    content: { summary: clip(raw.summary, 600), priorities, doMore, toTest, doLess, experimentReviews },
+    content: {
+      // A summary with an invented number is replaced by the stage's plain description
+      summary:
+        grounded(raw.summary) && (!/follower/i.test(raw.summary) || [...evidence.items.map((item) => item.text), ...evidence.missing].some((text) => /follower/i.test(text)))
+          ? clip(raw.summary, 600)
+          : STAGE_SUMMARY[stage],
+      priorities,
+      doMore,
+      toTest,
+      doLess,
+      experimentReviews,
+      ...(stage !== "evidence" && { roadmap: validateRoadmap(raw.roadmap, stage, objective) as RoadmapWeek[] }),
+    },
     tasks,
     experiments,
   };
@@ -629,4 +729,19 @@ export function experimentResult(
 export function planDays(start: string): string[] {
   const [y, m, d] = start.split("-").map(Number);
   return Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(y, m - 1, d + i)).toISOString().slice(0, 10));
+}
+
+/**
+ * The evidence a plan's citations point into: the evidence it was made
+ * from (IDs and numbers as they were then), not today's recomputed one,
+ * which may number its items differently.
+ */
+export function citableEvidence(strategy: { evidence: StrategyEvidence } | null, current: StrategyEvidence): EvidenceItem[] {
+  return (strategy?.evidence ?? current).items;
+}
+
+/** Starting an experiment: at least the 14-day minimum, also for proposals made before it */
+export function experimentWindow(durationDays: number, now = new Date()): { durationDays: number; startedAt: Date; endsAt: Date } {
+  const days = Math.max(durationDays, MIN_EXPERIMENT_DAYS);
+  return { durationDays: days, startedAt: now, endsAt: new Date(now.getTime() + days * 86_400_000) };
 }

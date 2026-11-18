@@ -21,8 +21,18 @@ import {
   updatePlanTask,
 } from "@/db/queries/strategy";
 import * as s from "@/db/schema";
+import { isMissingSchemaError } from "@/db/schemaErrors";
 import type { Finding, GrowthPost } from "@/lib/growth/analyze";
-import { buildEvidence, type EvidenceInput, experimentResult, planDays, type RawStrategy, validateStrategy } from "@/lib/strategy/plan";
+import {
+  buildEvidence,
+  citableEvidence,
+  type EvidenceInput,
+  experimentResult,
+  experimentWindow,
+  planDays,
+  type RawStrategy,
+  validateStrategy,
+} from "@/lib/strategy/plan";
 import { generateStrategy, loadStrategyView } from "@/services/strategy/strategist";
 
 import { cleanup, getProfile, newProfile, rememberXUsage, setOverrides } from "./helpers/db";
@@ -441,7 +451,7 @@ test("generate: two at once make one AI call", async () => {
 
 test("generate: output with nothing usable fails cleanly and keeps no plan", async () => {
   const p = await newProfile();
-  ai.strategy = () => ({ summary: "x", priorities: [], doMore: [], toTest: [], doLess: [], tasks: [], experiments: [], experimentReviews: [] });
+  ai.strategy = () => ({ summary: "x", priorities: [], doMore: [], toTest: [], doLess: [], roadmap: [], tasks: [], experiments: [], experimentReviews: [] });
   const result = await generateStrategy(await getProfile(p.id), { objective: "grow_audience", weeklyMinutes: 60 });
   assert.equal(result.ok, false);
   assert.equal(await getActiveStrategy(p.id), undefined);
@@ -506,4 +516,27 @@ test("isolation: another user can't change, read or annotate someone else's plan
   assert.deepEqual(after.observations.map((o) => o.text), ["first"]);
   assert.equal((await loadStrategyView(await getProfile(intruder.id), strategy.id)).strategy, null, "can't open it by ID");
   await setOverrides(owner.id, {});
+});
+
+test("a plan cites its own saved evidence, not today's renumbered one", () => {
+  const then = buildEvidence(baseInput({ posts30: 0 }));
+  const now = buildEvidence(baseInput({ posts30: 0, trends: [{ label: "AI agents", status: "rising", postCount: 9, authorCount: 4 }] }));
+  const plan = { evidence: then };
+  assert.equal(citableEvidence(plan, now), then.items);
+  assert.equal(citableEvidence(null, now), now.items, "no plan: today's evidence");
+});
+
+test("experiments start with at least 14 days, also proposals made before the rule", () => {
+  const now = new Date("2026-11-18T10:00:00Z");
+  const old = experimentWindow(7, now);
+  assert.equal(old.durationDays, 14);
+  assert.equal(old.endsAt.toISOString(), "2026-12-02T10:00:00.000Z");
+  assert.equal(experimentWindow(21, now).durationDays, 21);
+});
+
+test("missing-schema errors are recognized through Drizzle's wrapper; others are not", () => {
+  assert.equal(isMissingSchemaError({ code: "42P01" }), true);
+  assert.equal(isMissingSchemaError(Object.assign(new Error("Failed query"), { cause: { code: "42703" } })), true);
+  assert.equal(isMissingSchemaError(Object.assign(new Error("x"), { cause: { code: "23505" } })), false, "a unique violation is a real error");
+  assert.equal(isMissingSchemaError(new Error("boom")), false);
 });

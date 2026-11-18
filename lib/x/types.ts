@@ -16,6 +16,9 @@ export type XApiUser = {
   name: string;
   username: string;
   profile_image_url?: string;
+  /** Day 35 peers: requested with user.fields (same request, same price) */
+  description?: string;
+  created_at?: string;
   /** Requested with user.fields=public_metrics (same request, same price) */
   public_metrics?: {
     followers_count?: number;

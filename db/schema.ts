@@ -1442,6 +1442,10 @@ export const growthStrategiesTable = pgTable(
     status: growthStrategyStatusEnum().notNull(),
     /** "evidence": enough history for patterns; "starter": a labeled experimentation plan */
     mode: text().$type<"evidence" | "starter">().notNull(),
+    /** Day 35: starting / learning / evidence; null on plans made before */
+    stage: text().$type<"starting" | "learning" | "evidence">(),
+    /** Day 35: whose peer observations were used; null on plans made before */
+    peerMode: text().$type<"recommended" | "selected">(),
     objective: text().notNull(),
     weeklyMinutes: integer().notNull(),
     /** First day of the 7-day plan, in the user's time zone */
@@ -1531,3 +1535,84 @@ export const growthExperimentsTable = pgTable(
 );
 
 export type GrowthExperiment = typeof growthExperimentsTable.$inferSelect;
+
+// ---- Day 35 Peer Intelligence ------------------------------------------------
+
+/**
+ * X accounts the user compares with (Peer Intelligence). One row per user
+ * and account; the public profile (bio, counts, creation date) comes from
+ * one X user lookup when the peer is added. Deleted with the profile.
+ */
+export const growthPeersTable = pgTable(
+  "growth_peers",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    platformUserId: text().notNull(),
+    handle: text().notNull(),
+    displayName: text(),
+    /** Public bio, for topic similarity; null: X didn't return one */
+    bio: text(),
+    /** Public counts at lookup; null: unknown (never a made-up zero) */
+    followers: integer(),
+    following: integer(),
+    postCount: integer(),
+    accountCreatedAt: timestamp({ withTimezone: true }),
+    /** How the user found it: typed it, picked it from the watchlist, or from accounts in their scans */
+    source: text().$type<"manual" | "watchlist" | "scans">().notNull(),
+    /** "My Selected Accounts" mode analyzes exactly the selected peers */
+    selected: boolean().notNull().default(true),
+    lookedUpAt: timestamp({ withTimezone: true }).notNull(),
+    lastRefreshedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.profileId, t.platformUserId), index().on(t.profileId)],
+);
+
+export type GrowthPeer = typeof growthPeersTable.$inferSelect;
+
+/**
+ * Derived numbers for one public post of a peer, kept after the 14-day post
+ * cache expires so observations can span longer. No post text is kept:
+ * only the length bucket, opening style, matched topic labels and public
+ * metrics. Deleted with the peer; older than 90 days is cleaned up.
+ */
+export const peerPostStatsTable = pgTable(
+  "peer_post_stats",
+  {
+    peerId: uuid()
+      .notNull()
+      .references(() => growthPeersTable.id, { onDelete: "cascade" }),
+    platformPostId: text().notNull(),
+    postedAt: timestamp({ withTimezone: true }).notNull(),
+    lengthBucket: text().notNull(),
+    hookType: text().notNull(),
+    /** The user's topic labels found in the post (at the time it was read) */
+    topics: text().array().notNull().default(sql`'{}'::text[]`),
+    likes: integer(),
+    replies: integer(),
+    reposts: integer(),
+    impressions: integer(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.peerId, t.platformPostId] }), index().on(t.peerId, t.postedAt)],
+);
+
+export type PeerPostStat = typeof peerPostStatsTable.$inferSelect;
+
+/** A peer refresh (live X read): counted in the plan's monthly X reads */
+export const peerRefreshesTable = pgTable(
+  "peer_refreshes",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    platformUserId: text().notNull(),
+    xPostReads: integer().notNull().default(0),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.profileId, t.createdAt)],
+);

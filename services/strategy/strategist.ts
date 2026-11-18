@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { countAiCallsSince } from "@/db/queries/aiUsage";
 import { getProfileTimeZone } from "@/db/queries/content";
+import { getPeerSuggestions } from "@/db/queries/peers";
 import {
   completeStrategyGeneration,
   failStrategyGeneration,
@@ -20,12 +21,14 @@ import {
   startStrategyGeneration,
 } from "@/db/queries/strategy";
 import type { GrowthExperiment, Profile } from "@/db/schema";
+import { isMissingSchemaError, missingSchemaMessage } from "@/db/schemaErrors";
 import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import { estimateCostUsd } from "@/lib/ai/pricing";
 import { effectiveLimits } from "@/lib/billing/plans";
 import { isValidTimeZone, zonedParts } from "@/lib/content/calendar";
 import type { GrowthPost } from "@/lib/growth/analyze";
 import { buildEvidence, experimentResult, maxMinutesPerDay, planDays, type RawStrategy, validateStrategy } from "@/lib/strategy/plan";
+import type { PeerMode } from "@/lib/strategy/types";
 import {
   EXPERIMENT_DIMENSIONS,
   EXPERIMENT_METRICS,
@@ -41,6 +44,7 @@ import { recordAiUsage } from "@/services/ai/usage";
 import { currentPeriodStart, getUsageBudget } from "@/services/billing/budget";
 import { buildGrowthReport } from "@/services/growth/report";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
+import { isPeerRefreshEnabled, loadPeers, strategyPeerEvidence, userTopics } from "@/services/strategy/peers";
 
 // Day 34 Growth Strategist. Scout computes the evidence from data it already
 // stores (no X call); one AI call turns it into priorities, a 7-day plan and
@@ -52,7 +56,7 @@ import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 export const STRATEGY_USD = 0.12;
 const MAX_OUTPUT_TOKENS = 6_000;
 
-export type StrategyPreferences = { objective: StrategyObjective; weeklyMinutes: number };
+export type StrategyPreferences = { objective: StrategyObjective; weeklyMinutes: number; peerMode?: PeerMode };
 
 async function timeZone(profileId: string): Promise<string> {
   const saved = await getProfileTimeZone(profileId);
@@ -64,7 +68,7 @@ async function timeZone(profileId: string): Promise<string> {
  * (90 days for patterns, 30 for the overview), conversations, trends, leads
  * and content. No X or AI call.
  */
-export async function collectStrategyInputs(profile: Profile, now = new Date()) {
+export async function collectStrategyInputs(profile: Profile, now = new Date(), peerMode: PeerMode = "recommended") {
   const tz = await timeZone(profile.id);
   const [report90, report30, counts, active] = await Promise.all([
     buildGrowthReport(profile, { range: 90, tz, now }),
@@ -83,6 +87,34 @@ export async function collectStrategyInputs(profile: Profile, now = new Date()) 
   // What patterns rest on: original posts with impressions (as Growth's findings)
   const analyzed = posts.filter((post) => post.kind !== "reply" && post.impressions !== null);
 
+  // Day 35: peers (stored data only), who the user is, who they could engage with
+  const userFollowers = has30 ? report30.overview.followers.current : null;
+  // Peer tables missing (database behind the code): the strategy still
+  // works, says so, and the error is logged; any other error is thrown
+  let peers: Awaited<ReturnType<typeof loadPeers>> = [];
+  let peersUnavailable = false;
+  try {
+    peers = await loadPeers(profile, userFollowers, now);
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+    console.error(missingSchemaMessage("Peer intelligence", "20261118002427_peer_intelligence"));
+    peersUnavailable = true;
+  }
+  const peerData = peersUnavailable
+    ? { items: [], missing: ["Peer intelligence isn't available right now: the database needs an update."], used: [] }
+    : strategyPeerEvidence(peers, peerMode);
+  const brain = resolveScoutBrain(profile);
+  const list = (values: (string | null | undefined)[]) => values.filter((v): v is string => Boolean(v && v.trim())).slice(0, 6).join(", ");
+  const who = list([profile.occupation, ...(brain?.goals.knownFor.map((k) => k.label) ?? [profile.knownFor])]);
+  const audience = list(brain?.goals.targetAudience.map((a) => a.label) ?? [profile.targetAudience]);
+  const topics = list(userTopics(profile));
+  const profileContext = [
+    who && `From your profile: ${who}.`,
+    (audience || profile.leadProfile?.product) &&
+      `From your profile: audience ${audience || "not set"}${profile.leadProfile?.product ? `; you offer ${profile.leadProfile.product}` : ""}.`,
+    topics && `From your profile: topics you care about: ${topics}.`,
+  ].filter((line): line is string => Boolean(line));
+
   const evidence = buildEvidence({
     hasAccount: Boolean(has30),
     handle: has30 ? report30.account.handle : null,
@@ -100,13 +132,24 @@ export async function collectStrategyInputs(profile: Profile, now = new Date()) 
     leads: counts.leads,
     content: counts.content,
     previousSnapshot: active?.evidence.snapshot ?? null,
+    peerItems: peerData.items,
+    peerMissing: peerData.missing,
+    profileContext,
+    engagementTargets: counts.watchedHandles.length
+      ? `Accounts you watch in Scout: ${counts.watchedHandles.map((h) => `@${h}`).join(", ")}. Their conversations appear in Opportunities.`
+      : null,
   });
-  return { tz, evidence, posts, active };
+  return { tz, evidence, posts, active, peers, peersUsed: peerData.used, peersUnavailable };
 }
 
 /** Same evidence and settings → same key: nothing new to plan from */
 export function evidenceKey(evidence: StrategyEvidence, prefs: StrategyPreferences): string {
-  const basis = JSON.stringify({ prefs, mode: evidence.mode, items: evidence.items.map((item) => item.text), missing: evidence.missing });
+  const basis = JSON.stringify({
+    prefs: { ...prefs, peerMode: prefs.peerMode ?? "recommended" },
+    mode: evidence.mode,
+    items: evidence.items.map((item) => item.text),
+    missing: evidence.missing,
+  });
   return createHash("sha256").update(basis).digest("base64url").slice(0, 32);
 }
 
@@ -165,6 +208,18 @@ const strategySchema = z.object({
   experimentReviews: z
     .array(z.object({ experimentId: z.string(), recommendation: z.enum(["continue", "modify", "stop"]), reason: txt(250) }))
     .describe("For each running experiment given: continue, modify or stop, from its result"),
+  roadmap: z
+    .array(
+      z.object({
+        week: z.number().int(),
+        objective: txt(120),
+        activities: z.array(txt(180)).describe("2-3 concrete activities"),
+        milestone: txt(160).describe("What the user will have learned or done; never a follower number or growth rate"),
+        modules: z.array(z.enum(STRATEGY_MODULES)),
+        measure: z.array(txt(140)).describe("What to look at, e.g. replies per post"),
+      }),
+    )
+    .describe("Exactly 4 weeks of direction for stages starting and learning; empty for stage evidence"),
 });
 
 const INSTRUCTIONS = `You are Scout's growth strategist for one person on X. Turn the evidence Scout computed into a practical plan for the next 7 days.
@@ -175,6 +230,10 @@ Rules:
 - Confidence: "limited" patterns are hypotheses. Put them in toTest (or an experiment), never in doMore. Each evidence item states the real period its posts cover; respect it (a few days of posts is not a sustained trend).
 - "Do less" only when an evidence item with supportsReduction=true backs it. Never recommend dropping something based on a few posts.
 - If mode is "starter", there isn't enough history: say so in the summary, make priorities about building a baseline and testing, and propose experiments. Don't present guesses as findings.
+- Evidence types: own_analytics (the user's own results: the only basis for "do more" and "do less"), peer_observation (what other accounts' posts show, each compared with itself: only ideas to test, never proof it will work for this user; never a reason to "do less"), scout_activity (conversations, trends, leads, content Scout found), profile_context (what the user told Scout; not a measurement).
+- Stage: "starting" (no own data), "learning" (some, not enough), "evidence". In starting/learning, answer concretely: who to engage with (accounts and conversations from the evidence), what to post first (tied to their offer and audience), which topics to test, how often to post within their time, what to measure, and how to adjust after week 1. No generic advice like "post consistently" without the concrete action.
+- Peers: say which accounts an idea comes from (by handle, as in the evidence), describe what they did, and phrase it as something to adapt and test. Never copy their posts, never imply their results will repeat for this user. If the evidence says the user's selected accounts lack data, say so plainly; don't substitute other accounts.
+- Roadmap (stages starting and learning): 4 weeks, each with an objective, 2-3 activities, a learning milestone, modules and what to measure. No follower targets, no growth rates, no guarantees.
 - Serve the user's objective (customers, leads, authority, audience or conversations), not follower count by default. Use their work, audience, expertise and offer.
 - Tasks: small and realistic, at most 2 a day and limits.maxMinutesPerDay minutes a day, total within limits.weeklyMinutes, spread over the week (don't pack the first days). Each links to one Scout module: studio (write posts), calendar (plan content), trends (explore trends), opportunities (reply to conversations), leads (review leads in CRM), growth (review analytics), discovery (search topics).
 - Experiments: at least 14 days (5+ posts per variant need time). Dimension length/hook/time only with the listed variant keys (Scout measures those from posts); otherwise dimension "custom" with short variant names. Don't promise significance.
@@ -205,7 +264,8 @@ function experimentForAi(experiment: GrowthExperiment, result: ExperimentResult)
  * → one AI call → validation → save.
  */
 export async function generateStrategy(profile: Profile, prefs: StrategyPreferences, now = new Date()): Promise<GenerateResult> {
-  const { tz, evidence, posts, active } = await collectStrategyInputs(profile, now);
+  const peerMode: PeerMode = prefs.peerMode ?? "recommended";
+  const { tz, evidence, posts, active } = await collectStrategyInputs(profile, now, peerMode);
   const key = evidenceKey(evidence, prefs);
   if (active && active.evidenceKey === key && now.getTime() - active.createdAt.getTime() < 7 * 86_400_000) {
     return { ok: true, cached: true, message: "Your plan is still current: nothing in your data or settings changed since it was made." };
@@ -222,7 +282,16 @@ export async function generateStrategy(profile: Profile, prefs: StrategyPreferen
   const weekStart = localToday(tz, now);
   const generating = await startStrategyGeneration(
     profile.id,
-    { mode: evidence.mode, objective: prefs.objective, weeklyMinutes: prefs.weeklyMinutes, weekStart, evidence, evidenceKey: key },
+    {
+      mode: evidence.mode,
+      stage: evidence.stage ?? null,
+      peerMode,
+      objective: prefs.objective,
+      weeklyMinutes: prefs.weeklyMinutes,
+      weekStart,
+      evidence,
+      evidenceKey: key,
+    },
     now,
   );
   if (!generating) return { ok: false, message: "Your strategy is already being written. Refresh in a moment." };
@@ -246,6 +315,9 @@ export async function generateStrategy(profile: Profile, prefs: StrategyPreferen
         voice: brain?.voice.summary ?? profile.voiceDescription,
       },
       mode: evidence.mode,
+      stage: evidence.stage,
+      peerMode: peerMode === "selected" ? "the user's selected accounts only" : "Scout's most comparable saved peers",
+      // Handles are already in the peer observation texts
       evidence: evidence.items,
       missingData: evidence.missing,
       changesSinceLastPlan: evidence.changes,
@@ -286,6 +358,7 @@ export async function generateStrategy(profile: Profile, prefs: StrategyPreferen
         evidence,
         weeklyMinutes: prefs.weeklyMinutes,
         activeExperiments: experiments,
+        objective: prefs.objective,
       });
     if (!valid) {
       await failStrategyGeneration(generating.id, parsed.success ? "no recommendation passed validation" : "malformed output");
@@ -324,8 +397,10 @@ function defaultObjective(profile: Profile): StrategyObjective {
  * current evidence is recomputed (database only) so the overview is live
  * even between strategy updates.
  */
-export async function loadStrategyView(profile: Profile, strategyId: string | null, now = new Date()) {
-  const { tz, evidence, posts, active } = await collectStrategyInputs(profile, now);
+export async function loadStrategyView(profile: Profile, strategyId: string | null, now = new Date(), peerModeOverride?: PeerMode) {
+  const current = await getActiveStrategy(profile.id);
+  const peerMode: PeerMode = peerModeOverride ?? current?.peerMode ?? "recommended";
+  const { tz, evidence, posts, active, peers, peersUsed, peersUnavailable } = await collectStrategyInputs(profile, now, peerMode);
   const selected = strategyId ? await getStrategy(profile.id, strategyId) : active;
   const [tasks, experiments, history, used] = await Promise.all([
     selected ? getPlanTasks(profile.id, selected.id) : Promise.resolve([]),
@@ -335,8 +410,13 @@ export async function loadStrategyView(profile: Profile, strategyId: string | nu
   ]);
   const cap = effectiveLimits(profile.plan, profile.usageLimitOverrides).maxStrategyGenerationsPerMonth;
   const prefs: StrategyPreferences = active
-    ? { objective: active.objective as StrategyObjective, weeklyMinutes: active.weeklyMinutes }
-    : { objective: defaultObjective(profile), weeklyMinutes: 120 };
+    ? { objective: active.objective as StrategyObjective, weeklyMinutes: active.weeklyMinutes, peerMode }
+    : { objective: defaultObjective(profile), weeklyMinutes: 120, peerMode };
+  const suggestions = peersUnavailable ? [] : await getPeerSuggestions(
+    profile.id,
+    peers.map((p) => p.peer.platformUserId),
+    now,
+  );
   return {
     tz,
     today: localToday(tz, now),
@@ -349,5 +429,11 @@ export async function loadStrategyView(profile: Profile, strategyId: string | nu
     prefs,
     allowance: { used, cap },
     upToDate: Boolean(active && active.evidenceKey === evidenceKey(evidence, prefs)),
+    peers,
+    peersUnavailable,
+    peersUsed: peersUsed.map((p) => p.peer.id),
+    suggestions,
+    peerLimit: effectiveLimits(profile.plan, profile.usageLimitOverrides).maxSavedPeers,
+    peerRefreshEnabled: isPeerRefreshEnabled(),
   };
 }

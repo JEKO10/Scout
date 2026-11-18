@@ -49,7 +49,14 @@ export type EvidenceItem = {
    * groups of the same dimension on the same metric (e.g. standard vs short
    * posts), merged so one comparison never counts as two pieces of evidence.
    */
-  kind: "works" | "weak" | "comparison" | "activity" | "trend" | "lead" | "content" | "metric";
+  kind: "works" | "weak" | "comparison" | "activity" | "trend" | "lead" | "content" | "metric" | "peer" | "profile";
+  /**
+   * Day 35: where it comes from. Confidence means different things per type:
+   * own analytics can support decisions; peer observations only suggest
+   * ideas to test (never proof for this user); profile context isn't a measurement.
+   * Absent on plans made before Day 35 (derived from `kind`).
+   */
+  evidenceType?: EvidenceType;
   /** Plain statement with the numbers, shown to the user next to recommendations */
   text: string;
   source: "growth" | "opportunities" | "trends" | "leads" | "studio" | "calendar";
@@ -58,8 +65,64 @@ export type EvidenceItem = {
   confidence: Confidence | null;
   /** Strong enough to justify doing less of something (a weak pattern over enough posts) */
   supportsReduction: boolean;
+  /** Peer observations: the accounts behind it (shown as "influenced by") */
+  peerHandles?: string[];
   /** Patterns: the metric that was compared; recommendations must speak about this metric */
   metric?: "impressions" | "engagement_rate" | "replies";
+};
+
+export const EVIDENCE_TYPES = ["own_analytics", "peer_observation", "scout_activity", "profile_context"] as const;
+export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
+
+/** What a recommendation rests on, shown to the user; "hypothesis": nothing measured yet */
+export type SourceType = EvidenceType | "hypothesis";
+
+export const SOURCE_LABEL: Record<SourceType, string> = {
+  own_analytics: "Your analytics",
+  peer_observation: "Peer observation",
+  scout_activity: "Scout activity",
+  profile_context: "Your profile",
+  hypothesis: "Initial hypothesis",
+};
+
+/** The evidence type of an item, also for items saved before Day 35 */
+export function evidenceTypeOf(item: Pick<EvidenceItem, "kind" | "evidenceType">): EvidenceType {
+  if (item.evidenceType) return item.evidenceType;
+  if (item.kind === "peer") return "peer_observation";
+  if (item.kind === "profile") return "profile_context";
+  if (item.kind === "activity" || item.kind === "trend" || item.kind === "lead" || item.kind === "content") return "scout_activity";
+  return "own_analytics";
+}
+
+/** Day 35 strategy stages, from the user's own evidence (not post counts alone) */
+export const STRATEGY_STAGES = ["starting", "learning", "evidence"] as const;
+export type StrategyStage = (typeof STRATEGY_STAGES)[number];
+
+export const STAGE_INFO: Record<StrategyStage, { label: string; focus: string }> = {
+  starting: {
+    label: "Starting out",
+    focus: "Not enough of your own data yet. The plan builds a baseline: first posts, relevant conversations and small experiments.",
+  },
+  learning: {
+    label: "Learning",
+    focus: "Some of your own data, but not enough to be sure. The plan compares early patterns with your hypotheses and keeps testing.",
+  },
+  evidence: {
+    label: "Evidence-based growth",
+    focus: "Enough of your own data over a meaningful period. The plan builds on what works for you and uses peers only for new ideas.",
+  },
+};
+
+/** One week of the four-week roadmap */
+export type RoadmapWeek = {
+  week: number;
+  objective: string;
+  activities: string[];
+  milestone: string;
+  modules: StrategyModule[];
+  measure: string[];
+  /** "template": Scout's deterministic fallback when the AI's roadmap didn't pass validation */
+  source?: "ai" | "template";
 };
 
 /** Patterns, from Growth findings (as opposed to counts of activity) */
@@ -87,6 +150,8 @@ export type StrategySnapshot = {
 };
 
 export type StrategyEvidence = {
+  /** Day 35; absent on evidence saved before */
+  stage?: StrategyStage;
   items: EvidenceItem[];
   /** What Scout doesn't know, said plainly to the AI and the user */
   missing: string[];
@@ -102,6 +167,10 @@ export type Recommendation = {
   evidenceIds: string[];
   /** The metrics of the cited patterns, computed by Scout (absent on plans made before) */
   measuredBy?: string[];
+  /** Day 35: what it rests on, computed from the cited evidence */
+  sources?: SourceType[];
+  /** Peer accounts whose observations it cites */
+  influencedBy?: string[];
 };
 export type Priority = {
   title: string;
@@ -110,6 +179,8 @@ export type Priority = {
   /** "hypothesis": rests only on limited-confidence patterns, to test rather than act on */
   basis?: "evidence" | "hypothesis";
   measuredBy?: string[];
+  sources?: SourceType[];
+  influencedBy?: string[];
 };
 export type ExperimentReview = { experimentId: string; recommendation: "continue" | "modify" | "stop"; reason: string };
 
@@ -122,6 +193,8 @@ export type StrategyContent = {
   toTest?: Recommendation[];
   doLess: Recommendation[];
   experimentReviews: ExperimentReview[];
+  /** Day 35: four weeks of direction (starting and learning stages) */
+  roadmap?: RoadmapWeek[];
 };
 
 // ---- Experiments ---------------------------------------------------------------
@@ -221,3 +294,39 @@ export type ExperimentResult =
       confidence: Confidence;
       note: string;
     };
+
+// ---- Day 35 Peer Intelligence -----------------------------------------------------
+
+/**
+ * direct: similar niche and comparable size. aspirational: much larger,
+ * worth studying, never a benchmark. unknown: size not known, so
+ * comparability can't be judged. The groups are never mixed.
+ */
+export type PeerCategory = "direct" | "aspirational" | "unknown";
+
+export const PEER_CATEGORY_LABEL: Record<PeerCategory, string> = {
+  direct: "Direct peer",
+  aspirational: "Aspirational",
+  unknown: "Comparability unknown",
+};
+
+/** Posts a peer needs inside the observation window before patterns are looked for */
+export const PEER_MIN_POSTS = 10;
+/** Peer post stats are kept this long (derived numbers only, no text) */
+export const PEER_STATS_RETENTION_DAYS = 90;
+
+/**
+ * Whose observations a strategy uses. recommended: Scout picks the most
+ * comparable saved peers (direct first). selected: exactly the accounts the
+ * user selected, never substituted, even when they lack data.
+ */
+export const PEER_MODES = ["recommended", "selected"] as const;
+export type PeerMode = (typeof PEER_MODES)[number];
+
+export const PEER_MODE_LABEL: Record<PeerMode, string> = {
+  recommended: "Scout recommended",
+  selected: "My selected accounts",
+};
+
+/** Peers analyzed per strategy */
+export const MAX_PEERS_PER_STRATEGY = 5;

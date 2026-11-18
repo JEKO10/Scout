@@ -38,9 +38,20 @@ export type UsageLimits = {
   maxTrendInsightsPerDay: number;
   /**
    * Day 34: AI Growth Strategist plans per calendar month (UTC), on request
-   * and cached; ~$0.10 each, paid from the scoring budget. PROPOSED, pending approval.
+   * and cached; ~$0.10 each, paid from the scoring budget (approved 2026-11-17).
    */
   maxStrategyGenerationsPerMonth: number;
+  /**
+   * Day 35 Peer Intelligence: accounts saved for comparison (one X user
+   * read each when added, ~$0.01). Approved 2026-11-18.
+   */
+  maxSavedPeers: number;
+  /**
+   * Day 35: live peer refreshes per month (up to 20 posts each, paid from
+   * the plan's monthly X reads). Off everywhere until PEER_REFRESH_ENABLED
+   * is enabled (approved as configuration 2026-11-18; refreshes stay off).
+   */
+  maxPeerRefreshesPerMonth: number;
 };
 
 /** Automatic Scout (Day 18): how often a plan may scan on its own. */
@@ -88,6 +99,8 @@ export const PLANS: Record<
       maxSavedLeads: 25,
       maxTrendInsightsPerDay: 2,
       maxStrategyGenerationsPerMonth: 1,
+      maxSavedPeers: 3,
+      maxPeerRefreshesPerMonth: 0,
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
@@ -110,6 +123,8 @@ export const PLANS: Record<
       maxSavedLeads: 250,
       maxTrendInsightsPerDay: 5,
       maxStrategyGenerationsPerMonth: 4,
+      maxSavedPeers: 10,
+      maxPeerRefreshesPerMonth: 4,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
     // Weekly: ~4 collections x 20 posts = ~86 of the 600 monthly reads
@@ -131,6 +146,8 @@ export const PLANS: Record<
       maxSavedLeads: 1000,
       maxTrendInsightsPerDay: 10,
       maxStrategyGenerationsPerMonth: 8,
+      maxSavedPeers: 20,
+      maxPeerRefreshesPerMonth: 8,
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
@@ -153,6 +170,8 @@ export const PLANS: Record<
       maxSavedLeads: 5000,
       maxTrendInsightsPerDay: 30,
       maxStrategyGenerationsPerMonth: 60,
+      maxSavedPeers: 50,
+      maxPeerRefreshesPerMonth: 40,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
     growthCollection: { autoEveryHours: 24 },

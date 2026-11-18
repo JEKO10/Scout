@@ -3,6 +3,7 @@
 import { refresh } from "next/cache";
 import { z } from "zod";
 
+import { deletePeer, setPeerSelected } from "@/db/queries/peers";
 import {
   addExperimentObservation,
   countActiveExperiments,
@@ -13,9 +14,17 @@ import {
   updatePlanTask,
 } from "@/db/queries/strategy";
 import { requireProfile } from "@/lib/auth/session";
-import { planDays } from "@/lib/strategy/plan";
-import { EXPERIMENT_MIN_PER_VARIANT, EXPERIMENT_PRESETS, STRATEGY_OBJECTIVES, WEEKLY_MINUTES_OPTIONS } from "@/lib/strategy/types";
+import { experimentWindow, planDays } from "@/lib/strategy/plan";
+import {
+  EXPERIMENT_MIN_PER_VARIANT,
+  EXPERIMENT_PRESETS,
+  PEER_MODES,
+  STRATEGY_OBJECTIVES,
+  WEEKLY_MINUTES_OPTIONS,
+} from "@/lib/strategy/types";
+import { xHandleSchema } from "@/schemas/onboarding";
 import { track } from "@/services/analytics/track";
+import { addPeer, refreshPeer } from "@/services/strategy/peers";
 import { generateStrategy } from "@/services/strategy/strategist";
 
 type ActionResult = { ok: boolean; message: string };
@@ -25,11 +34,12 @@ const MAX_ACTIVE_EXPERIMENTS = 3;
 
 const prefsSchema = z.object({
   objective: z.enum(STRATEGY_OBJECTIVES),
+  peerMode: z.enum(PEER_MODES).default("recommended"),
   weeklyMinutes: z.number().refine((value) => (WEEKLY_MINUTES_OPTIONS as readonly number[]).includes(value)),
 });
 
 /** "Generate my plan" / "Update plan": cached unless data or settings changed */
-export async function generateStrategyAction(input: { objective: string; weeklyMinutes: number }): Promise<ActionResult> {
+export async function generateStrategyAction(input: { objective: string; weeklyMinutes: number; peerMode?: string }): Promise<ActionResult> {
   const { profile } = await requireProfile();
   const parsed = prefsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Choose an objective and how much time you have." };
@@ -75,12 +85,8 @@ export async function startExperimentAction(experimentId: string): Promise<Actio
   const experiment = await getExperiment(profile.id, parsed.data);
   if (!experiment || experiment.status !== "proposed") return { ok: false, message: "Experiment not found." };
   if (!(await canStartAnother(profile.id))) return { ok: false, message: `Run at most ${MAX_ACTIVE_EXPERIMENTS} experiments at once.` };
-  const now = new Date();
-  await updateExperiment(profile.id, experiment.id, {
-    status: "active",
-    startedAt: now,
-    endsAt: new Date(now.getTime() + experiment.durationDays * 86_400_000),
-  });
+  // Proposals made before the 14-day minimum start with at least 14 days
+  await updateExperiment(profile.id, experiment.id, { status: "active", ...experimentWindow(experiment.durationDays) });
   refresh();
   return { ok: true, message: "Experiment started." };
 }
@@ -139,4 +145,49 @@ export async function finishExperimentAction(experimentId: string, input: { stat
   if (!saved) return { ok: false, message: "Experiment not found." };
   refresh();
   return { ok: true, message: parsed.data.status === "completed" ? "Experiment completed." : "Experiment stopped." };
+}
+
+// ---- Day 35 Peer Intelligence ------------------------------------------------------
+
+const peerSourceSchema = z.enum(["manual", "watchlist", "scans"]);
+
+/** Adds an account to learn from: one X user read for its public profile */
+export async function addPeerAction(handle: string, source: string = "manual"): Promise<ActionResult> {
+  const { profile } = await requireProfile();
+  const parsed = xHandleSchema.safeParse(handle);
+  const parsedSource = peerSourceSchema.safeParse(source);
+  if (!parsed.success || !parsedSource.success) return { ok: false, message: "Enter a valid X handle." };
+  const result = await addPeer(profile, parsed.data, parsedSource.data);
+  if (!result.ok) return { ok: false, message: result.message };
+  refresh();
+  return { ok: true, message: `Added @${result.peer.handle}.` };
+}
+
+export async function removePeerAction(peerId: string): Promise<ActionResult> {
+  const { profile } = await requireProfile();
+  const parsed = id.safeParse(peerId);
+  if (!parsed.success || !(await deletePeer(profile.id, parsed.data))) return { ok: false, message: "Account not found." };
+  refresh();
+  return { ok: true, message: "Removed." };
+}
+
+/** In "My selected accounts" mode, exactly the selected peers are analyzed */
+export async function setPeerSelectedAction(peerId: string, selected: boolean): Promise<ActionResult> {
+  const { profile } = await requireProfile();
+  const parsed = id.safeParse(peerId);
+  if (!parsed.success || typeof selected !== "boolean" || !(await setPeerSelected(profile.id, parsed.data, selected))) {
+    return { ok: false, message: "Account not found." };
+  }
+  refresh();
+  return { ok: true, message: selected ? "Selected." : "Deselected." };
+}
+
+/** A live read of a peer's recent posts: off unless approved (PEER_REFRESH_ENABLED) */
+export async function refreshPeerAction(peerId: string): Promise<ActionResult> {
+  const { profile } = await requireProfile();
+  const parsed = id.safeParse(peerId);
+  if (!parsed.success) return { ok: false, message: "Invalid request." };
+  const result = await refreshPeer(profile, parsed.data);
+  if (result.ok) refresh();
+  return result;
 }

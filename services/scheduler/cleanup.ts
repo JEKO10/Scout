@@ -6,6 +6,8 @@ import {
   deleteOldJobs,
   deleteOldRejectedCandidates,
 } from "@/db/queries/cleanup";
+import { deleteOldPeerStats } from "@/db/queries/peers";
+import { isMissingSchemaError, missingSchemaMessage } from "@/db/schemaErrors";
 
 /**
  * Retention policy (Day 18):
@@ -17,6 +19,7 @@ import {
  *   it's past the delivery window and out of the cache.
  * - Scheduler jobs: 30 days after creation, once finished. Open jobs stay.
  * - Expired X fetch locks: cleared on every pass.
+ * - Peer post stats (Day 35, numbers only, no text): 90 days after the post.
  * Scored candidates, opportunities, replies and runs are user data: never
  * deleted by cleanup.
  */
@@ -29,11 +32,17 @@ export const RETENTION = {
 };
 
 export async function runCleanup() {
-  const [cachedPosts, rejectedCandidates, jobs, locks] = await Promise.all([
+  const [cachedPosts, rejectedCandidates, jobs, locks, peerStats] = await Promise.all([
     deleteExpiredCachedPosts(RETENTION.cachedPostDays, RETENTION.batch),
     deleteOldRejectedCandidates(RETENTION.rejectedCandidateDays, RETENTION.batch),
     deleteOldJobs(RETENTION.finishedJobDays, RETENTION.batch),
     clearExpiredFetchLocks(),
+    // Day 35: derived peer post numbers, 90 days (null: the table isn't there yet; logged)
+    deleteOldPeerStats().catch((error: unknown) => {
+      if (!isMissingSchemaError(error)) throw error;
+      console.error(missingSchemaMessage("Peer stats cleanup", "20261118002427_peer_intelligence"));
+      return null;
+    }),
   ]);
-  return { cachedPosts, rejectedCandidates, jobs, locks };
+  return { cachedPosts, rejectedCandidates, jobs, locks, peerStats };
 }

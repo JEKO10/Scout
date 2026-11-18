@@ -138,6 +138,14 @@ function defaultStrategy(input: { evidence: { id: string }[]; runningExperiments
       { title: "Bad variant", hypothesis: "x", dimension: "length", variantA: "tiny", variantB: "long", metric: "impressions", durationDays: 14, actions: [] },
     ],
     experimentReviews: input.runningExperiments.map((e) => ({ experimentId: e.id, recommendation: "continue", reason: "Not enough posts yet." })),
+    roadmap: [1, 2, 3, 4].map((week) => ({
+      week,
+      objective: `Week ${week} objective`,
+      activities: ["Publish two posts about the problem you solve", "Reply to three relevant conversations"],
+      milestone: week === 4 ? "Reach 1,000 followers" : "A first baseline",
+      modules: ["studio", "opportunities"],
+      measure: ["Replies per post"],
+    })),
   };
 }
 

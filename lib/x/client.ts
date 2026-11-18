@@ -169,6 +169,28 @@ export async function getXUserWithCounts(
   return body.data ? { profile: normalizeXUser(body.data), counts: normalizeXUserCounts(body.data) } : null;
 }
 
+/**
+ * Day 35 Peer Intelligence: one public account with its counts, bio and
+ * creation date, all in the same single user read.
+ */
+export async function getXPeerProfile(handle: string): Promise<{
+  profile: NormalizedProfile;
+  counts: NormalizedProfileCounts;
+  bio: string | null;
+  createdAt: Date | null;
+} | null> {
+  const body = await xFetch<XApiUserResponse>(`/users/by/username/${encodeURIComponent(handle)}`, {
+    "user.fields": "profile_image_url,public_metrics,description,created_at",
+  });
+  if (!body.data) return null;
+  return {
+    profile: normalizeXUser(body.data),
+    counts: normalizeXUserCounts(body.data),
+    bio: body.data.description?.trim() || null,
+    createdAt: body.data.created_at ? new Date(body.data.created_at) : null,
+  };
+}
+
 export type XTimelineQuery = {
   /** One page, never paginated: every post read is billed */
   limit: number;

@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { InfoHint, TitleWithHint } from "@/components/InfoHint";
+import { AddPeerForm, AddSuggestionButton, PeerRowControls } from "@/components/strategy/PeerControls";
 import {
   ActiveExperimentControls,
   PresetButton,
@@ -14,9 +15,10 @@ import {
   TaskControls,
 } from "@/components/strategy/StrategyControls";
 import type { GrowthExperiment, GrowthPlanTask } from "@/db/schema";
+import { isMissingSchemaError, missingSchemaMessage } from "@/db/schemaErrors";
 import { requireProfile } from "@/lib/auth/session";
 import { CONFIDENCE_LABEL } from "@/lib/growth/analyze";
-import { planDays } from "@/lib/strategy/plan";
+import { citableEvidence, planDays } from "@/lib/strategy/plan";
 import {
   type EvidenceItem,
   EXPERIMENT_PRESETS,
@@ -24,8 +26,16 @@ import {
   MEASURABLE_VARIANTS,
   MODULE_LINK,
   OBJECTIVE_LABEL,
+  PEER_CATEGORY_LABEL,
+  PEER_MIN_POSTS,
+  PEER_MODE_LABEL,
+  type PeerMode,
+  SOURCE_LABEL,
+  type SourceType,
+  STAGE_INFO,
   type StrategyModule,
   type StrategyObjective,
+  type StrategyStage,
 } from "@/lib/strategy/types";
 import { track } from "@/services/analytics/track";
 import { loadStrategyView } from "@/services/strategy/strategist";
@@ -82,6 +92,23 @@ function MeasuredBy({ metrics }: { metrics?: string[] }) {
   if (!metrics?.length) return null;
   return <small className="strategy-measured">Measured by {metrics.join(" and ")}</small>;
 }
+
+/** Where a recommendation comes from, and which peer accounts influenced it */
+function Sources({ sources, influencedBy }: { sources?: SourceType[]; influencedBy?: string[] }) {
+  if (!sources?.length && !influencedBy?.length) return null;
+  return (
+    <small className="strategy-sources">
+      {sources?.map((source) => (
+        <span key={source} className="strategy-source" data-source={source}>
+          {SOURCE_LABEL[source]}
+        </span>
+      ))}
+      {influencedBy?.length ? <span> Influenced by {influencedBy.map((h) => `@${h}`).join(", ")}</span> : null}
+    </small>
+  );
+}
+
+const fmtDate = (date: Date | null) => (date ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date) : "—");
 
 function variantLabel(experiment: GrowthExperiment, variant: string): string {
   if (experiment.dimension === "custom") return variant;
@@ -197,12 +224,31 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
   if (!profile.onboardingCompleted) redirect("/onboarding");
   const params = await searchParams;
   const requested = typeof params.strategy === "string" && /^[0-9a-f-]{36}$/i.test(params.strategy) ? params.strategy : null;
-  const view = await loadStrategyView(profile, requested);
+  let view: Awaited<ReturnType<typeof loadStrategyView>>;
+  try {
+    view = await loadStrategyView(profile, requested);
+  } catch (error) {
+    // The database is behind the code: say so instead of a crash (logged)
+    if (!isMissingSchemaError(error)) throw error;
+    console.error(missingSchemaMessage("Growth Strategy", "20261118002427_peer_intelligence"));
+    return (
+      <main className="workspace shell enter-content">
+        <EmptyState
+          title="Growth Strategy needs a database update."
+          description="This version of Scout expects database changes that haven't been applied yet. Your data is safe; the page works again once the update runs."
+        />
+      </main>
+    );
+  }
   await track("growth_strategy_viewed", { profileId: profile.id });
 
   const { evidence, strategy, today } = view;
+  const stage: StrategyStage = (strategy?.stage as StrategyStage | null) ?? evidence.stage ?? (evidence.mode === "starter" ? "starting" : "evidence");
+  const peerMode: PeerMode = view.prefs.peerMode ?? "recommended";
   const s = evidence.snapshot;
-  const items = new Map(evidence.items.map((item) => [item.id, item]));
+  // A plan's citations point into the evidence it was made from (IDs and
+  // numbers as they were then), not into today's recomputed evidence
+  const items = new Map(citableEvidence(strategy, evidence).map((item) => [item.id, item]));
   // Comparisons (two sides of one pattern) are shown once, with what works
   const works = evidence.items.filter((item) => item.kind === "works" || item.kind === "comparison");
   const weak = evidence.items.filter((item) => item.kind === "weak");
@@ -235,7 +281,7 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
         </div>
         {!view.isHistory && (
           <StrategyForm
-            initial={view.prefs}
+            initial={{ ...view.prefs, peerMode }}
             hasStrategy={Boolean(strategy)}
             upToDate={view.upToDate}
             allowance={view.allowance}
@@ -249,12 +295,26 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
         </p>
       )}
 
-      {(strategy?.mode ?? evidence.mode) === "starter" && (
-        <div className="strategy-banner" data-kind="starter">
-          <strong>Starter plan:</strong> there isn&apos;t enough history yet for evidence-based recommendations. This plan builds a
-          baseline and tests ideas; treat its suggestions as hypotheses, not findings.
-        </div>
-      )}
+      <section className="strategy-stage" data-stage={stage} aria-label="Growth stage">
+        <ol className="strategy-stage-steps">
+          {(["starting", "learning", "evidence"] as StrategyStage[]).map((step) => (
+            <li key={step} aria-current={step === stage ? "step" : undefined}>
+              {STAGE_INFO[step].label}
+            </li>
+          ))}
+        </ol>
+        <p>
+          <strong>{STAGE_INFO[stage].label}.</strong> {STAGE_INFO[stage].focus}
+        </p>
+        <InfoHint label="Where recommendations come from">
+          <ul className="strategy-list">
+            <li><strong>Your analytics</strong>: your own posts and their numbers. The only basis for &ldquo;Do more&rdquo; and &ldquo;Do less&rdquo;.</li>
+            <li><strong>Peer observations</strong>: what other accounts&apos; posts show, each compared only with itself. Ideas to test, never proof it will work for you.</li>
+            <li><strong>Scout activity</strong>: conversations, trends, leads and drafts Scout found for you.</li>
+            <li><strong>Your profile</strong> and <strong>initial hypotheses</strong>: what you told Scout and reasonable first steps, not measurements.</li>
+          </ul>
+        </InfoHint>
+      </section>
 
       <section className="stat-cards" aria-label="Growth overview">
         <div className="stat-card">
@@ -312,6 +372,7 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
                   {p.basis === "hypothesis" && <span className="strategy-pill strategy-pill-test">Hypothesis to test</span>}
                   <p>{p.why}</p>
                   <MeasuredBy metrics={p.measuredBy} />
+                  <Sources sources={p.sources} influencedBy={p.influencedBy} />
                   <Evidence ids={p.evidenceIds} items={items} />
                 </li>
               ))}
@@ -329,6 +390,7 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
                     <li key={r.text}>
                       {r.text}
                       <MeasuredBy metrics={r.measuredBy} />
+                      <Sources sources={r.sources} influencedBy={r.influencedBy} />
                       <Evidence ids={r.evidenceIds} items={items} />
                     </li>
                   ))}
@@ -347,6 +409,7 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
                       <li key={r.text}>
                         {r.text}
                         <MeasuredBy metrics={r.measuredBy} />
+                      <Sources sources={r.sources} influencedBy={r.influencedBy} />
                         <Evidence ids={r.evidenceIds} items={items} />
                       </li>
                     ))}
@@ -368,6 +431,7 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
                     <li key={r.text}>
                       {r.text}
                       <MeasuredBy metrics={r.measuredBy} />
+                      <Sources sources={r.sources} influencedBy={r.influencedBy} />
                       <Evidence ids={r.evidenceIds} items={items} />
                     </li>
                   ))}
@@ -429,6 +493,41 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
         </section>
       </div>
 
+      {content?.roadmap && content.roadmap.length > 0 && (
+        <section className="dash-card" aria-labelledby="roadmap-title">
+          <div className="dash-card-head">
+            <h2 id="roadmap-title">Four-week roadmap</h2>
+            <InfoHint label="About the roadmap">
+              Direction for your first month; this week&apos;s plan below is what to do now. No follower targets or growth rates: Scout
+              can&apos;t promise those.{content.roadmap[0]?.source === "template" ? " This roadmap is Scout's standard one for your stage." : ""}
+            </InfoHint>
+          </div>
+          <ol className="strategy-roadmap">
+            {content.roadmap.map((week) => (
+              <li key={week.week}>
+                <span className="strategy-pill">Week {week.week}</span>
+                <strong>{week.objective}</strong>
+                <ul className="strategy-list">
+                  {week.activities.map((activity) => (
+                    <li key={activity}>{activity}</li>
+                  ))}
+                </ul>
+                <p className="memory-note">
+                  Milestone: {week.milestone} · Measure: {week.measure.join(", ")}
+                </p>
+                <p className="strategy-task-meta">
+                  {week.modules.map((module) => (
+                    <Link key={module} href={MODULE_LINK[module].href} className="text-link">
+                      {MODULE_LINK[module].label}
+                    </Link>
+                  ))}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
       {strategy && content && (
         <section className="dash-card" aria-labelledby="plan-title">
           <div className="dash-card-head">
@@ -462,6 +561,79 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
           )}
         </section>
       )}
+
+      <section className="dash-card" aria-labelledby="peers-title">
+        <div className="dash-card-head">
+          <h2 id="peers-title">Peer intelligence</h2>
+          <span className="strategy-pill">{PEER_MODE_LABEL[peerMode]}</span>
+        </div>
+        <p className="memory-note">
+          Accounts you&apos;d like to learn from. Scout compares each account&apos;s posts with its own other posts (never raw numbers
+          across accounts) and turns patterns into ideas to test. {peerMode === "selected"
+            ? "My selected accounts: the plan uses exactly the accounts you select, nothing else."
+            : "Scout recommended: the plan uses your most comparable accounts, direct peers first."}
+        </p>
+        {view.peersUnavailable ? (
+          <p className="memory-note">Peer intelligence isn&apos;t available right now: the database needs an update.</p>
+        ) : view.peers.length === 0 ? (
+          <p className="memory-note">No accounts yet.</p>
+        ) : (
+          <ul className="peer-list">
+            {view.peers.map(({ peer, score, stats, findings, sufficient, lastPostAt }) => (
+              <li key={peer.id} className="peer-row" data-used={view.peersUsed.includes(peer.id) ? "" : undefined}>
+                <div className="peer-main">
+                  <strong>@{peer.handle}</strong>
+                  <span className="strategy-pill" data-category={score.category}>
+                    {PEER_CATEGORY_LABEL[score.category]}
+                  </span>
+                  {view.peersUsed.includes(peer.id) && <span className="strategy-pill">In this plan</span>}
+                  <p className="memory-note">
+                    {peer.followers === null ? "Followers unknown" : `${peer.followers.toLocaleString("en-US")} followers`} ·{" "}
+                    {stats.length === 0
+                      ? "No posts read yet"
+                      : `${stats.length} posts read (${fmtDate(stats.reduce((a, b) => (a.postedAt < b.postedAt ? a : b)).postedAt)}–${fmtDate(lastPostAt)})`}{" "}
+                    ·{" "}
+                    {sufficient
+                      ? `${findings.length} ${findings.length === 1 ? "pattern" : "patterns"}`
+                      : `needs ${PEER_MIN_POSTS}+ posts to compare`}
+                    {peer.lastRefreshedAt && ` · read from X ${fmtDate(peer.lastRefreshedAt)}`}
+                  </p>
+                  <InfoHint label="Why this category">
+                    <ul className="strategy-list">
+                      {score.reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  </InfoHint>
+                </div>
+                <PeerRowControls peerId={peer.id} handle={peer.handle} selected={peer.selected} refreshEnabled={view.peerRefreshEnabled} />
+              </li>
+            ))}
+          </ul>
+        )}
+        <AddPeerForm disabled={view.peersUnavailable || view.peers.length >= view.peerLimit} />
+        <p className="memory-note">
+          {view.peers.length} of {view.peerLimit} accounts. Adding one reads its public profile from X once.{" "}
+          {view.peerRefreshEnabled
+            ? "You can read a peer's recent posts once a week (uses your plan's X reads)."
+            : "Scout analyzes posts it has already read for you: add an account to your watchlist so scans read its posts. Reading peers' posts directly isn't enabled yet."}
+        </p>
+        {view.suggestions.length > 0 && (
+          <details className="more-list">
+            <summary>Suggestions from your watchlist and scans ({view.suggestions.length})</summary>
+            <ul className="peer-suggestions">
+              {view.suggestions.map((suggestion) => (
+                <li key={suggestion.platformUserId}>
+                  <span>
+                    @{suggestion.handle} <small className="memory-note">· suggestion: {suggestion.reason}</small>
+                  </span>
+                  <AddSuggestionButton handle={suggestion.handle} source={suggestion.source} />
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </section>
 
       <section className="dash-card" aria-labelledby="experiments-title">
         <div className="dash-card-head">

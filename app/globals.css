@@ -6879,3 +6879,146 @@ a.stat-card:hover {
   color: var(--muted-ink);
   font-size: 0.8rem;
 }
+
+/* ---- Day 35 Peer Intelligence ---- */
+.strategy-stage {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.strategy-stage p {
+  margin: 0;
+}
+.strategy-stage-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-stage-steps li {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--muted-ink);
+  font-size: 0.8rem;
+}
+.strategy-stage-steps li[aria-current] {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+  font-weight: 600;
+}
+.strategy-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+  color: var(--muted-ink);
+  font-size: 0.78rem;
+}
+.strategy-source {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.strategy-source[data-source="own_analytics"] {
+  border-color: var(--green);
+}
+.strategy-source[data-source="peer_observation"],
+.strategy-source[data-source="hypothesis"] {
+  border-color: var(--amber);
+}
+.strategy-roadmap {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-roadmap > li {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.strategy-roadmap .strategy-pill {
+  justify-self: start;
+}
+.peer-list,
+.peer-suggestions {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.peer-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.peer-row[data-used] {
+  border-color: var(--blue);
+}
+.peer-main {
+  flex: 1 1 300px;
+}
+.peer-main p {
+  margin: 4px 0 0;
+}
+.peer-main .strategy-pill {
+  margin-left: 8px;
+  text-transform: none;
+}
+.strategy-pill[data-category="aspirational"] {
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+.strategy-pill[data-category="unknown"] {
+  background: var(--surface);
+  color: var(--muted-ink);
+}
+.peer-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0;
+}
+.peer-add input {
+  flex: 1 1 200px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.peer-add .form-message {
+  flex-basis: 100%;
+}
+.peer-suggestions li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.peer-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}

@@ -11,7 +11,15 @@ import {
   updateTaskAction,
 } from "@/actions/strategy";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { OBJECTIVE_LABEL, STRATEGY_OBJECTIVES, type StrategyObjective, WEEKLY_MINUTES_OPTIONS } from "@/lib/strategy/types";
+import {
+  OBJECTIVE_LABEL,
+  PEER_MODE_LABEL,
+  PEER_MODES,
+  type PeerMode,
+  STRATEGY_OBJECTIVES,
+  type StrategyObjective,
+  WEEKLY_MINUTES_OPTIONS,
+} from "@/lib/strategy/types";
 
 type Message = { ok: boolean; text: string } | null;
 
@@ -33,16 +41,17 @@ export function StrategyForm({
   upToDate,
   allowance,
 }: {
-  initial: { objective: StrategyObjective; weeklyMinutes: number };
+  initial: { objective: StrategyObjective; weeklyMinutes: number; peerMode: PeerMode };
   hasStrategy: boolean;
   upToDate: boolean;
   allowance: { used: number; cap: number };
 }) {
   const [objective, setObjective] = useState(initial.objective);
   const [weeklyMinutes, setWeeklyMinutes] = useState(initial.weeklyMinutes);
+  const [peerMode, setPeerMode] = useState(initial.peerMode);
   const [message, setMessage] = useState<Message>(null);
   const [pending, startTransition] = useTransition();
-  const changed = objective !== initial.objective || weeklyMinutes !== initial.weeklyMinutes;
+  const changed = objective !== initial.objective || weeklyMinutes !== initial.weeklyMinutes || peerMode !== initial.peerMode;
   const left = Math.max(0, allowance.cap - allowance.used);
 
   return (
@@ -67,13 +76,23 @@ export function StrategyForm({
           ))}
         </select>
       </label>
+      <label>
+        <span>Learn from</span>
+        <select value={peerMode} onChange={(event) => setPeerMode(event.target.value as PeerMode)} disabled={pending}>
+          {PEER_MODES.map((value) => (
+            <option key={value} value={value}>
+              {PEER_MODE_LABEL[value]}
+            </option>
+          ))}
+        </select>
+      </label>
       <button
         type="button"
         className="primary-button"
         disabled={pending || left === 0 || (hasStrategy && upToDate && !changed)}
         onClick={() =>
           startTransition(async () => {
-            const result = await generateStrategyAction({ objective, weeklyMinutes });
+            const result = await generateStrategyAction({ objective, weeklyMinutes, peerMode });
             setMessage({ ok: result.ok, text: result.message });
           })
         }

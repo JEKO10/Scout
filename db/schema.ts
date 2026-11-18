@@ -24,6 +24,7 @@ import type {
   StoredInterestBrain,
   StoredVoiceBrain,
 } from "../lib/ai/schemas/scoutBrain";
+import type { AutomationAction, AutomationActionResult, AutomationConditions } from "../lib/automations/types";
 import { PLAN_IDS, type UsageLimits } from "../lib/billing/plans";
 import type { ContentReview, IdeaSuggestion } from "../lib/content/types";
 import type { LeadProfile, LeadScoreBreakdown } from "../lib/leads/types";
@@ -1616,3 +1617,124 @@ export const peerRefreshesTable = pgTable(
   },
   (t) => [index().on(t.profileId, t.createdAt)],
 );
+
+// ---- Day 36 Automation Scout -------------------------------------------------
+
+export const automationTriggerEnum = pgEnum("automation_trigger", [
+  "new_opportunity",
+  "high_intent_lead",
+  "relevant_trend",
+  "followup_due",
+  "content_due",
+  "strategy_task_due",
+]);
+
+/**
+ * WHEN (trigger) → IF (conditions) → THEN (actions). Evaluated on data
+ * Scout already stored, never by calling X. AI actions run only when the
+ * user turned them on. Nothing is ever posted, replied or sent on X.
+ */
+export const automationsTable = pgTable(
+  "automations",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    description: text(),
+    trigger: automationTriggerEnum().notNull(),
+    conditions: jsonb().$type<AutomationConditions>().notNull().default({}),
+    actions: text().$type<AutomationAction>().array().notNull(),
+    enabled: boolean().notNull().default(true),
+    /** Created from a template (lib/automations/templates.ts) */
+    templateKey: text(),
+    /**
+     * "New" triggers: events stored after this moment (moved forward as they
+     * are processed). Set when the automation is created or enabled, so
+     * turning one on never replays history.
+     */
+    cursorAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    /** Held while one worker processes it */
+    lockedUntil: timestamp({ withTimezone: true }),
+    lastRunAt: timestamp({ withTimezone: true }),
+    lastError: text(),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId), index().on(t.enabled, t.lastRunAt)],
+);
+
+export type Automation = typeof automationsTable.$inferSelect;
+
+export const automationRunStatusEnum = pgEnum("automation_run_status", ["running", "succeeded", "skipped", "failed"]);
+
+/**
+ * One automation × one event. The unique key is what makes processing
+ * idempotent: an event is never handled twice by the same automation.
+ */
+export const automationRunsTable = pgTable(
+  "automation_runs",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    automationId: uuid()
+      .notNull()
+      .references(() => automationsTable.id, { onDelete: "cascade" }),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    /** Stable: e.g. "opportunity:<id>" or "content:<id>:<due time>" */
+    eventKey: text().notNull(),
+    entityId: text().notNull(),
+    status: automationRunStatusEnum().notNull(),
+    /** Why it was skipped or failed; never secrets or post text */
+    reason: text(),
+    actionResults: jsonb().$type<AutomationActionResult[]>().notNull().default([]),
+    attempts: integer().notNull().default(1),
+    nextRetryAt: timestamp({ withTimezone: true }),
+    /** Counted in the monthly allowance (conditions matched, actions attempted; once) */
+    counted: boolean().notNull().default(false),
+    aiCostUsd: doublePrecision(),
+    durationMs: integer(),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.automationId, t.eventKey), index().on(t.profileId, t.createdAt.desc()), index().on(t.status, t.nextRetryAt)],
+);
+
+export type AutomationRun = typeof automationRunsTable.$inferSelect;
+
+export const automationItemKindEnum = pgEnum("automation_item_kind", ["notification", "review", "reminder"]);
+export const automationItemStatusEnum = pgEnum("automation_item_status", ["open", "reviewed", "dismissed", "done"]);
+
+/**
+ * What automations put in front of the user: notifications (read/unread)
+ * and review-queue items (open → reviewed / dismissed / done). Items of one
+ * run share its eventKey, so closing one marks its notification read.
+ */
+export const automationItemsTable = pgTable(
+  "automation_items",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    automationId: uuid().references(() => automationsTable.id, { onDelete: "set null" }),
+    // Items stay in the queue when their automation (and its history) is deleted
+    runId: uuid().references(() => automationRunsTable.id, { onDelete: "set null" }),
+    kind: automationItemKindEnum().notNull(),
+    eventKey: text().notNull(),
+    sourceModule: text().notNull(),
+    entityType: text().notNull(),
+    entityId: text().notNull(),
+    title: text().notNull(),
+    body: text(),
+    /** A Scout page, built by Scout (never from user or AI input) */
+    href: text().notNull(),
+    dueAt: timestamp({ withTimezone: true }),
+    status: automationItemStatusEnum().notNull().default("open"),
+    readAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.runId, t.kind), index().on(t.profileId, t.status, t.createdAt.desc())],
+);
+
+export type AutomationItem = typeof automationItemsTable.$inferSelect;

@@ -16,6 +16,7 @@ import { getXUsageToday } from "@/db/queries/xApiUsage";
 import type { Profile, ScanJob } from "@/db/schema";
 import { PLANS } from "@/lib/billing/plans";
 import { getScoutLimits } from "@/lib/scout/testLimits";
+import { type AutomationTickResult, runAutomations } from "@/services/automations/engine";
 import { blockedUntilTomorrow, currentPeriodStart } from "@/services/billing/budget";
 import { type AutoCollectionOutcome, runDueGrowthCollections } from "@/services/growth/collect";
 import { deliverPendingNotifications, type DeliveryTickResult } from "@/services/notifications/deliver";
@@ -69,6 +70,8 @@ export type TickResult = {
   cleanup?: Awaited<ReturnType<typeof runCleanup>>;
   /** X connected: automatic Growth collections (off unless X_ANALYTICS_AUTO_ENABLED) */
   growth?: AutoCollectionOutcome[];
+  /** Day 36 Automation Scout (stored data only, no X calls) */
+  automations?: AutomationTickResult;
 };
 
 export async function runSchedulerTick({
@@ -119,6 +122,13 @@ export async function runSchedulerTick({
       if (growth.length) result.growth = growth;
     } catch (caught) {
       console.error("Growth collection failed", caught);
+    }
+  }
+  if (Date.now() - started < timeBudgetMs) {
+    try {
+      result.automations = await runAutomations({ timeBudgetMs: Math.min(60_000, timeBudgetMs - (Date.now() - started)) });
+    } catch (caught) {
+      console.error("Automations failed", caught);
     }
   }
   if (cleanup && Date.now() - started < timeBudgetMs) result.cleanup = await runCleanup();

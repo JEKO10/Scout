@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { GrowthPlanRemindersButton } from "@/components/automations/AutomationControls";
 import { EmptyState } from "@/components/EmptyState";
 import { InfoHint, TitleWithHint } from "@/components/InfoHint";
 import { AddPeerForm, AddSuggestionButton, PeerRowControls } from "@/components/strategy/PeerControls";
@@ -14,6 +15,7 @@ import {
   StrategyForm,
   TaskControls,
 } from "@/components/strategy/StrategyControls";
+import { listAutomations } from "@/db/queries/automations";
 import type { GrowthExperiment, GrowthPlanTask } from "@/db/schema";
 import { isMissingSchemaError, missingSchemaMessage } from "@/db/schemaErrors";
 import { requireProfile } from "@/lib/auth/session";
@@ -241,6 +243,13 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
     );
   }
   await track("growth_strategy_viewed", { profileId: profile.id });
+  // Day 36: are reminders for the plan's tasks on? (no reminder UI before the migration)
+  let planReminders: boolean | null = null;
+  try {
+    planReminders = (await listAutomations(profile.id)).some((a) => a.templateKey === "growth_plan" && a.enabled);
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+  }
 
   const { evidence, strategy, today } = view;
   const stage: StrategyStage = (strategy?.stage as StrategyStage | null) ?? evidence.stage ?? (evidence.mode === "starter" ? "starting" : "evidence");
@@ -536,6 +545,7 @@ async function Strategy({ searchParams }: { searchParams: PageProps<"/strategy">
               {doneCount} of {view.tasks.length} done
             </span>
           </div>
+          {planReminders !== null && !view.isHistory && <GrowthPlanRemindersButton active={planReminders} />}
           {view.tasks.length === 0 ? (
             <p className="memory-note">No tasks fit this week.</p>
           ) : (

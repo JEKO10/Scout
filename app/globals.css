@@ -7022,3 +7022,118 @@ a.stat-card:hover {
   gap: 6px;
   font-size: 0.85rem;
 }
+
+/* ---- Day 36 Automation Scout ---- */
+.automation-builder {
+  display: grid;
+  gap: 14px;
+}
+.automation-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted-ink);
+}
+.automation-field input,
+.automation-step select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+}
+.automation-step {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.automation-step legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.automation-step-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+.automation-conditions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.automation-chips,
+.automation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.automation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.automation-chip[data-ai] {
+  border-color: var(--amber);
+}
+.automation-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.automation-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.automation-row[data-unread] {
+  border-color: var(--blue);
+}
+.automation-row .strategy-pill {
+  margin-left: 8px;
+}
+.automation-error {
+  color: var(--red);
+}
+.automation-activity {
+  font-size: 0.9rem;
+}
+.automation-activity[data-status="failed"] .strategy-pill {
+  background: #fee2e2;
+  color: var(--red);
+}
+.automation-templates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.automation-templates li {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.automation-templates p {
+  margin: 4px 0 8px;
+}

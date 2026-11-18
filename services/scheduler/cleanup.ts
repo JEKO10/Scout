@@ -1,5 +1,6 @@
 import "server-only";
 
+import { deleteOldAutomationRecords } from "@/db/queries/automations";
 import {
   clearExpiredFetchLocks,
   deleteExpiredCachedPosts,
@@ -20,6 +21,7 @@ import { isMissingSchemaError, missingSchemaMessage } from "@/db/schemaErrors";
  * - Scheduler jobs: 30 days after creation, once finished. Open jobs stay.
  * - Expired X fetch locks: cleared on every pass.
  * - Peer post stats (Day 35, numbers only, no text): 90 days after the post.
+ * - Automation runs, closed queue items and read notifications (Day 36): 90 days.
  * Scored candidates, opportunities, replies and runs are user data: never
  * deleted by cleanup.
  */
@@ -32,7 +34,7 @@ export const RETENTION = {
 };
 
 export async function runCleanup() {
-  const [cachedPosts, rejectedCandidates, jobs, locks, peerStats] = await Promise.all([
+  const [cachedPosts, rejectedCandidates, jobs, locks, peerStats, automationRecords] = await Promise.all([
     deleteExpiredCachedPosts(RETENTION.cachedPostDays, RETENTION.batch),
     deleteOldRejectedCandidates(RETENTION.rejectedCandidateDays, RETENTION.batch),
     deleteOldJobs(RETENTION.finishedJobDays, RETENTION.batch),
@@ -43,6 +45,12 @@ export async function runCleanup() {
       console.error(missingSchemaMessage("Peer stats cleanup", "20261118002427_peer_intelligence"));
       return null;
     }),
+    // Day 36: automation history and closed queue items, 90 days
+    deleteOldAutomationRecords().catch((error: unknown) => {
+      if (!isMissingSchemaError(error)) throw error;
+      console.error(missingSchemaMessage("Automation cleanup", "20261118195718_automation_scout"));
+      return null;
+    }),
   ]);
-  return { cachedPosts, rejectedCandidates, jobs, locks, peerStats };
+  return { cachedPosts, rejectedCandidates, jobs, locks, peerStats, automationRecords };
 }

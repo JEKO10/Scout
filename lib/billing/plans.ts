@@ -52,6 +52,14 @@ export type UsageLimits = {
    * is enabled (approved as configuration 2026-11-18; refreshes stay off).
    */
   maxPeerRefreshesPerMonth: number;
+  /** Day 36 Automation Scout: automations that can be enabled at once (approved 2026-11-18). */
+  maxActiveAutomations: number;
+  /**
+   * Day 36: automation runs per calendar month (UTC). A run counts once when
+   * an event met the automation's conditions and its actions were attempted;
+   * skipped events, duplicates and retries don't count (approved 2026-11-18).
+   */
+  maxAutomationRunsPerMonth: number;
 };
 
 /** Automatic Scout (Day 18): how often a plan may scan on its own. */
@@ -101,6 +109,8 @@ export const PLANS: Record<
       maxStrategyGenerationsPerMonth: 1,
       maxSavedPeers: 3,
       maxPeerRefreshesPerMonth: 0,
+      maxActiveAutomations: 1,
+      maxAutomationRunsPerMonth: 25,
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
@@ -125,6 +135,8 @@ export const PLANS: Record<
       maxStrategyGenerationsPerMonth: 4,
       maxSavedPeers: 10,
       maxPeerRefreshesPerMonth: 4,
+      maxActiveAutomations: 5,
+      maxAutomationRunsPerMonth: 250,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
     // Weekly: ~4 collections x 20 posts = ~86 of the 600 monthly reads
@@ -148,6 +160,8 @@ export const PLANS: Record<
       maxStrategyGenerationsPerMonth: 8,
       maxSavedPeers: 20,
       maxPeerRefreshesPerMonth: 8,
+      maxActiveAutomations: 15,
+      maxAutomationRunsPerMonth: 1000,
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
@@ -172,6 +186,8 @@ export const PLANS: Record<
       maxStrategyGenerationsPerMonth: 60,
       maxSavedPeers: 50,
       maxPeerRefreshesPerMonth: 40,
+      maxActiveAutomations: 50,
+      maxAutomationRunsPerMonth: 5000,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
     growthCollection: { autoEveryHours: 24 },

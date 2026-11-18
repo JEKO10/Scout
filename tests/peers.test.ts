@@ -24,7 +24,7 @@ import {
   templateRoadmap,
   validateRoadmap,
 } from "@/lib/strategy/peers";
-import { buildEvidence, type EvidenceInput, type RawStrategy, unsupportedNumbers, validateStrategy } from "@/lib/strategy/plan";
+import { buildEvidence, type EvidenceInput, neutralPronouns, type RawStrategy, unsupportedNumbers, validateStrategy } from "@/lib/strategy/plan";
 import { addPeer, loadPeers, refreshPeer, strategyPeerEvidence } from "@/services/strategy/peers";
 import { generateStrategy, loadStrategyView } from "@/services/strategy/strategist";
 
@@ -377,4 +377,37 @@ test("isolation: one user's peers and their numbers are invisible to another", a
   assert.equal(await deletePeer(owner.id, peer.id), true);
   const left = await db.select().from(s.peerPostStatsTable).where(inArray(s.peerPostStatsTable.peerId, [peer.id]));
   assert.equal(left.length, 0, "removing a peer deletes its numbers");
+});
+
+test("peer evidence: grammar follows the account count; contradictions across accounts are stated", () => {
+  const items = peerEvidence([
+    { handle: "levels", category: "aspirational", findings: [finding({ dimension: "length", group: "short", metric: "impressions" })], postsAnalyzed: 30 },
+    { handle: "theo", category: "aspirational", findings: [finding({ dimension: "length", group: "standard", metric: "impressions" })], postsAnalyzed: 60 },
+    { handle: "kitze", category: "aspirational", findings: [finding({ dimension: "length", group: "standard", metric: "engagement_rate", groupMedian: 0.0103, restMedian: 0.0066 })], postsAnalyzed: 70 },
+    { handle: "quiet", category: "aspirational", findings: [], postsAnalyzed: 20 },
+  ]);
+  const short = items.find((i) => i.text.includes("short (up to 100 characters) posts got higher impressions"))!;
+  assert.match(short.text, /at 1 of 4 accounts with enough data/, "'accounts': the total is 4");
+  assert.match(short.text, /Not consistent: at @theo, standard-length \(101–280 characters\) posts got higher impressions per post\./);
+  assert.deepEqual(short.peerHandles, ["levels"], "'Influenced by' stays the accounts behind the pattern");
+  const rate = items.find((i) => i.metric === "engagement_rate")!;
+  assert.doesNotMatch(rate.text, /Not consistent/, "a different metric isn't a contradiction");
+  assert.match(peerEvidence([{ handle: "solo", category: "direct", findings: [finding()], postsAnalyzed: 20 }])[0].text, /at 1 of 1 account with enough data/);
+
+  // Two direct peers agree, a third shows the opposite: not "moderate" any more
+  const mixed = peerEvidence([
+    { handle: "a", category: "direct", findings: [finding()], postsAnalyzed: 21 },
+    { handle: "b", category: "direct", findings: [finding()], postsAnalyzed: 20 },
+    { handle: "c", category: "direct", findings: [finding({ group: "statement" })], postsAnalyzed: 20 },
+  ]).find((i) => i.peerHandles?.includes("a"))!;
+  assert.equal(mixed.confidence, "limited");
+  assert.match(mixed.text, /Not consistent: at @c/);
+});
+
+test("validation: no guessed gender for accounts", () => {
+  assert.equal(neutralPronouns("@theo saw more replies on his own posts. Her own data agrees."), "@theo saw more replies on their own posts. Their own data agrees.");
+  const evidence = buildEvidence(base({ peerItems: peerEvidence([{ handle: "a", category: "direct", findings: [finding()], postsAnalyzed: 21 }]) }));
+  const peerId = evidence.items.find((i) => i.kind === "peer")!.id;
+  const result = validateStrategy(raw({ toTest: [{ text: "Try questions, like @a did on his own posts", evidenceIds: [peerId] }] }), { evidence, weeklyMinutes: 60, activeExperiments: [] })!;
+  assert.equal(result.content.toTest![0].text, "Try questions, like @a did on their own posts");
 });

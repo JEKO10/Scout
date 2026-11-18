@@ -233,6 +233,9 @@ const GROUP_LABEL: Record<string, string> = {
   statement: "statement-opening",
 };
 
+const groupLabel = (f: Pick<PeerFinding, "dimension" | "group">) =>
+  f.dimension === "topic" ? `posts about "${f.group}"` : `${GROUP_LABEL[f.group] ?? f.group} posts`;
+
 const showValue = (metric: PeerMetric, v: number) => (metric === "engagement_rate" ? `${(v * 100).toFixed(2)}%` : v >= 100 ? Math.round(v).toLocaleString("en-US") : String(Math.round(v * 10) / 10));
 
 /**
@@ -257,10 +260,26 @@ export function peerEvidence(
     }
     for (const support of patterns.values()) {
       const f = support[0].finding;
-      const label = f.dimension === "topic" ? `posts about "${f.group}"` : `${GROUP_LABEL[f.group] ?? f.group} posts`;
+      const label = groupLabel(f);
       const accounts = support.length;
       const confident = support.filter((s) => s.finding.confidence !== "limited").length;
-      const confidence: Confidence = category === "direct" && accounts >= 2 && confident >= 2 ? "moderate" : "limited";
+      // Accounts in the same group whose posts point the other way on the same
+      // metric: a different group did better, or this group did worse
+      const backers = new Set(support.map((s) => s.handle));
+      const opposite = withData.flatMap((peer) =>
+        backers.has(peer.handle)
+          ? []
+          : peer.findings
+              .filter(
+                (g) =>
+                  g.dimension === f.dimension &&
+                  g.metric === f.metric &&
+                  (g.group === f.group ? g.direction !== f.direction : g.direction === f.direction),
+              )
+              .slice(0, 1)
+              .map((g) => ({ handle: peer.handle, finding: g })),
+      );
+      const confidence: Confidence = category === "direct" && accounts >= 2 && confident >= 2 && opposite.length === 0 ? "moderate" : "limited";
       const detail = support
         .map(
           (s) =>
@@ -271,12 +290,17 @@ export function peerEvidence(
       items.push({
         kind: "peer",
         evidenceType: "peer_observation",
-        text: `Peer observation, ${who}: ${label} got ${f.direction} ${METRIC_NAME[f.metric]} than the same account's other posts at ${accounts} of ${withData.length} ${accounts === 1 ? "account" : "accounts"} with enough data. ${detail}. Each account is compared only with itself; this suggests an idea to test, not a result for you.`,
+        text: `Peer observation, ${who}: ${label} got ${f.direction} ${METRIC_NAME[f.metric]} than the same account's other posts at ${accounts} of ${withData.length} ${withData.length === 1 ? "account" : "accounts"} with enough data. ${detail}.${
+          opposite.length
+            ? ` Not consistent: ${opposite.map((o) => `at @${o.handle}, ${groupLabel(o.finding)} got ${o.finding.direction} ${METRIC_NAME[o.finding.metric]}`).join("; ")}.`
+            : ""
+        } Each account is compared only with itself; this suggests an idea to test, not a result for you.`,
         source: "growth",
         sampleSize: support.reduce((sum, s) => sum + s.finding.groupN + s.finding.restN, 0),
         confidence,
         supportsReduction: false,
         metric: f.metric,
+        // The accounts behind the pattern; those pointing the other way are named in the text
         peerHandles: support.map((s) => s.handle),
         strength: accounts * 10 + confident,
       });

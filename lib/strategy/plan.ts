@@ -465,7 +465,15 @@ const STAGE_SUMMARY: Record<StrategyStage, string> = {
   evidence: "This plan builds on patterns in your own posts and uses peers only for new ideas to test.",
 };
 
-const clip = (value: string, max: number) => value.replace(/\s+/g, " ").trim().slice(0, max);
+/**
+ * Model text about accounts sometimes guesses a gender ("his own posts").
+ * The common possessive is made neutral; the instructions forbid the rest.
+ */
+export function neutralPronouns(text: string): string {
+  return text.replace(/\b(his|her)(\s+own)\b/gi, (_m, word: string, own: string) => `${word[0] === word[0].toUpperCase() ? "Their" : "their"}${own}`);
+}
+
+const clip = (value: string, max: number) => neutralPronouns(value.replace(/\s+/g, " ").trim()).slice(0, max);
 
 /**
  * Keeps only what the evidence supports: unknown evidence IDs are removed,

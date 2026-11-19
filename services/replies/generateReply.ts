@@ -6,6 +6,7 @@ import { getLeadByOpportunity } from "@/db/queries/leads";
 import { getOpportunityForProfile } from "@/db/queries/opportunities";
 import { getProfileById } from "@/db/queries/profiles";
 import { getCurrentReplies, type ReplySet, saveReplyDrafts } from "@/db/queries/replies";
+import { type AutoCallLimits, costCeilingUsd } from "@/lib/ai/ceiling";
 import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import { replyDraftsSchema } from "@/lib/ai/schemas/reply";
 import type { LeadProfile } from "@/lib/leads/types";
@@ -142,7 +143,13 @@ export async function generateReplies(
   {
     styles,
     instruction = null,
-  }: { styles: [ReplyStyle, ReplyStyle]; instruction?: string | null },
+    auto,
+  }: {
+    styles: [ReplyStyle, ReplyStyle];
+    instruction?: string | null;
+    /** Day 38 automatic preparation: output cap and the budget gate */
+    auto?: AutoCallLimits;
+  },
 ): Promise<GenerateRepliesResult> {
   const [opportunity, profile] = await Promise.all([
     getOpportunityForProfile(profileId, opportunityId),
@@ -169,12 +176,17 @@ export async function generateReplies(
       }
     : null;
 
+  const input = buildInput(context, opportunity, styles, revision, await leadContext(profile, opportunity.id));
+  // The worst case is reserved before an automatic call (the gate throws to stop it)
+  if (auto) await auto.gate(costCeilingUsd(AI_MODELS.reply, [INSTRUCTIONS, input], auto.maxOutputTokens));
   const response = await getOpenAI().responses.parse({
     model: AI_MODELS.reply,
     instructions: INSTRUCTIONS,
-    input: buildInput(context, opportunity, styles, revision, await leadContext(profile, opportunity.id)),
+    input,
+    ...(auto ? { max_output_tokens: auto.maxOutputTokens, reasoning: { effort: "low" as const } } : {}),
     text: { format: zodTextFormat(replyDraftsSchema, "reply_drafts") },
-  });
+  // An automatic call is made once: a hidden SDK retry could spend past its reservation
+  }, auto ? { maxRetries: 0 } : undefined);
   // Tied to the run that found the opportunity, for per-run cost analytics
   await recordAiUsage(
     { profileId, operation: "reply_generation", scoutRunId: opportunity.scoutRunId },

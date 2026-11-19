@@ -61,37 +61,27 @@ const icons: Record<string, ReactNode> = {
   ),
 };
 
-const sections = [
-  {
-    label: null,
-    items: [
-      { href: "/dashboard", label: "Home", icon: "home" },
-      { href: "/opportunities", label: "Opportunities", icon: "target" },
-      { href: "/activity", label: "Activity", icon: "chat" },
-      { href: "/watchlist", label: "Watchlist", icon: "eye" },
-      { href: "/discovery", label: "Discovery", icon: "compass" },
-    ],
-  },
-  {
-    label: "Grow",
-    items: [
-      { href: "/leads", label: "Lead Scout", icon: "user" },
-      { href: "/crm", label: "CRM", icon: "users" },
-      { href: "/trends", label: "Trend Scout", icon: "trend" },
-      { href: "/studio", label: "Content Studio", icon: "pen" },
-      { href: "/calendar", label: "Calendar", icon: "calendar" },
-      { href: "/growth", label: "Growth Intelligence", icon: "chart" },
-      { href: "/strategy", label: "Growth Strategy", icon: "flag" },
-      { href: "/automations", label: "Automations", icon: "bolt" },
-    ],
-  },
-  {
-    label: "Scout Brain",
-    items: [
-      { href: "/memory", label: "Memory", icon: "brain" },
-      { href: "/eval", label: "Brain eval", icon: "check" },
-    ],
-  },
+// Day 38: four places for everyday work; every other module stays one tap
+// away under "Explore tools" (all routes unchanged)
+const primary = [
+  { href: "/dashboard", label: "Home", icon: "home" },
+  { href: "/studio", label: "Content", icon: "pen" },
+  { href: "/growth", label: "Growth", icon: "chart" },
+];
+
+const explore = [
+  { href: "/opportunities", label: "Opportunities", icon: "target" },
+  { href: "/activity", label: "Activity", icon: "chat" },
+  { href: "/watchlist", label: "Watchlist", icon: "eye" },
+  { href: "/discovery", label: "Discovery", icon: "compass" },
+  { href: "/leads", label: "Lead Scout", icon: "user" },
+  { href: "/crm", label: "CRM", icon: "users" },
+  { href: "/trends", label: "Trend Scout", icon: "trend" },
+  { href: "/calendar", label: "Calendar", icon: "calendar" },
+  { href: "/strategy", label: "Growth Strategy", icon: "flag" },
+  { href: "/automations", label: "Automations", icon: "bolt" },
+  { href: "/memory", label: "Memory", icon: "brain" },
+  { href: "/eval", label: "Brain eval", icon: "check" },
 ];
 
 /** Sidebar navigation with the current section highlighted. */
@@ -122,12 +112,12 @@ export function NavLinks({ pathname }: { pathname?: string }) {
 
   return (
     <nav className="app-nav" aria-label="Primary navigation">
-      {sections.map((section) => (
-        <div key={section.label ?? "main"} className="app-nav-group">
-          {section.label && <p className="app-nav-label">{section.label}</p>}
-          {section.items.map(link)}
-        </div>
-      ))}
+      <div className="app-nav-group">{primary.map(link)}</div>
+      {/* Open while one of its pages is showing */}
+      <details className="app-nav-group app-nav-explore" open={explore.some((item) => pathname?.startsWith(item.href)) || undefined}>
+        <summary className="app-nav-label">Explore tools</summary>
+        {explore.map(link)}
+      </details>
       <div className="app-nav-group app-nav-bottom">
         {link({ href: "/account/settings", label: "Settings", icon: "settings" })}
       </div>

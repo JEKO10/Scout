@@ -191,7 +191,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))]);
 }
 
-async function replyStyles(profileId: string): Promise<[ReplyStyle, ReplyStyle]> {
+/** The styles of the last generation, else the first two: also used by the Day 38 inbox */
+export async function replyStyles(profileId: string): Promise<[ReplyStyle, ReplyStyle]> {
   const last = await getLastReplyStyles(profileId);
   const styles = [...new Set([...(last ?? []), ...REPLY_STYLES])].slice(0, 2) as ReplyStyle[];
   return [styles[0], styles[1]];

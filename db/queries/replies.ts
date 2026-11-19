@@ -145,3 +145,33 @@ export async function updateReplyContent(
     .returning();
   return reply;
 }
+
+/** Day 38 Inbox: approve one reply (the user still posts it on X) */
+export async function setReplyApproved(profileId: string, replyId: string): Promise<boolean> {
+  const rows = await db
+    .update(repliesTable)
+    .set({ status: "approved" })
+    .where(
+      and(
+        eq(repliesTable.id, replyId),
+        inArray(repliesTable.opportunityId, ownedOpportunityIds(profileId)),
+        ne(repliesTable.status, "discarded"),
+      ),
+    )
+    .returning({ id: repliesTable.id });
+  return rows.length > 0;
+}
+
+/** Day 38 Inbox: a declined reply's drafts are discarded (kept, never deleted) */
+export async function discardReplyDrafts(profileId: string, opportunityId: string): Promise<void> {
+  await db
+    .update(repliesTable)
+    .set({ status: "discarded" })
+    .where(
+      and(
+        eq(repliesTable.opportunityId, opportunityId),
+        inArray(repliesTable.opportunityId, ownedOpportunityIds(profileId)),
+        eq(repliesTable.status, "draft"),
+      ),
+    );
+}

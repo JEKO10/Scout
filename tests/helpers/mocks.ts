@@ -99,6 +99,10 @@ export const ai = {
   leadQuote: undefined as string | undefined,
   /** Day 34: replaces the default strategy answer (gets the parsed input) */
   strategy: null as null | ((input: Record<string, unknown>) => unknown),
+  /** Day 38: replaces the default Inbox revision (gets the current text and the instructions) */
+  revision: null as null | ((current: string, instructions: string) => string),
+  /** Day 38: formats whose next call fails with HTTP 500 */
+  failFormats: [] as string[],
 };
 
 /**
@@ -298,6 +302,12 @@ export function installMocks() {
       const format = body.text?.format?.name;
       ai.calls.push(format);
       ai.requests.push(body);
+      // Day 38: a queued HTTP 500 for this format (an OpenAI outage mid-preparation)
+      const forced = ai.failFormats.indexOf(format);
+      if (forced >= 0) {
+        ai.failFormats.splice(forced, 1);
+        return new Response(JSON.stringify({ error: { message: "server error" } }), { status: 500 });
+      }
       if (format === "candidate_judgments") {
         // The model echoes what was asked for, so pricing follows the request
         const model = String(body.model).startsWith("gpt-5.5") ? "gpt-5.5-2026-04-23" : String(body.model);
@@ -380,6 +390,15 @@ export function installMocks() {
         });
       }
       if (format === "content_section") return aiResponse({ text: "A sharper version of this post." });
+      // Day 38 Inbox: an edit of the current text (or ai.revision decides)
+      if (format === "inbox_revision") {
+        const { current } = JSON.parse(String(body.input)) as { current: string };
+        const instructions = String(body.instructions);
+        if (ai.revision) return aiResponse({ text: ai.revision(current, instructions) });
+        if (instructions.includes("noticeably shorter")) return aiResponse({ text: current.slice(0, Math.max(10, Math.floor(current.length / 2))) });
+        if (instructions.includes("a different way in")) return aiResponse({ text: `Another way in: ${current}` });
+        return aiResponse({ text: `${current} (edited)` });
+      }
       if (format === "content_review") {
         return aiResponse({
           assessment: "Clear point, but the hook is generic.",

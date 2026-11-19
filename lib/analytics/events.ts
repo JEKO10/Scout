@@ -49,6 +49,11 @@ export const SERVER_EVENTS = [
   // Day 34 Growth Strategist
   "growth_strategy_viewed",
   "growth_strategy_generated",
+  // Day 38 Approval Inbox (type and action only, never text)
+  "inbox_viewed",
+  "inbox_action",
+  "inbox_revision",
+  "inbox_prepared",
 ] as const;
 
 export type ClientEvent = (typeof CLIENT_EVENTS)[number];

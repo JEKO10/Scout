@@ -27,6 +27,7 @@ import type {
 import type { AutomationAction, AutomationActionResult, AutomationConditions } from "../lib/automations/types";
 import { PLAN_IDS, type UsageLimits } from "../lib/billing/plans";
 import type { ContentReview, IdeaSuggestion } from "../lib/content/types";
+import type { DeclineReason, InboxDecision, InboxItemType, RevisionKind } from "../lib/inbox/types";
 import type { LeadProfile, LeadScoreBreakdown } from "../lib/leads/types";
 import { REPLY_STYLES } from "../lib/replies/styles";
 import type { LearningProfile } from "../lib/scout/learning";
@@ -143,6 +144,13 @@ export const profilesTable = pgTable("profiles", {
   onboardingCompleted: boolean().notNull().default(false),
   // Day 27 Lead Scout: the user's ideal customer profile; null until set up
   leadProfile: jsonb().$type<LeadProfile>(),
+  // Day 38 Approval Inbox
+  /** Opt-in: Scout may use the writing budget to prepare drafts on its own (off by default) */
+  autoPrepareEnabled: boolean().notNull().default(false),
+  /** The scheduler's last preparation for this profile (claim + spacing) */
+  inboxPreparedAt: timestamp({ withTimezone: true }),
+  /** Inbox learning ignores signals from before this (the user reset it) */
+  inboxLearningResetAt: timestamp({ withTimezone: true }),
   ...timestamps,
 });
 
@@ -1295,6 +1303,8 @@ export const contentDraftsTable = pgTable(
     archivedAt: timestamp({ withTimezone: true }),
     /** A missed plan is recorded once for analytics; the draft itself doesn't change */
     missedNotedAt: timestamp({ withTimezone: true }),
+    /** Day 38: "scout" when Scout prepared it for the Home inbox; "studio" when the user wrote it there */
+    origin: text().$type<"studio" | "scout">().notNull().default("studio"),
     ...timestamps,
   },
   (t) => [index().on(t.profileId, t.updatedAt.desc()), index().on(t.profileId, t.plannedAt)],
@@ -1740,3 +1750,108 @@ export const automationItemsTable = pgTable(
 );
 
 export type AutomationItem = typeof automationItemsTable.$inferSelect;
+
+// ---- Day 38 Approval Inbox ---------------------------------------------------
+
+/**
+ * What the user decided on an Inbox card: one row per underlying event (its
+ * key), so a decision is never executed twice. Doubles as the audit history
+ * and as the learning signal (reason, edit lengths).
+ */
+export const inboxDecisionsTable = pgTable(
+  "inbox_decisions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    /** e.g. "draft:<id>", "opportunity:<id>", "followup:<lead id>:<due ms>" */
+    itemKey: text().notNull(),
+    itemType: text().$type<InboxItemType>().notNull(),
+    decision: text().$type<InboxDecision>().notNull(),
+    /** The optional "why wasn't this useful?" answer */
+    reason: text().$type<DeclineReason>(),
+    snoozedUntil: timestamp({ withTimezone: true }),
+    /** Learning facts only (topic, goal, lengths); never secrets */
+    meta: jsonb().$type<{ topic?: string | null; goal?: string | null; originalLength?: number; finalLength?: number; edited?: boolean }>(),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.profileId, t.itemKey), index().on(t.profileId, t.createdAt.desc())],
+);
+
+export type InboxDecisionRow = typeof inboxDecisionsTable.$inferSelect;
+
+/**
+ * Versions of an Inbox draft (post or reply): the original before the first
+ * change, and every AI edit or regeneration as a preview the user accepts
+ * or rejects. Nothing is overwritten without a decision.
+ */
+export const inboxRevisionsTable = pgTable(
+  "inbox_revisions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    itemKey: text().notNull(),
+    kind: text().$type<RevisionKind>().notNull(),
+    /** The quick edit ("shorter") or the user's own instruction */
+    instruction: text(),
+    text: text().notNull(),
+    /** AI versions: pending until "Use this" (accepted) or "Keep original" (rejected) */
+    outcome: text().$type<"pending" | "accepted" | "rejected">(),
+    ...timestamps,
+  },
+  (t) => [index().on(t.profileId, t.itemKey, t.createdAt.desc()), index().on(t.profileId, t.createdAt.desc())],
+);
+
+export type InboxRevision = typeof inboxRevisionsTable.$inferSelect;
+
+/**
+ * One paid preparation (a post or a reply set Scout wrote on its own). The
+ * unique slot per day and kind is the daily cap, even with two workers.
+ */
+export const inboxPreparationsTable = pgTable(
+  "inbox_preparations",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    /** UTC day */
+    day: date({ mode: "string" }).notNull(),
+    kind: text().$type<"post" | "reply">().notNull(),
+    slot: integer().notNull(),
+    /** The draft or opportunity it prepared */
+    entityId: text(),
+    status: text().$type<"running" | "done" | "skipped" | "failed">().notNull(),
+    note: text(),
+    costUsd: doublePrecision(),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.profileId, t.day, t.kind, t.slot), index().on(t.profileId, t.createdAt.desc())],
+);
+
+export type InboxPreparation = typeof inboxPreparationsTable.$inferSelect;
+
+/**
+ * Automatic preparation's spending per calendar month (UTC): the worst case
+ * of each call is added here before the call, by one conditional statement
+ * that refuses to pass the plan's cap, then settled to the recorded cost.
+ * Concurrent workers can't both pass the cap: the row is the lock.
+ */
+export const inboxAutoBudgetsTable = pgTable(
+  "inbox_auto_budgets",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    /** First day of the month */
+    month: date({ mode: "string" }).notNull(),
+    /** Settled costs plus open reservations, USD */
+    committedUsd: doublePrecision().notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.profileId, t.month)],
+);

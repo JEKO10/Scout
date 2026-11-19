@@ -66,6 +66,21 @@ export type UsageLimits = {
    * each; never more than the reads left). Approved 2026-11-18.
    */
   maxInitialImportPosts: number;
+  /**
+   * Day 38 automatic Inbox preparation (approved 2026-11-19; stays off until
+   * INBOX_AUTO_PREPARE_ENABLED=true and the user opts in). Ceilings, not
+   * promises: posts and reply sets Scout may prepare on its own per window
+   * (UTC day, week from Monday, or calendar month).
+   */
+  autoPrepareWindow: "day" | "week" | "month";
+  maxAutoPosts: number;
+  maxAutoReplySets: number;
+  /** Hard monthly ceiling on automatic AI spending (worst-case reservations), USD */
+  maxAutoPrepareUsdPerMonth: number;
+  /** Writing budget automatic preparation never touches: kept for what the user asks for, USD */
+  reservedManualWritingUsd: number;
+  /** Day 38: AI edits and regenerations per UTC day (each also needs writing budget) */
+  maxInboxRevisionsPerDay: number;
 };
 
 /** Automatic Scout (Day 18): how often a plan may scan on its own. */
@@ -118,6 +133,12 @@ export const PLANS: Record<
       maxActiveAutomations: 1,
       maxAutomationRunsPerMonth: 25,
       maxInitialImportPosts: 25,
+      autoPrepareWindow: "month",
+      maxAutoPosts: 2,
+      maxAutoReplySets: 0,
+      maxAutoPrepareUsdPerMonth: 0.05,
+      reservedManualWritingUsd: 0.15,
+      maxInboxRevisionsPerDay: 10,
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
@@ -145,6 +166,12 @@ export const PLANS: Record<
       maxActiveAutomations: 5,
       maxAutomationRunsPerMonth: 250,
       maxInitialImportPosts: 50,
+      autoPrepareWindow: "week",
+      maxAutoPosts: 3,
+      maxAutoReplySets: 3,
+      maxAutoPrepareUsdPerMonth: 0.3,
+      reservedManualWritingUsd: 0.2,
+      maxInboxRevisionsPerDay: 25,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
     // Weekly: ~4 collections x 20 posts = ~86 of the 600 monthly reads
@@ -171,6 +198,12 @@ export const PLANS: Record<
       maxActiveAutomations: 15,
       maxAutomationRunsPerMonth: 1000,
       maxInitialImportPosts: 100,
+      autoPrepareWindow: "day",
+      maxAutoPosts: 1,
+      maxAutoReplySets: 2,
+      maxAutoPrepareUsdPerMonth: 1.8,
+      reservedManualWritingUsd: 1.2,
+      maxInboxRevisionsPerDay: 50,
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
@@ -198,6 +231,12 @@ export const PLANS: Record<
       maxActiveAutomations: 50,
       maxAutomationRunsPerMonth: 5000,
       maxInitialImportPosts: 100,
+      autoPrepareWindow: "day",
+      maxAutoPosts: 2,
+      maxAutoReplySets: 4,
+      maxAutoPrepareUsdPerMonth: 5,
+      reservedManualWritingUsd: 15,
+      maxInboxRevisionsPerDay: 200,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
     growthCollection: { autoEveryHours: 24 },

@@ -19,6 +19,7 @@ import { getScoutLimits } from "@/lib/scout/testLimits";
 import { type AutomationTickResult, runAutomations } from "@/services/automations/engine";
 import { blockedUntilTomorrow, currentPeriodStart } from "@/services/billing/budget";
 import { type AutoCollectionOutcome, runDueGrowthCollections } from "@/services/growth/collect";
+import { runInboxPreparation } from "@/services/inbox/inbox";
 import { deliverPendingNotifications, type DeliveryTickResult } from "@/services/notifications/deliver";
 import { queueRunNotifications } from "@/services/notifications/queue";
 import { runScout } from "@/services/scout/runScout";
@@ -72,6 +73,8 @@ export type TickResult = {
   growth?: AutoCollectionOutcome[];
   /** Day 36 Automation Scout (stored data only, no X calls) */
   automations?: AutomationTickResult;
+  /** Day 38: opt-in Inbox preparation (off unless INBOX_AUTO_PREPARE_ENABLED; no X calls) */
+  inbox?: Awaited<ReturnType<typeof runInboxPreparation>>;
 };
 
 export async function runSchedulerTick({
@@ -129,6 +132,14 @@ export async function runSchedulerTick({
       result.automations = await runAutomations({ timeBudgetMs: Math.min(60_000, timeBudgetMs - (Date.now() - started)) });
     } catch (caught) {
       console.error("Automations failed", caught);
+    }
+  }
+  if (Date.now() - started < timeBudgetMs) {
+    try {
+      const inbox = await runInboxPreparation({ timeBudgetMs: Math.min(60_000, timeBudgetMs - (Date.now() - started)) });
+      if (!("disabled" in inbox)) result.inbox = inbox;
+    } catch (caught) {
+      console.error("Inbox preparation failed", caught);
     }
   }
   if (cleanup && Date.now() - started < timeBudgetMs) result.cleanup = await runCleanup();

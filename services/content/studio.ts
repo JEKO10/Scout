@@ -16,6 +16,7 @@ import {
 import { getTrend } from "@/db/queries/trends";
 import type { ContentDraft, Profile, Trend } from "@/db/schema";
 import type { AiOperation } from "@/db/schema";
+import { type AutoCallLimits, costCeilingUsd } from "@/lib/ai/ceiling";
 import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import {
   CONTENT_FORMATS,
@@ -47,7 +48,7 @@ export type StudioResult<T = object> = ({ ok: true } & T) | { ok: false; message
 
 // ---- Shared prompt rules ------------------------------------------------------
 
-const RULES = `You write X content for one specific person, described by their Scout profile. It must sound like them, not like an AI or a marketer.
+export const RULES = `You write X content for one specific person, described by their Scout profile. It must sound like them, not like an AI or a marketer.
 Never invent: personal experiences, customer stories or testimonials, revenue or other numbers, product features or capabilities, case studies or research. When a post needs a specific example or number only the user knows, write an editable placeholder in square brackets, e.g. [your example: the first tool you tried].
 No clickbait, no exaggerated claims, no "game-changer"-style clichés, no hashtags unless they'd naturally use one, at most one emoji and only if their voice uses emoji.
 Vary sentence structure. Every single post must be at most 280 characters.`;
@@ -87,14 +88,20 @@ async function callAi<T extends z.ZodType>(
   name: string,
   instructions: string,
   input: unknown,
+  auto?: AutoCallLimits,
 ): Promise<z.infer<T> | null> {
+  const body = JSON.stringify(input);
+  // Day 38 automatic preparation: the call's worst case is reserved first (the gate throws to stop it)
+  if (auto) await auto.gate(costCeilingUsd(AI_MODELS.reply, [instructions, body], auto.maxOutputTokens));
   const response = await getOpenAI().responses.parse({
     model: AI_MODELS.reply,
     instructions,
-    input: JSON.stringify(input),
-    max_output_tokens: MAX_OUTPUT_TOKENS,
+    input: body,
+    max_output_tokens: auto?.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
+    ...(auto ? { reasoning: { effort: "low" as const } } : {}),
     text: { format: zodTextFormat(schema, name) },
-  });
+  // An automatic call is made once: a hidden SDK retry could spend past its reservation
+  }, auto ? { maxRetries: 0 } : undefined);
   await recordAiUsage({ profileId: profile.id, operation }, response);
   const parsed = schema.safeParse(response.output_parsed);
   return parsed.success ? parsed.data : null;
@@ -103,7 +110,7 @@ async function callAi<T extends z.ZodType>(
 // ---- Context -------------------------------------------------------------------
 
 /** Who the user is: Scout Brain first, onboarding answers as fallback */
-function userContext(profile: Profile) {
+export function userContext(profile: Profile) {
   const brain = resolveScoutBrain(profile);
   return {
     occupation: profile.occupation,
@@ -228,7 +235,7 @@ function cleanPosts(posts: string[], format: ContentFormat): string[] {
   return format === "post" ? cleaned.slice(0, 1) : cleaned.slice(0, MAX_THREAD_POSTS);
 }
 
-async function writePosts(profile: Profile, input: z.infer<typeof writeInputSchema>, trend: Trend | undefined) {
+async function writePosts(profile: Profile, input: z.infer<typeof writeInputSchema>, trend: Trend | undefined, guidance: string[] = [], auto?: AutoCallLimits) {
   return callAi(
     profile,
     "content_generation",
@@ -238,7 +245,7 @@ async function writePosts(profile: Profile, input: z.infer<typeof writeInputSche
 Write ${input.format === "post" ? "one X post" : "an X thread"} for this person.
 ${input.format === "thread" ? "A thread: a first post that makes people want to read on, a logical progression with one point per post, and a clear ending. Don't number posts unless it helps." : ""}
 Length: ${LENGTH_GUIDE[input.format][input.length]}. Tone: ${input.tone}, but still in their own voice.
-title: a short internal name for the draft.`,
+title: a short internal name for the draft.${guidance.length ? `\nLearned from this user's own choices:\n${guidance.map((line) => `- ${line}`).join("\n")}` : ""}`,
     {
       user: userContext(profile),
       goal: { label: GOAL_LABEL[input.goal], guide: GOAL_GUIDE[input.goal] },
@@ -246,11 +253,20 @@ title: a short internal name for the draft.`,
       idea: input.idea ?? null,
       trend: trend ? trendContext(trend) : null,
     },
+    auto,
   );
 }
 
-/** Writes a new draft (post or thread) and saves it. Never published. */
-export async function createDraft(profile: Profile, raw: z.input<typeof writeInputSchema>): Promise<StudioResult<{ draftId: string }>> {
+/**
+ * Writes a new draft (post or thread) and saves it. Never published.
+ * Day 38: the Home inbox prepares posts through here too ("scout" origin),
+ * with what Scout learned from the user's Inbox decisions as guidance.
+ */
+export async function createDraft(
+  profile: Profile,
+  raw: z.input<typeof writeInputSchema>,
+  options: { origin?: "studio" | "scout"; guidance?: string[]; auto?: AutoCallLimits } = {},
+): Promise<StudioResult<{ draftId: string }>> {
   const input = writeInputSchema.safeParse(raw);
   if (!input.success) return { ok: false, message: "Check the options." };
   if (!input.data.topic && !input.data.idea && !input.data.trendId) return { ok: false, message: "Pick an idea or write a topic first." };
@@ -259,7 +275,7 @@ export async function createDraft(profile: Profile, raw: z.input<typeof writeInp
   const trend = input.data.trendId ? await getTrend(profile.id, input.data.trendId) : undefined;
   if (input.data.trendId && !trend) return { ok: false, message: "Trend not found." };
 
-  const result = await writePosts(profile, input.data, trend);
+  const result = await writePosts(profile, input.data, trend, options.guidance, options.auto);
   const posts = result ? cleanPosts(result.posts, input.data.format) : [];
   if (!result || posts.length === 0) return { ok: false, message: "Couldn't write it this time. Try again." };
   const draft = await insertDraft(profile.id, {
@@ -272,6 +288,7 @@ export async function createDraft(profile: Profile, raw: z.input<typeof writeInp
     topic: input.data.topic ?? input.data.idea?.hook ?? null,
     idea: input.data.idea ?? null,
     sourceTrendId: trend?.id ?? null,
+    origin: options.origin ?? "studio",
   });
   await track("content_draft_created", { profileId: profile.id, props: { format: input.data.format, goal: input.data.goal } });
   return { ok: true, draftId: draft.id };

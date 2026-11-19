@@ -8,6 +8,7 @@ import { AccountDataOverview } from "@/components/AccountDataOverview";
 import { AppHeader } from "@/components/AppHeader";
 import { AutoScoutSettings } from "@/components/AutoScoutSettings";
 import { PlanBilling } from "@/components/billing/PlanBilling";
+import { InboxSettings } from "@/components/inbox/InboxSettings";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { OpportunitySensitivityForm } from "@/components/OpportunitySensitivityForm";
 import { ProfileForm } from "@/components/ProfileForm";
@@ -22,6 +23,7 @@ import { detectPreferenceConflicts, normalizeReplyPreferences } from "@/lib/scou
 import { SCOPE_LABEL } from "@/lib/x/permissions";
 import { getBillingOverview } from "@/services/billing/account";
 import { BUDGET_MESSAGES, getUsageBudget, maxActiveWatchlist, scanBlockedBy } from "@/services/billing/budget";
+import { autoPrepareAvailable, loadPreferences } from "@/services/inbox/inbox";
 import { getNotificationOverview } from "@/services/notifications/overview";
 import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
@@ -67,7 +69,7 @@ async function AccountContent({ params }: { params: Params }) {
 
 async function ScoutSettings() {
   const { profile } = await requireProfile();
-  const [data, autoScout, notifications, billing, budget, activeAccounts, xConnection] = await Promise.all([
+  const [data, autoScout, notifications, billing, budget, activeAccounts, xConnection, inboxPrefs] = await Promise.all([
     getWorkspaceData(profile.id),
     getAutoScoutStatus(profile),
     getNotificationOverview(profile.id),
@@ -75,6 +77,7 @@ async function ScoutSettings() {
     getUsageBudget(profile),
     countActiveWatchlist(profile.id),
     getXConnectionOverview(profile),
+    loadPreferences(profile),
   ]);
 
   const blockedBy = scanBlockedBy(budget);
@@ -119,6 +122,17 @@ async function ScoutSettings() {
             skipReason: autoScout.lastJob.skipReason,
             error: autoScout.lastJob.error,
           },
+        }}
+      />
+      <InboxSettings
+        data={{
+          available: autoPrepareAvailable(),
+          enabled: profile.autoPrepareEnabled,
+          posts: budget.limits.maxAutoPosts,
+          replies: budget.limits.maxAutoReplySets,
+          window: budget.limits.autoPrepareWindow,
+          monthlyCapUsd: budget.limits.maxAutoPrepareUsdPerMonth,
+          learned: inboxPrefs.evidence,
         }}
       />
       <XConnectionSettings

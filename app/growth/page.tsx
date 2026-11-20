@@ -222,7 +222,7 @@ async function Growth({ searchParams }: { searchParams: PageProps<"/growth">["se
         <InfoHint label="About this data">
           {connected ? (
             <p>
-              Your X account is connected (read-only). Profile clicks and link clicks come from X&apos;s private metrics, which X
+              Your X account is connected. Profile clicks and link clicks come from X&apos;s private metrics, which X
               only has for posts from the last 30 days; older posts keep the last reading Scout took.
             </p>
           ) : (

@@ -30,6 +30,7 @@ export async function getMissCandidates(profileId: string, { days, ratedSince }:
         eq(c.profileId, profileId),
         isNotNull(c.scoredAt),
         isNull(c.rejectedReason),
+        isNull(c.contentRemovedAt),
         gte(c.postedAt, sql`now() - make_interval(days => ${days})`),
         or(isNull(c.missRatedAt), gte(c.missRatedAt, ratedSince)),
         sql`not exists (

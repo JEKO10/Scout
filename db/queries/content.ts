@@ -15,6 +15,8 @@ import {
 } from "@/db/schema";
 import type { DraftStatus } from "@/lib/content/types";
 
+import { invalidateApprovalsForDraft } from "./publications";
+
 // Day 31 Content Studio. Every query is scoped by profileId.
 
 export type DraftValues = Omit<typeof contentDraftsTable.$inferInsert, "id" | "profileId" | "createdAt" | "updatedAt">;
@@ -60,6 +62,9 @@ export async function updateDraft(profileId: string, id: string, values: Partial
     .set(values)
     .where(and(eq(contentDraftsTable.id, id), eq(contentDraftsTable.profileId, profileId)))
     .returning();
+  // Day 40: every path that changes the text (Studio, the Inbox editor, AI
+  // edits, regenerations) ends here, so an approval of the old text can't survive it
+  if (row && values.posts) await invalidateApprovalsForDraft(profileId, id, row.posts[0] ?? "");
   return row ?? null;
 }
 

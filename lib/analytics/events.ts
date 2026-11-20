@@ -54,6 +54,10 @@ export const SERVER_EVENTS = [
   "inbox_action",
   "inbox_revision",
   "inbox_prepared",
+  // Day 40 X publishing (never text)
+  "x_publish_approved",
+  "x_publish_scheduled",
+  "x_post_published",
 ] as const;
 
 export type ClientEvent = (typeof CLIENT_EVENTS)[number];

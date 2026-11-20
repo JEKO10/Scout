@@ -3,6 +3,7 @@ import "server-only";
 import { getAiCostByOperation, getScoringCostPerCandidate } from "@/db/queries/aiUsage";
 import { sumGrowthXPostReads } from "@/db/queries/growth";
 import { sumPeerXPostReads } from "@/db/queries/peers";
+import { sumReconcileReads } from "@/db/queries/publications";
 import { sumRunXPostReads } from "@/db/queries/scoutRuns";
 import { getXUsageToday } from "@/db/queries/xApiUsage";
 import type { Profile } from "@/db/schema";
@@ -76,7 +77,7 @@ export async function getUsageBudget(
   now = new Date(),
 ): Promise<UsageBudget> {
   const periodStart = currentPeriodStart(now);
-  const [scanXPostReads, growthXPostReads, peerXPostReads, aiRows, perCandidate] = await Promise.all([
+  const [scanXPostReads, growthXPostReads, peerXPostReads, publishCheckReads, aiRows, perCandidate] = await Promise.all([
     sumRunXPostReads(profile.id, periodStart),
     // Day 33: Growth refreshes read the user's own posts from the same allowance
     sumGrowthXPostReads(profile.id, periodStart),
@@ -88,6 +89,12 @@ export async function getUsageBudget(
       console.error(missingSchemaMessage("Peer refresh accounting", PEER_MIGRATION));
       return 0;
     }),
+    // Day 40: reads of the user's own timeline after X didn't confirm a post (same allowance)
+    sumReconcileReads(profile.id, periodStart).catch((error: unknown) => {
+      if (!isMissingSchemaError(error)) throw error;
+      console.error(missingSchemaMessage("Publishing accounting", "x_publishing"));
+      return 0;
+    }),
     getAiCostByOperation(profile.id, periodStart),
     getScoringCostPerCandidate(profile.id, new Date(now.getTime() - 30 * 86_400_000)),
   ]);
@@ -96,7 +103,7 @@ export async function getUsageBudget(
 
   const limits = effectiveLimits(profile.plan, profile.usageLimitOverrides);
   const used = {
-    xPostReads: scanXPostReads + growthXPostReads + peerXPostReads,
+    xPostReads: scanXPostReads + growthXPostReads + peerXPostReads + publishCheckReads,
     // Discovery keyword suggestions are scoring-side AI work: same allowance
     scoringUsd: cost("opportunity_scoring") + cost("discovery_keywords") + cost("lead_icp") + cost("lead_classification") + cost("trend_insight") + cost("growth_strategy"),
     // Day 31: Content Studio writing shares the reply (writing) budget

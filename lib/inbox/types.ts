@@ -1,7 +1,7 @@
 // Day 38 Approval Inbox: the shapes shared by the assembler, the service,
 // the schema and the cards. No server code here.
 
-export const INBOX_ITEM_TYPES = ["post", "reply", "conversation", "lead", "recommendation", "reminder"] as const;
+export const INBOX_ITEM_TYPES = ["post", "reply", "conversation", "lead", "recommendation", "reminder", "publish"] as const;
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number];
 
 /** What the user decided. "snoozed" is the only one that isn't final. */
@@ -91,6 +91,40 @@ export type InboxItem = {
   externalUrl?: string | null;
   /** Post / reply: the X post ID to reply to (X's own composer) */
   replyToPostId?: string | null;
+  /** Small line under the label: "25 minutes ago", "Growth experiment" (formatted on the server) */
+  meta?: string;
+  /** Recommendation: its name ("Short vs. standard posts") */
+  headline?: string;
+  /** Recommendation: what the user does once it starts */
+  steps?: string[];
+  /**
+   * Reminder asking for work Scout can do itself (a growth-plan "post 1 reply
+   * and 1 baseline post"): what one click prepares. Only what isn't ready yet,
+   * and a reply only when there's a conversation worth answering.
+   */
+  prepare?: ("post" | "reply")[];
+  /** Day 40: an approved post on its way to X */
+  publication?: PublicationCard;
+};
+
+/** What a "Ready to publish" card needs; formatted on the server, never a token */
+export type PublicationCard = {
+  id: string;
+  draftId: string | null;
+  status: "approved" | "scheduled" | "publishing" | "published" | "failed" | "unknown" | "cancelled";
+  hasUrl: boolean;
+  /** "Scheduled for Fri, Nov 21, 10:30" */
+  scheduledLabel: string | null;
+  error: string | null;
+  /** Connected with publishing allowed */
+  canPublish: boolean;
+  /** The plan publishes from Scout at all */
+  planAllows: boolean;
+  postUrl: string | null;
+  /** The schedule form's defaults, in the user's time zone */
+  defaultDate: string;
+  defaultTime: string;
+  timeZone: string;
 };
 
 export type InboxSummary = {

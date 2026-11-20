@@ -7,8 +7,12 @@ import {
   deleteOldJobs,
   deleteOldRejectedCandidates,
 } from "@/db/queries/cleanup";
+import { deleteOldAnalyticsEvents } from "@/db/queries/compliance";
 import { deleteOldPeerStats } from "@/db/queries/peers";
 import { isMissingSchemaError, missingSchemaMessage } from "@/db/schemaErrors";
+import { ANALYTICS_RETENTION_DAYS, RETENTION_BATCH } from "@/lib/compliance/retention";
+import { resumeAccountDeletions } from "@/services/account/deleteAccount";
+import { applyRetention } from "@/services/compliance/xCompliance";
 
 /**
  * Retention policy (Day 18):
@@ -52,5 +56,26 @@ export async function runCleanup() {
       return null;
     }),
   ]);
-  return { cachedPosts, rejectedCandidates, jobs, locks, peerStats, automationRecords };
+  return { cachedPosts, rejectedCandidates, jobs, locks, peerStats, automationRecords, ...(await runHourlyRetention()) };
+}
+
+/**
+ * Day 40.1: third-party X text past Scout's retention, and old analytics
+ * events. Once an hour (the first tick of each hour), bounded batches, no
+ * API calls. Skipped, and reported, while the compliance migration is pending.
+ */
+export async function runHourlyRetention(now = new Date(), { force = false } = {}) {
+  if (!force && now.getUTCMinutes() >= 5) return {};
+  try {
+    const [thirdParty, analyticsEvents, deletions] = await Promise.all([
+      applyRetention(now),
+      deleteOldAnalyticsEvents(ANALYTICS_RETENTION_DAYS, now, RETENTION_BATCH),
+      resumeAccountDeletions(now),
+    ]);
+    return { thirdParty, analyticsEvents, deletions };
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+    console.error(missingSchemaMessage("Content retention", "compliance_hardening"));
+    return {};
+  }
 }

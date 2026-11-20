@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { appUrl } from "@/lib/appUrl";
 import { decryptToken, encryptToken } from "@/lib/crypto/tokens";
-import { X_READ_SCOPES } from "@/lib/x/permissions";
+import { X_PUBLISH_SCOPES, X_READ_SCOPES } from "@/lib/x/permissions";
 
 // X OAuth 2.0 Authorization Code with PKCE, for connecting the user's own X
 // account (Growth Intelligence private metrics). Scout is a confidential
@@ -45,14 +45,20 @@ export function xRedirectUri(): string {
   return `${appUrl()}/api/x/oauth/callback`;
 }
 
-type FlowCookie = { s: string; v: string; p: string; t: number };
+/** w: the user asked for publishing (tweet.write); r: the Scout page to return to */
+type FlowCookie = { s: string; v: string; p: string; t: number; w?: 1; r?: string };
 
 /**
  * A fresh state and PKCE verifier. Both go into an encrypted httpOnly
  * cookie bound to the profile that started the flow; only the S256
  * challenge goes to X.
  */
-export function createXOAuthStart(profileId: string, now = Date.now()): { url: string; cookie: string } {
+export function createXOAuthStart(
+  profileId: string,
+  now = Date.now(),
+  /** Day 40: "Enable publishing" asks X for tweet.write too; never by default */
+  { publish = false, returnTo = null }: { publish?: boolean; returnTo?: string | null } = {},
+): { url: string; cookie: string } {
   const state = randomBytes(32).toString("base64url");
   const verifier = randomBytes(48).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -61,12 +67,12 @@ export function createXOAuthStart(profileId: string, now = Date.now()): { url: s
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", process.env.X_CLIENT_ID ?? "");
   url.searchParams.set("redirect_uri", xRedirectUri());
-  url.searchParams.set("scope", X_OAUTH_SCOPES.join(" "));
+  url.searchParams.set("scope", (publish ? X_PUBLISH_SCOPES : X_OAUTH_SCOPES).join(" "));
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
 
-  const flow: FlowCookie = { s: state, v: verifier, p: profileId, t: now };
+  const flow: FlowCookie = { s: state, v: verifier, p: profileId, t: now, ...(publish ? { w: 1 as const } : {}), ...(returnTo ? { r: returnTo } : {}) };
   return { url: url.toString(), cookie: encryptToken(JSON.stringify(flow)) };
 }
 
@@ -79,7 +85,7 @@ export function readXOAuthCookie(
   cookie: string | undefined,
   profileId: string,
   now = Date.now(),
-): { verifier: string } | null {
+): { verifier: string; publish: boolean; returnTo: string | null } | null {
   if (!state || !cookie) return null;
   let flow: FlowCookie;
   try {
@@ -92,7 +98,7 @@ export function readXOAuthCookie(
   const a = Buffer.from(state);
   const b = Buffer.from(String(flow.s));
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return { verifier: flow.v };
+  return { verifier: flow.v, publish: flow.w === 1, returnTo: typeof flow.r === "string" ? flow.r : null };
 }
 
 /** The token endpoint said no. `code` is X's OAuth error, e.g. invalid_grant. */

@@ -5,14 +5,14 @@ import { useState, useTransition } from "react";
 import { inboxWritePostAction } from "@/actions/inbox";
 
 /** "Write me a post": one draft now, from the writing budget; the user asked for it */
-export function WritePostButton({ primary = false }: { primary?: boolean }) {
+export function WritePostButton({ primary = false, quiet = false }: { primary?: boolean; quiet?: boolean }) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   return (
     <span className="inbox-inline">
       <button
         type="button"
-        className={primary ? "primary-button" : "secondary-button"}
+        className={primary ? "primary-button" : quiet ? "inbox-ghost" : "secondary-button"}
         disabled={pending}
         aria-busy={pending}
         title="Uses your writing budget"
@@ -25,7 +25,7 @@ export function WritePostButton({ primary = false }: { primary?: boolean }) {
           })
         }
       >
-        {pending ? "Writing…" : "Write me a post"}
+        {pending ? "Writing…" : "Prepare a post"}
       </button>
       {message && (
         <small className="inbox-why" role="status">

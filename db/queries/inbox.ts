@@ -38,6 +38,7 @@ export async function freshOpportunities(profileId: string, now: Date, hours: nu
       and(
         eq(opportunitiesTable.profileId, profileId),
         eq(opportunitiesTable.status, "new"),
+        isNull(opportunitiesTable.contentRemovedAt),
         gte(sql`coalesce(${opportunitiesTable.postedAt}, ${opportunitiesTable.createdAt})`, new Date(now.getTime() - hours * HOUR)),
       ),
     )
@@ -56,6 +57,7 @@ export async function freshLeads(profileId: string, now: Date, hours: number, li
         eq(leadsTable.intent, "high"),
         eq(leadsTable.status, "new"),
         eq(leadsTable.saved, false),
+        isNull(leadsTable.contentRemovedAt),
         gte(leadsTable.createdAt, new Date(now.getTime() - hours * HOUR)),
       ),
     )
@@ -456,4 +458,13 @@ export async function autoSpend(profileId: string, month: string): Promise<numbe
     .where(and(eq(t.profileId, profileId), eq(t.month, month)))
     .limit(1);
   return row?.usd ?? 0;
+}
+
+/** Kinds of prepared work the user approved since a moment (their local midnight) */
+export async function approvedTypesSince(profileId: string, since: Date): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({ type: inboxDecisionsTable.itemType })
+    .from(inboxDecisionsTable)
+    .where(and(eq(inboxDecisionsTable.profileId, profileId), eq(inboxDecisionsTable.decision, "approved"), gte(inboxDecisionsTable.updatedAt, since)));
+  return new Set(rows.map((r) => r.type));
 }

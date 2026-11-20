@@ -56,7 +56,7 @@ export function InboxSettings({ data }: { data: InboxSettingsData }) {
                 {data.replies ? ` and ${data.replies} repl${data.replies === 1 ? "y" : "ies"}` : ""} a {data.window}, only when there&apos;s
                 something worth it. The rest stays for what you ask for. Nothing is published without your approval.
               </small>
-              {!data.available && <small>Not available yet. Until then, tap “Write me a post” or “Write reply” on Home.</small>}
+              {!data.available && <small>Not available yet. Until then, tap “Prepare a post” or “Prepare reply” on Home.</small>}
             </span>
           </label>
         </fieldset>

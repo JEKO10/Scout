@@ -43,3 +43,10 @@ next-env.d.ts
 
 # Day 20 scoring evaluation: datasets and results contain Scout Brains
 /evals/**/*.local.*
+
+# Day 40.1: database backups never belong in Git (plaintext or encrypted)
+/scout-backups/
+/backups/
+*.scoutbackup
+*.scoutbackup.manifest.json
+/prod-*/

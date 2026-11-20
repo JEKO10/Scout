@@ -36,6 +36,8 @@ export async function getLeadCandidates(
         eq(scoutCandidatesTable.profileId, profileId),
         isNull(scoutCandidatesTable.leadCheckedAt),
         isNull(scoutCandidatesTable.rejectedReason),
+        // Day 40.1: removed content never goes to the AI
+        isNull(scoutCandidatesTable.contentRemovedAt),
         isNotNull(scoutCandidatesTable.scoredAt),
         gte(scoutCandidatesTable.score, minScore),
         gte(scoutCandidatesTable.postedAt, postedAfter),
@@ -110,6 +112,8 @@ export async function setLeadSaved(profileId: string, id: string, saved: boolean
  * post, or a new one built from the lead (the reply flow needs one).
  */
 export async function ensureLeadOpportunity(profileId: string, lead: Lead): Promise<string | null> {
+  // Day 40.1: no reply to a post Scout no longer holds
+  if (lead.contentRemovedAt) return null;
   if (lead.opportunityId) return lead.opportunityId;
   const [existing] = await db
     .select({ id: opportunitiesTable.id })

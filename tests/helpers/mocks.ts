@@ -27,6 +27,23 @@ export const x = {
   /** Day 26: what X's recent search returns (any query), and the queries asked */
   search: [] as (Tweet & { author_id: string })[],
   searchQueries: [] as string[],
+  /**
+   * Day 40 publishing: queued outcomes for the next POST /2/tweets ("ok",
+   * "lost" = created but X answered 503, "network" = created, no answer,
+   * "500", "429", "dup", "401"), what was asked and what was created.
+   */
+  /** Day 40.1 Batch Compliance jobs: per job, its uploaded IDs and what X answers about them */
+  compliance: {
+    jobs: new Map<string, { type: "tweets" | "users"; status: string; ids: string[]; results: (ids: string[]) => string }>(),
+    results: (() => "") as (ids: string[]) => string,
+    uploadFails: false,
+  },
+  publish: {
+    outcomes: [] as string[],
+    requests: [] as { userId: string; text: string }[],
+    created: [] as { id: string; userId: string; text: string }[],
+    deleted: [] as string[],
+  },
 };
 
 /** Posts X's recent search will find, by an author ID; returns their IDs */
@@ -51,8 +68,10 @@ export function addSearchResults(authorId: string, count: number): string[] {
  * works once. Access tokens map to the X user they belong to.
  */
 export const xOAuth = {
-  accessTokens: new Map<string, { userId: string; expiresAt: number }>(),
+  accessTokens: new Map<string, { userId: string; expiresAt: number; scope?: string }>(),
   refreshTokens: new Map<string, string>(),
+  /** Day 40: the scopes each refresh token carries (a refresh keeps them, like X) */
+  refreshScopes: new Map<string, string>(),
   /** Every token endpoint call: grant type and form body */
   tokenCalls: [] as { grant: string; body: Record<string, string>; auth: string | null }[],
   revoked: [] as string[],
@@ -68,6 +87,8 @@ export const xOAuth = {
   usedCodes: new Set<string>(),
   /** Any non-GET request to the X API other than the OAuth token endpoints (posting, liking…) */
   writeCalls: [] as string[],
+  /** Day 40.1: X's revoke endpoint fails (503) while true */
+  revokeFails: false,
 };
 
 let tokenSeq = 1;
@@ -75,8 +96,9 @@ let tokenSeq = 1;
 function issueTokens(userId: string, scope = "tweet.read users.read offline.access") {
   const access = `ua-${tokenSeq}`;
   const refresh = `ur-${tokenSeq++}`;
-  xOAuth.accessTokens.set(access, { userId, expiresAt: Date.now() + xOAuth.expiresIn * 1000 });
+  xOAuth.accessTokens.set(access, { userId, expiresAt: Date.now() + xOAuth.expiresIn * 1000, scope });
   xOAuth.refreshTokens.set(refresh, userId);
+  xOAuth.refreshScopes.set(refresh, scope);
   return Response.json({ token_type: "bearer", access_token: access, refresh_token: refresh, expires_in: xOAuth.expiresIn, scope });
 }
 
@@ -442,6 +464,18 @@ export function installMocks() {
       return Response.json(reply?.body ?? slackDefault(method, body));
     }
 
+    // Day 40.1: X Batch Compliance upload and download URLs (signed storage URLs)
+    if (url.hostname === "x-compliance.test") {
+      const id = url.pathname.split("/").pop()!;
+      const job = x.compliance.jobs.get(id);
+      if (!job) return new Response("", { status: 404 });
+      if (url.pathname.startsWith("/upload/")) {
+        if (x.compliance.uploadFails) return new Response("", { status: 500 });
+        job.ids = String(init?.body ?? "").split(/\r?\n/).filter(Boolean);
+        return new Response("", { status: 200 });
+      }
+      return new Response(job.results(job.ids), { status: 200 });
+    }
     if (url.hostname !== "api.x.com") return realFetch(input, init);
 
     x.calls.push(url.pathname);
@@ -451,6 +485,7 @@ export function installMocks() {
       const body = Object.fromEntries(new URLSearchParams(String(init?.body ?? "")));
       const auth = new Headers(init?.headers).get("authorization");
       if (url.pathname === "/2/oauth2/revoke") {
+        if (xOAuth.revokeFails) return new Response("", { status: 503 });
         xOAuth.revoked.push(body.token);
         xOAuth.accessTokens.delete(body.token);
         xOAuth.refreshTokens.delete(body.token);
@@ -460,18 +495,20 @@ export function installMocks() {
       const bad = () => Response.json({ error: "invalid_grant", error_description: "Value passed for the token was invalid." }, { status: 400 });
       if (!auth?.startsWith("Basic ")) return Response.json({ error: "unauthorized_client" }, { status: 401 });
       if (body.grant_type === "authorization_code") {
-        const match = /^user:(\d+)(:noscope)?$/.exec(body.code ?? "");
+        // "user:<id>:write": the user allowed publishing (tweet.write) on X's screen
+        const match = /^user:(\d+)(:noscope|:write)?$/.exec(body.code ?? "");
         if (!match || !body.code_verifier) return bad();
         const used = `${body.code}|${body.code_verifier}`;
         if (xOAuth.usedCodes.has(used)) return bad();
         xOAuth.usedCodes.add(used);
-        return issueTokens(match[1], match[2] ? "tweet.read offline.access" : undefined);
+        return issueTokens(match[1], match[2] === ":noscope" ? "tweet.read offline.access" : match[2] === ":write" ? "tweet.read users.read tweet.write offline.access" : undefined);
       }
       if (body.grant_type === "refresh_token") {
         const userId = xOAuth.refreshTokens.get(body.refresh_token);
         if (!userId) return bad();
+        const scope = xOAuth.refreshScopes.get(body.refresh_token);
         xOAuth.refreshTokens.delete(body.refresh_token);
-        return issueTokens(userId);
+        return issueTokens(userId, scope);
       }
       return bad();
     }
@@ -483,6 +520,53 @@ export function installMocks() {
       if (!userToken || userToken.expiresAt < Date.now()) {
         return new Response(JSON.stringify({ title: "Unauthorized", status: 401 }), { status: 401 });
       }
+    }
+    // Day 40: publishing (POST /2/tweets) and deleting (DELETE /2/tweets/:id) as the user
+    if (url.pathname === "/2/tweets" && init?.method === "POST") {
+      if (!userToken?.scope?.includes("tweet.write")) return new Response(JSON.stringify({ title: "Forbidden", detail: "missing tweet.write" }), { status: 403 });
+      const { text } = JSON.parse(String(init.body)) as { text: string };
+      x.publish.requests.push({ userId: userToken.userId, text });
+      const outcome = x.publish.outcomes.shift() ?? "ok";
+      const create = () => {
+        const id = nextId();
+        const list = x.timelines.get(userToken.userId) ?? [];
+        list.push({ id, text, created_at: new Date().toISOString() });
+        x.timelines.set(userToken.userId, list);
+        x.publish.created.push({ id, userId: userToken.userId, text });
+        return id;
+      };
+      if (outcome === "ok") return Response.json({ data: { id: create(), text } }, { status: 201 });
+      // Created on X, but the answer never arrived
+      if (outcome === "lost") {
+        create();
+        return new Response(JSON.stringify({ title: "Service Unavailable" }), { status: 503 });
+      }
+      if (outcome === "network") {
+        create();
+        throw new TypeError("fetch failed");
+      }
+      if (outcome === "500") return new Response(JSON.stringify({ title: "Internal Error" }), { status: 500 });
+      if (outcome === "429") return new Response(JSON.stringify({ title: "Too Many Requests" }), { status: 429, headers: { "x-rate-limit-reset": String(Math.floor(Date.now() / 1000) + 900) } });
+      if (outcome === "dup") return new Response(JSON.stringify({ title: "Forbidden", detail: "You are not allowed to create a Tweet with duplicate content." }), { status: 403 });
+      if (outcome === "401") return new Response(JSON.stringify({ title: "Unauthorized" }), { status: 401 });
+    }
+    if (url.pathname === "/2/compliance/jobs" && init?.method === "POST") {
+      const { type } = JSON.parse(String(init.body)) as { type: "tweets" | "users" };
+      const id = nextId();
+      x.compliance.jobs.set(id, { type, status: "created", ids: [], results: x.compliance.results });
+      return Response.json({ data: { id, type, status: "created", upload_url: `https://x-compliance.test/upload/${id}`, download_url: `https://x-compliance.test/download/${id}` } });
+    }
+    const jobMatch = url.pathname.match(/^\/2\/compliance\/jobs\/(\d+)$/);
+    if (jobMatch) {
+      const job = x.compliance.jobs.get(jobMatch[1]);
+      if (!job) return new Response(JSON.stringify({ title: "Not Found" }), { status: 404 });
+      return Response.json({ data: { id: jobMatch[1], type: job.type, status: job.status, download_url: `https://x-compliance.test/download/${jobMatch[1]}` } });
+    }
+    const del = url.pathname.match(/^\/2\/tweets\/(\d+)$/);
+    if (del && init?.method === "DELETE") {
+      if (!userToken?.scope?.includes("tweet.write")) return new Response(JSON.stringify({ title: "Forbidden" }), { status: 403 });
+      x.publish.deleted.push(del[1]);
+      return Response.json({ data: { deleted: true } });
     }
     if (url.pathname === "/2/users/me") {
       if (!userToken) return new Response(JSON.stringify({ title: "Unauthorized" }), { status: 403 });

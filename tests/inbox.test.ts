@@ -11,13 +11,14 @@ import { eq } from "drizzle-orm";
 
 import db from "@/db";
 import { getDraft } from "@/db/queries/content";
-import { autoSpend, claimProfilePreparation, freshOpportunities, getDecision, getOriginal, reserveAutoSpend } from "@/db/queries/inbox";
+import { approvedTypesSince, autoSpend, claimProfilePreparation, freshOpportunities, getDecision, getOriginal, reserveAutoSpend } from "@/db/queries/inbox";
 import { getCurrentReplies } from "@/db/queries/replies";
 import { recordReplyIntent } from "@/db/queries/replyIntents";
 import * as s from "@/db/schema";
 import { costCeilingUsd } from "@/lib/ai/ceiling";
 import type { UsageLimits } from "@/lib/billing/plans";
-import { assembleInbox, greeting, type InboxSources, summarizeInbox } from "@/lib/inbox/assemble";
+import { assembleInbox, greeting, type InboxSources, summarizeInbox, taskNeeds } from "@/lib/inbox/assemble";
+import { cardSpec, summaryChips } from "@/lib/inbox/cards";
 import { learnPreferences } from "@/lib/inbox/learning";
 import { INBOX_CAPS } from "@/lib/inbox/types";
 import { isXPostId } from "@/lib/replies/xIntent";
@@ -627,4 +628,140 @@ test("ceiling: from the prompt's bytes and the output cap; unpriced models can't
   const ceiling = costCeilingUsd("gpt-5.5-2026-04-23", ["a".repeat(1000), "é"], 600)!;
   assert.ok(Math.abs(ceiling - (1002 * 5 + 600 * 30) / 1_000_000) < 1e-12);
   assert.equal(costCeilingUsd("some-new-model", ["x"], 600), null);
+});
+
+// ---- Home redesign -------------------------------------------------------------------
+
+test("cards: every action happens on the card; no generic Open; a conversation without a draft isn't 'Reply ready'", () => {
+  const all = (["post", "reply", "conversation", "lead", "recommendation", "reminder"] as const).map((type) => ({ type, spec: cardSpec({ type }) }));
+  for (const { spec } of all) {
+    const actions = [spec.primary, ...spec.secondary].map((a) => a.label.toLowerCase());
+    assert.ok(!actions.some((label) => label.includes("open") || label.includes("details")), actions.join(","));
+  }
+  const by = Object.fromEntries(all.map(({ type, spec }) => [type, spec]));
+  assert.equal(by.post.primary.label, "Approve");
+  assert.deepEqual(by.reply.secondary.map((a) => a.label), ["Edit", "Regenerate", "Decline"]);
+  assert.equal(by.conversation.primary.label, "Prepare reply");
+  assert.equal(by.lead.primary.label, "Save lead");
+  assert.equal(by.recommendation.primary.label, "Start experiment");
+  assert.equal(by.reminder.primary.label, "Done");
+  assert.deepEqual(by.reminder.secondary.map((a) => a.label), ["Tomorrow"]);
+  assert.equal(cardSpec({ type: "reminder", prepare: ["post"] }).primary.label, "Prepare a post");
+  assert.equal(cardSpec({ type: "reminder", prepare: ["post", "reply"] }).primary.label, "Prepare post & reply");
+});
+
+test("summary chips: counted from the cards, only categories that have items", () => {
+  const items = assembleInbox(
+    sources({
+      conversations: [conv("a", 90, 2, "a reply")],
+      posts: [{ id: "d", text: "t", why: "w", topic: null, createdAt: day(1) }],
+      recommendations: [{ key: "experiment:e", title: "Short vs. standard posts", text: "Test shorter posts", why: "w", at: day(1), steps: ["Post 5 short ones"] }],
+    }),
+    new Set(),
+    { avoidTopics: [] },
+    new Date(),
+  );
+  assert.deepEqual(summaryChips(items).map((c) => c.label), ["1 reply", "1 post", "1 growth idea"]);
+  const rec = items.find((i) => i.type === "recommendation")!;
+  assert.equal(rec.headline, "Short vs. standard posts");
+  assert.deepEqual(rec.steps, ["Post 5 short ones"]);
+  assert.deepEqual(summaryChips([]), []);
+});
+
+test("task needs: what a growth-plan task asks Scout to prepare, read deterministically", () => {
+  assert.deepEqual(taskNeeds("studio", "Post 1 reply and 1 baseline post (~25 min) Share one lesson."), ["post", "reply"]);
+  assert.deepEqual(taskNeeds("opportunities", "Pick 10 reply opportunities"), ["reply"]);
+  assert.deepEqual(taskNeeds("growth", "Reply to two posts from founders"), ["reply"], "replying to posts isn't writing a post");
+  assert.deepEqual(taskNeeds("studio", "Write a short thread about onboarding"), ["post"]);
+  assert.deepEqual(taskNeeds("growth", "Check your profile clicks"), []);
+});
+
+test("reminders give way to prepared work; otherwise one click prepares it (only what's possible)", () => {
+  const both = { key: "task:w:2026-11-19", entityId: "w", title: "Post 1 reply and 1 baseline post (~25 min)", body: "Share a lesson.", href: "/studio", at: day(1), needs: ["post", "reply"] as ("post" | "reply")[] };
+  const followUp = { key: "followup:l:1", entityId: "l", title: "Follow up with @buyer", body: null, href: "/crm/l", at: day(1) };
+  const post = { id: "d", text: "We spent months building features nobody asked for.", why: "w", topic: null, createdAt: day(1) };
+  const run = (partial: Partial<InboxSources>, handled = new Set<"post" | "reply">()) => assembleInbox(sources(partial), new Set(), { avoidTopics: [] }, new Date(), handled);
+
+  // Nothing prepared, a conversation on Home: "Prepare post & reply"
+  let task = run({ conversations: [conv("a", 85)], reminders: [both] }).find((i) => i.key === both.key)!;
+  assert.deepEqual(task.prepare, ["post", "reply"]);
+  assert.equal(cardSpec(task).primary.label, "Prepare post & reply");
+
+  // No conversation to answer: only the post can be prepared (no invented reply)
+  task = run({ reminders: [both] }).find((i) => i.key === both.key)!;
+  assert.deepEqual(task.prepare, ["post"]);
+  assert.equal(cardSpec(task).primary.label, "Prepare a post");
+
+  // A post is ready but no reply yet: only the reply is left
+  task = run({ conversations: [conv("a", 85)], posts: [post], reminders: [both] }).find((i) => i.key === both.key)!;
+  assert.deepEqual(task.prepare, ["reply"]);
+
+  // Both prepared: the reminder is replaced by the cards; a follow-up stays as it is
+  let items = run({ conversations: [conv("a", 85, 2, "a reply")], posts: [post], reminders: [both, followUp] });
+  assert.deepEqual(items.filter((i) => i.type === "reminder").map((i) => i.key), ["followup:l:1"]);
+  assert.equal(items.find((i) => i.key === "followup:l:1")!.prepare, undefined);
+
+  // Approved today: the cards are gone, and the reminder doesn't come back
+  items = run({ reminders: [both] }, new Set(["post", "reply"]));
+  assert.equal(items.length, 0);
+});
+
+test("one click on a growth-plan reminder: Scout prepares the post and the reply, the reminder gives way", async () => {
+  const me = await newProfile();
+  await opportunity(me.id, { score: 88 });
+  await db.insert(s.automationItemsTable).values({
+    profileId: me.id,
+    kind: "reminder",
+    eventKey: `task:${nextId()}`,
+    sourceModule: "Content Studio",
+    entityType: "strategy_task",
+    entityId: crypto.randomUUID(),
+    title: "Growth plan: Post 1 reply and 1 baseline post (~25 min)",
+    body: "Share one lesson from your week.",
+    href: "/studio",
+    dueAt: day(1),
+  });
+  const reminder = (await loadInbox(me)).items.find((i) => i.type === "reminder")!;
+  assert.deepEqual(reminder.prepare, ["post", "reply"]);
+
+  const result = await actOnItem(me, reminder.key, "prepare");
+  assert.ok(result.ok, !result.ok ? result.message : "");
+  assert.match(result.outcome, /Prepared a post and a reply/);
+  assert.deepEqual(ai.calls.filter((c) => c === "content_draft" || c === "reply_drafts").sort(), ["content_draft", "reply_drafts"]);
+
+  const after = (await loadInbox(me)).items;
+  assert.deepEqual(after.map((i) => i.type).sort(), ["post", "reply"], "ready to approve; the reminder is gone");
+  // A second click prepares nothing more
+  const again = await actOnItem(me, reminder.key, "prepare");
+  assert.ok(again.ok && again.already);
+  assert.equal(ai.calls.filter((c) => c === "content_draft" || c === "reply_drafts").length, 2);
+  assert.equal(x.calls.length, 0);
+});
+
+test("home data: ages on the cards, approved work counted for today, experiments start on the card", async () => {
+  const me = await newProfile();
+  await opportunity(me.id, { ageHours: 2 });
+  const draft = await scoutDraft(me.id);
+  const loaded = await loadInbox(me);
+  assert.ok(loaded.items.every((i) => i.meta && /ago|now/.test(i.meta)), loaded.items.map((i) => i.meta).join(","));
+
+  assert.ok((await actOnItem(me, `draft:${draft.id}`, "approve")).ok);
+  assert.ok((await approvedTypesSince(me.id, new Date(Date.now() - HOUR))).has("post"));
+
+  const [experiment] = await db
+    .insert(s.growthExperimentsTable)
+    .values({ profileId: me.id, title: "Short vs. standard posts", hypothesis: "Shorter posts get more replies.", dimension: "length", variantA: "short", variantB: "standard", metric: "replies", durationDays: 14, minPerVariant: 3, actions: ["Post 3 short and 3 standard posts"], status: "proposed" })
+    .returning();
+  const card = (await loadInbox(me)).items.find((i) => i.key === `experiment:${experiment.id}`)!;
+  assert.equal(card.meta, "Growth experiment");
+  assert.equal(card.headline, "Short vs. standard posts");
+  const started = await actOnItem(me, card.key, "accept");
+  assert.ok(started.ok);
+  assert.match(started.outcome, /Runs for 14 days\. First step: Post 3 short/);
+  const [row] = await db.select().from(s.growthExperimentsTable).where(eq(s.growthExperimentsTable.id, experiment.id));
+  assert.equal(row.status, "active");
+  const again = await actOnItem(me, card.key, "accept");
+  assert.ok(again.ok && again.already, "starting twice does nothing");
+  assert.equal(ai.calls.length, 0);
+  assert.equal(x.calls.length, 0);
 });

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { leadOpenedAction, setLeadSavedAction, startLeadReplyAction } from "@/actions/leads";
+import { storedPostText } from "@/lib/compliance/retention";
 import type { LeadIntent, LeadScoreBreakdown } from "@/lib/leads/types";
 
 export type LeadView = {
@@ -52,7 +53,7 @@ export function LeadCard({ lead }: { lead: LeadView }) {
         </a>{" "}
         · posted {lead.postedLabel} · found {lead.foundLabel}
       </p>
-      <blockquote className="opportunity-post">{lead.content}</blockquote>
+      <blockquote className="opportunity-post">{storedPostText(lead.content)}</blockquote>
 
       <section className="opportunity-section">
         <h3>Why it could be a lead</h3>

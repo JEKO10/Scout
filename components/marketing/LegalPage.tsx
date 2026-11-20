@@ -6,7 +6,7 @@ import { Logo } from "@/components/Logo";
 import { SiteFooter } from "./SiteFooter";
 
 /** Shared layout of the public legal and trust pages */
-export function LegalPage({ title, updated, children }: { title: string; updated: string; children: ReactNode }) {
+export function LegalPage({ title, updated, children }: { title: string; updated: string | null; children: ReactNode }) {
   return (
     <main className="landing-page">
       <nav className="landing-nav shell" aria-label="Main navigation">
@@ -17,7 +17,7 @@ export function LegalPage({ title, updated, children }: { title: string; updated
         </div>
       </nav>
       <article className="legal-page shell">
-        <p className="eyebrow">Last updated: {updated}</p>
+        {updated && <p className="eyebrow">Last updated: {updated}</p>}
         <h1>{title}</h1>
         {children}
       </article>

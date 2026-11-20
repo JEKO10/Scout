@@ -151,6 +151,8 @@ export const profilesTable = pgTable("profiles", {
   inboxPreparedAt: timestamp({ withTimezone: true }),
   /** Inbox learning ignores signals from before this (the user reset it) */
   inboxLearningResetAt: timestamp({ withTimezone: true }),
+  /** Day 40.1: the user asked to delete their account; nothing is processed for it any more */
+  deletionRequestedAt: timestamp({ withTimezone: true }),
   ...timestamps,
 });
 
@@ -285,6 +287,13 @@ export const opportunitiesTable = pgTable(
       .references(() => profilesTable.id, { onDelete: "cascade" }),
     platform: platformEnum().notNull(),
     platformPostId: text().notNull(),
+    /**
+     * Day 40.1 X content compliance: when the post's text (and anything quoting
+     * it) was removed from Scout: deleted, protected or suspended on X, a
+     * removal request, or past Scout's retention. The post ID and link stay.
+     */
+    contentRemovedAt: timestamp({ withTimezone: true }),
+    contentRemovedReason: text().$type<"deleted" | "protected" | "suspended" | "deactivated" | "edited" | "request" | "retention">(),
     postUrl: text(),
     authorPlatformUserId: text(),
     authorHandle: text(),
@@ -472,6 +481,13 @@ export const scoutCandidatesTable = pgTable(
     }),
     platform: platformEnum().notNull(),
     platformPostId: text().notNull(),
+    /**
+     * Day 40.1 X content compliance: when the post's text (and anything quoting
+     * it) was removed from Scout: deleted, protected or suspended on X, a
+     * removal request, or past Scout's retention. The post ID and link stay.
+     */
+    contentRemovedAt: timestamp({ withTimezone: true }),
+    contentRemovedReason: text().$type<"deleted" | "protected" | "suspended" | "deactivated" | "edited" | "request" | "retention">(),
     authorPlatformUserId: text(),
     authorHandle: text().notNull(),
     content: text().notNull(),
@@ -1092,6 +1108,13 @@ export const leadsTable = pgTable(
     discoveryTopicId: uuid().references(() => discoveryTopicsTable.id, { onDelete: "set null" }),
     platform: platformEnum().notNull(),
     platformPostId: text().notNull(),
+    /**
+     * Day 40.1 X content compliance: when the post's text (and anything quoting
+     * it) was removed from Scout: deleted, protected or suspended on X, a
+     * removal request, or past Scout's retention. The post ID and link stay.
+     */
+    contentRemovedAt: timestamp({ withTimezone: true }),
+    contentRemovedReason: text().$type<"deleted" | "protected" | "suspended" | "deactivated" | "edited" | "request" | "retention">(),
     /** Public author identifiers only, as X shows them */
     authorPlatformUserId: text(),
     authorHandle: text().notNull(),
@@ -1855,3 +1878,139 @@ export const inboxAutoBudgetsTable = pgTable(
   },
   (t) => [unique().on(t.profileId, t.month)],
 );
+
+// ---- Day 40 X publishing -----------------------------------------------------
+
+/**
+ * One approved post on its way to X. `text` is exactly what the user
+ * approved: Scout publishes that and nothing else, and any edit of the draft
+ * cancels the approval (db/queries/content.ts). One active publication per
+ * draft. Status: approved → (scheduled →) publishing → published, or failed
+ * (X said no: safe to try again) / unknown (X never answered: Scout checks X
+ * before anything else happens; never retried blindly) / cancelled.
+ */
+export const xPublicationsTable = pgTable(
+  "x_publications",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    /** Kept as history when the draft is deleted */
+    draftId: uuid().references(() => contentDraftsTable.id, { onDelete: "set null" }),
+    /** The X account connected at approval; publishing to another account is refused */
+    xUserId: text(),
+    text: text().notNull(),
+    /** X bills posts containing a link at a higher rate */
+    hasUrl: boolean().notNull().default(false),
+    status: text().$type<"approved" | "scheduled" | "publishing" | "published" | "failed" | "unknown" | "cancelled">().notNull(),
+    approvedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    scheduledAt: timestamp({ withTimezone: true }),
+    timeZone: text(),
+    /** Held by the one worker publishing it */
+    claimedUntil: timestamp({ withTimezone: true }),
+    attempts: integer().notNull().default(0),
+    attemptedAt: timestamp({ withTimezone: true }),
+    /** A scheduled post X rate-limited: tried again after this */
+    nextAttemptAt: timestamp({ withTimezone: true }),
+    xPostId: text().unique(),
+    publishedAt: timestamp({ withTimezone: true }),
+    /** Short and safe to show; never tokens */
+    error: text(),
+    /** The plan's publishing allowance this post holds (reserved before the call) */
+    reservedUsd: doublePrecision().notNull().default(0),
+    costUsd: doublePrecision(),
+    /** The plan window's slot it uses (day / week / month); null when it holds none */
+    windowStart: date({ mode: "string" }),
+    windowSlot: integer(),
+    /** Checks of the user's timeline after an unanswered request, and the posts they read */
+    reconcileChecks: integer().notNull().default(0),
+    reconcileReads: integer().notNull().default(0),
+    deletedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("x_publications_one_active_per_draft")
+      .on(t.draftId)
+      .where(sql`${t.status} in ('approved', 'scheduled', 'publishing', 'unknown')`),
+    unique().on(t.profileId, t.windowStart, t.windowSlot),
+    index().on(t.status, t.scheduledAt),
+    index().on(t.profileId, t.createdAt.desc()),
+  ],
+);
+
+export type XPublication = typeof xPublicationsTable.$inferSelect;
+
+/** Publishing spend per calendar month (UTC), reserved atomically before each X call */
+export const xPublishBudgetsTable = pgTable(
+  "x_publish_budgets",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    profileId: uuid()
+      .notNull()
+      .references(() => profilesTable.id, { onDelete: "cascade" }),
+    month: date({ mode: "string" }).notNull(),
+    committedUsd: doublePrecision().notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.profileId, t.month)],
+);
+
+// ---- Day 40.1 Compliance -----------------------------------------------------
+
+/**
+ * X Batch Compliance jobs (POST /2/compliance/jobs): Scout uploads the IDs of
+ * posts (or authors) it stores, X answers which were deleted, protected,
+ * suspended or edited, and Scout removes that content. Off unless
+ * X_COMPLIANCE_JOBS_ENABLED. Holds IDs and counts only, never content.
+ */
+export const xComplianceJobsTable = pgTable(
+  "x_compliance_jobs",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    type: text().$type<"tweets" | "users">().notNull(),
+    /** X's job ID */
+    xJobId: text(),
+    status: text().$type<"created" | "uploaded" | "applied" | "failed">().notNull(),
+    idCount: integer().notNull().default(0),
+    /** X's signed result URL (valid ~7 days); the results are read once */
+    downloadUrl: text(),
+    /** Events by reason, and how many stored rows were changed */
+    results: jsonb().$type<Record<string, number>>(),
+    error: text(),
+    completedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index().on(t.type, t.createdAt.desc())],
+);
+
+export type XComplianceJob = typeof xComplianceJobsTable.$inferSelect;
+
+/**
+ * One account deletion, kept apart from the profile (which it deletes) so a
+ * deletion that stopped half way can be finished, and a deleted user isn't
+ * recreated on their next request. No email, no content: the sign-in ID and
+ * which steps are done.
+ */
+export const accountDeletionsTable = pgTable(
+  "account_deletions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    /** The Neon Auth user ID */
+    userId: text().notNull().unique(),
+    /** Not a foreign key: the profile is gone at the end */
+    profileId: uuid().notNull(),
+    status: text().$type<"in_progress" | "completed" | "needs_attention">().notNull(),
+    steps: jsonb()
+      .$type<{ processingStopped?: boolean; xRevoked?: boolean; slackRevoked?: boolean; dataDeleted?: boolean; loginDeleted?: boolean }>()
+      .notNull()
+      .default({}),
+    /** What stopped it, safe to show; never tokens */
+    error: text(),
+    completedAt: timestamp({ withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index().on(t.status)],
+);
+
+export type AccountDeletion = typeof accountDeletionsTable.$inferSelect;

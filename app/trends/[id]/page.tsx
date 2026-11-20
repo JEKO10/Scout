@@ -11,6 +11,7 @@ import { TrendActions } from "@/components/trends/TrendActions";
 import { TrendBars } from "@/components/trends/TrendBars";
 import { getTrend, getTrendPosts } from "@/db/queries/trends";
 import { requireProfile } from "@/lib/auth/session";
+import { storedPostText } from "@/lib/compliance/retention";
 import { formatRelative } from "@/lib/format";
 import { OBSERVATION_DAYS } from "@/lib/trends/detect";
 import {
@@ -249,7 +250,7 @@ async function TrendDetail({ params }: PageProps<"/trends/[id]">) {
                   <p className="opportunity-author">
                     <span>@{candidate.authorHandle}</span> · {formatRelative(candidate.postedAt)}
                   </p>
-                  <blockquote className="opportunity-post">{candidate.content}</blockquote>
+                  <blockquote className="opportunity-post">{storedPostText(candidate.content)}</blockquote>
                   {candidate.reason && <p className="memory-note">{candidate.reason}</p>}
                   <div className="topic-actions">
                     {opportunityId ? (

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { updateProfile } from "@/actions/profile";
+import { DeleteAccount } from "@/components/account/DeleteAccount";
 import { AccountDataOverview } from "@/components/AccountDataOverview";
 import { AppHeader } from "@/components/AppHeader";
 import { AutoScoutSettings } from "@/components/AutoScoutSettings";
@@ -28,6 +29,7 @@ import { getNotificationOverview } from "@/services/notifications/overview";
 import { getAutoScoutStatus } from "@/services/scheduler/autoScoutStatus";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
 import { getXConnectionOverview } from "@/services/x/oauthConnection";
+import { getPublishingState } from "@/services/x/publishing";
 
 export function generateStaticParams() {
   return Object.values(accountViewPaths).map((path) => ({ path }));
@@ -69,7 +71,7 @@ async function AccountContent({ params }: { params: Params }) {
 
 async function ScoutSettings() {
   const { profile } = await requireProfile();
-  const [data, autoScout, notifications, billing, budget, activeAccounts, xConnection, inboxPrefs] = await Promise.all([
+  const [data, autoScout, notifications, billing, budget, activeAccounts, xConnection, inboxPrefs, publishing] = await Promise.all([
     getWorkspaceData(profile.id),
     getAutoScoutStatus(profile),
     getNotificationOverview(profile.id),
@@ -78,6 +80,7 @@ async function ScoutSettings() {
     countActiveWatchlist(profile.id),
     getXConnectionOverview(profile),
     loadPreferences(profile),
+    getPublishingState(profile),
   ]);
 
   const blockedBy = scanBlockedBy(budget);
@@ -141,6 +144,7 @@ async function ScoutSettings() {
           profileHandle: profile.xHandle,
           autoEveryHours: xConnection.autoEveryHours,
           importCap: xConnection.importCap,
+          publishing: { available: publishing.available, canPublish: publishing.canPublish, planAllows: publishing.planAllows },
           connection: xConnection.connection && {
             handle: xConnection.connection.handle,
             displayName: xConnection.connection.displayName,
@@ -170,6 +174,7 @@ async function ScoutSettings() {
       <OpportunitySensitivityForm initial={profile.opportunitySensitivity} />
       <ProfileForm profile={profile} action={updateProfile} />
       <AccountDataOverview profile={profile} data={data} />
+      <DeleteAccount />
     </>
   );
 }

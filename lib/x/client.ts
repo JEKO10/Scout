@@ -358,3 +358,82 @@ export async function searchRecentXPosts(
     );
   return { posts, newestId: body.meta?.newest_id ?? tweets[0]?.id ?? null };
 }
+
+// ---- Day 40: publishing the user's own approved posts -------------------------------
+
+/**
+ * What one POST /2/tweets attempt ended in. "ambiguous": X never gave a
+ * clear answer (network error, timeout, 5xx), so the post may or may not
+ * exist; the caller must check before trying again.
+ */
+export type XPublishResult =
+  | { kind: "created"; id: string }
+  | { kind: "rejected"; status: number; message: string; retryAt?: Date }
+  | { kind: "ambiguous"; message: string };
+
+const PUBLISH_TIMEOUT_MS = 20_000;
+
+/**
+ * Publishes one post as the user (their OAuth 2.0 token with tweet.write).
+ * Made exactly once: never retried here, because a request that timed out
+ * may still have created the post. Counted in the global daily request cap.
+ */
+export async function createXPost(userAccessToken: string, text: string): Promise<XPublishResult> {
+  const { maxXRequestsPerDay } = getScoutLimits();
+  if (!(await reserveXRequest(maxXRequestsPerDay, { retry: false }))) {
+    return { kind: "rejected", status: 0, message: "Scout's daily X request limit is reached. Try again tomorrow." };
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${X_API_BASE_URL}/tweets`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${userAccessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(PUBLISH_TIMEOUT_MS),
+    });
+  } catch (cause) {
+    await recordXUsage({ failedRequests: 1 });
+    return { kind: "ambiguous", message: `X didn't answer (${cause instanceof Error ? cause.name : "error"}).` };
+  }
+  if (res.ok) {
+    const body = (await res.json().catch(() => null)) as { data?: { id?: string } } | null;
+    const id = body?.data?.id;
+    // A success without an ID: it probably exists, but Scout can't link it
+    if (!id) return { kind: "ambiguous", message: "X answered without the post's ID." };
+    return { kind: "created", id };
+  }
+  await recordXUsage({ failedRequests: 1 });
+  if (res.status >= 500) return { kind: "ambiguous", message: `X answered ${res.status}.` };
+  const error = await toRequestError(res);
+  return { kind: "rejected", status: res.status, message: error.message, retryAt: error.rateLimitResetAt };
+}
+
+/** Deletes one of the user's posts (tweet.write). True when X confirms. */
+export async function deleteXPost(userAccessToken: string, postId: string): Promise<boolean> {
+  const { maxXRequestsPerDay } = getScoutLimits();
+  if (!(await reserveXRequest(maxXRequestsPerDay, { retry: false }))) throw new XApiBudgetError(maxXRequestsPerDay ?? 0);
+  const res = await fetch(`${X_API_BASE_URL}/tweets/${encodeURIComponent(postId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${userAccessToken}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    await recordXUsage({ failedRequests: 1 });
+    throw await toRequestError(res);
+  }
+  const body = (await res.json().catch(() => null)) as { data?: { deleted?: boolean } } | null;
+  return body?.data?.deleted === true;
+}
+
+/**
+ * The user's newest own posts since a moment (their token): how Scout checks
+ * whether a request X didn't answer created the post. Billed like any read.
+ */
+export async function getOwnRecentPosts(
+  userAccessToken: string,
+  platformUserId: string,
+  { since, limit = 10 }: { since: Date; limit?: number },
+): Promise<{ posts: { id: string; text: string }[]; returned: number }> {
+  const { tweets } = await fetchUserTweets(platformUserId, { limit, startTime: since }, undefined, { userAccessToken });
+  return { posts: tweets.map((tweet) => ({ id: tweet.id, text: tweet.note_tweet?.text ?? tweet.text })), returned: tweets.length };
+}

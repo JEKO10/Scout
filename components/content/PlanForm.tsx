@@ -106,7 +106,7 @@ export function PlanForm({
           </button>
         )}
       </div>
-      <InfoHint text="Planning only">Planning only: Scout never posts for you. At that time, open the draft and post it on X.</InfoHint>
+      <InfoHint text="Planning only">Planning only: this date doesn&apos;t publish anything. Post it on X yourself, or, with X publishing enabled, approve the post and schedule it under &quot;Publish on X&quot;.</InfoHint>
       {message && (
         <p className="form-message" data-status={message.ok ? "success" : "error"} role="status">
           {message.text}

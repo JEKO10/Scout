@@ -3,7 +3,9 @@ import "server-only";
 import { z } from "zod";
 
 import { getDraft, getNewlyMissed, markMissedNoted, updateDraft } from "@/db/queries/content";
+import { getActivePublicationForDraft } from "@/db/queries/publications";
 import type { Profile } from "@/db/schema";
+import { isMissingSchemaError } from "@/db/schemaErrors";
 import { isValidTimeZone, normalizeXPostUrl, zonedTimeToUtc } from "@/lib/content/calendar";
 import { CONTENT_GOALS } from "@/lib/content/types";
 import { track } from "@/services/analytics/track";
@@ -11,6 +13,18 @@ import { track } from "@/services/analytics/track";
 // Day 32 Content Calendar: planning a draft for a date. Nothing is posted.
 
 export type CalendarResult = { ok: true; message?: string } | { ok: false; message: string };
+
+// Day 40: a post scheduled for publishing keeps its date in one place (the publication)
+const SCHEDULED_MESSAGE = "This post is scheduled to publish on X. Reschedule or cancel it under \"Publish on X\".";
+
+async function scheduledForPublishing(profileId: string, draftId: string): Promise<boolean> {
+  try {
+    return (await getActivePublicationForDraft(profileId, draftId))?.status === "scheduled";
+  } catch (error) {
+    if (isMissingSchemaError(error)) return false;
+    throw error;
+  }
+}
 
 const planSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date."),
@@ -26,6 +40,7 @@ export async function planDraft(profile: Profile, draftId: string, raw: z.input<
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Check the date." };
   const draft = await getDraft(profile.id, draftId);
   if (!draft) return { ok: false, message: "Draft not found." };
+  if (await scheduledForPublishing(profile.id, draftId)) return { ok: false, message: SCHEDULED_MESSAGE };
   const plannedAt = zonedTimeToUtc(parsed.data.date, parsed.data.time, parsed.data.timeZone);
   if (!plannedAt) return { ok: false, message: "That date doesn't exist." };
 
@@ -44,6 +59,7 @@ export async function planDraft(profile: Profile, draftId: string, raw: z.input<
 
 /** Takes the draft off the calendar; the draft itself stays */
 export async function unplanDraft(profile: Profile, draftId: string): Promise<CalendarResult> {
+  if (await scheduledForPublishing(profile.id, draftId)) return { ok: false, message: SCHEDULED_MESSAGE };
   const updated = await updateDraft(profile.id, draftId, { plannedAt: null, timeZone: null, missedNotedAt: null });
   return updated ? { ok: true, message: "Removed from the calendar. The draft is kept." } : { ok: false, message: "Draft not found." };
 }

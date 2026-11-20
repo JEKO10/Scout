@@ -27,6 +27,7 @@ export async function getTrendCandidates(profileId: string, since: Date): Promis
         isNotNull(scoutCandidatesTable.scoredAt),
         isNotNull(scoutCandidatesTable.topic),
         isNull(scoutCandidatesTable.rejectedReason),
+        isNull(scoutCandidatesTable.contentRemovedAt),
         gte(scoutCandidatesTable.postedAt, since),
       ),
     );
@@ -110,7 +111,8 @@ export async function getTrendPosts(profileId: string, candidateIds: string[]) {
   const candidates = await db
     .select()
     .from(scoutCandidatesTable)
-    .where(and(eq(scoutCandidatesTable.profileId, profileId), inArray(scoutCandidatesTable.id, candidateIds)))
+    // Day 40.1: removed posts are neither shown nor sent to the AI
+    .where(and(eq(scoutCandidatesTable.profileId, profileId), inArray(scoutCandidatesTable.id, candidateIds), isNull(scoutCandidatesTable.contentRemovedAt)))
     .orderBy(desc(scoutCandidatesTable.score), asc(scoutCandidatesTable.postedAt));
   const opportunities = await db
     .select({ id: opportunitiesTable.id, platformPostId: opportunitiesTable.platformPostId })

@@ -155,7 +155,8 @@ export async function generateReplies(
     getOpportunityForProfile(profileId, opportunityId),
     getProfileById(profileId),
   ]);
-  if (!opportunity || !profile) return { status: "not_found" };
+  // Day 40.1: a post removed from Scout (deleted on X, expired) is never sent to the AI
+  if (!opportunity || !profile || opportunity.contentRemovedAt) return { status: "not_found" };
   // Checked before the AI call; two drafts generated at the same moment can
   // overshoot the budget by at most those calls
   if ((await getUsageBudget(profile)).remaining.replyUsd <= 0) {

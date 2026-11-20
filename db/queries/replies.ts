@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 
 import db from "@/db";
 import { opportunitiesTable, repliesTable,type Reply } from "@/db/schema";
@@ -121,6 +121,8 @@ export async function getPostedReplies(
       and(
         eq(opportunitiesTable.profileId, profileId),
         inArray(repliesTable.status, ["approved", "posted"]),
+        // Day 40.1: a post removed from Scout isn't used as context any more
+        isNull(opportunitiesTable.contentRemovedAt),
       ),
     )
     .orderBy(desc(repliesTable.updatedAt))

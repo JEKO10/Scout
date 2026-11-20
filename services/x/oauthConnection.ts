@@ -2,6 +2,7 @@ import "server-only";
 
 import { saveAccountSnapshot } from "@/db/queries/growth";
 import { updateProfileXHandle } from "@/db/queries/profiles";
+import { cancelActivePublications } from "@/db/queries/publications";
 import { getSocialAccountById, getXAccountUsage, linkCsvSocialAccount, upsertSocialAccount } from "@/db/queries/socialAccounts";
 import {
   deletePrivateMetricSnapshots,
@@ -40,7 +41,11 @@ export type XConnectResult =
   | "handle_mismatch"
   | "in_use"
   | "budget"
-  | "failed";
+  | "failed"
+  /** Day 40: connected, and X granted publishing (tweet.write) as asked */
+  | "publishing_enabled"
+  /** Connected read-only: the user didn't grant publishing on X's screen */
+  | "publish_not_granted";
 
 /** Refresh the access token this long before X says it expires */
 const EXPIRY_MARGIN_MS = 60_000;
@@ -72,9 +77,12 @@ export async function handleXOAuthCallback(
   profile: Pick<Profile, "id" | "plan" | "xHandle">,
   callback: { state: string | null; code: string | null; error: string | null; cookie: string | undefined },
   now = new Date(),
-): Promise<{ status: XConnectResult; authorizedHandle?: string }> {
+): Promise<{ status: XConnectResult; authorizedHandle?: string; returnTo?: string | null }> {
+  // The page "Enable publishing" was started from, read from the verified cookie only
+  const flow = readXOAuthCookie(callback.state, callback.cookie, profile.id, now.getTime());
   const result = await completeXConnect(profile, callback, now);
-  return typeof result === "string" ? { status: result } : result;
+  const base = typeof result === "string" ? { status: result } : result;
+  return flow?.returnTo ? { ...base, returnTo: flow.returnTo } : base;
 }
 
 async function completeXConnect(
@@ -150,9 +158,12 @@ async function completeXConnect(
     now,
   );
   if (previous) await revokeStored(previous);
+  // Approvals were given for the previous X account: they never carry over to another one
+  if (previous && previous.xUserId !== me.profile.platformUserId) await cancelActivePublications(profile.id, "X account changed: approve again.");
   if (!profile.xHandle || profile.xHandle !== me.profile.handle) await updateProfileXHandle(profile.id, me.profile.handle);
   // The follower count came with the ownership check: no extra read
   await saveAccountSnapshot(profile.id, account.id, me.counts, { now });
+  if (flow.publish) return tokens.scopes.includes("tweet.write") ? "publishing_enabled" : "publish_not_granted";
   return "connected";
 }
 
@@ -221,6 +232,8 @@ async function revokeStored(connection: XConnection): Promise<void> {
  * history is deleted too when the user asks for it.
  */
 export async function disconnectX(profileId: string, { deleteHistory = false }: { deleteHistory?: boolean } = {}): Promise<{ deletedReadings: number }> {
+  // Day 40: consent ends with the connection; nothing scheduled may publish afterwards
+  await cancelActivePublications(profileId, "X was disconnected.");
   const connection = await deleteXConnection(profileId);
   if (connection) await revokeStored(connection);
   const deletedReadings = deleteHistory ? await deletePrivateMetricSnapshots(profileId) : 0;
@@ -266,3 +279,35 @@ export async function getXConnectionOverview(profile: Pick<Profile, "id" | "plan
 }
 
 export type XConnectionState = "connected" | "syncing" | "needs_reauthorization" | "sync_failed";
+
+/**
+ * Day 40.1 account deletion: revokes Scout's X tokens at X and deletes the
+ * connection, strictly. "failed": X didn't confirm the revocation, nothing was
+ * deleted, try again. Tokens that can't be decrypted any more (key rotated)
+ * can't be revoked or used by anyone; the connection is deleted.
+ */
+export async function revokeAndDeleteXConnection(profileId: string): Promise<"none" | "revoked" | "undecryptable" | "failed"> {
+  const connection = await getXConnection(profileId);
+  if (!connection) return "none";
+  let tokens: { access: string; refresh: string | null };
+  try {
+    tokens = {
+      access: decryptToken(connection.encryptedAccessToken),
+      refresh: connection.encryptedRefreshToken ? decryptToken(connection.encryptedRefreshToken) : null,
+    };
+  } catch {
+    await cancelActivePublications(profileId, "X was disconnected.");
+    await deleteXConnection(profileId);
+    return "undecryptable";
+  }
+  try {
+    // The refresh token first: it's the one that would keep access alive
+    if (tokens.refresh && !(await revokeXToken(tokens.refresh, "refresh_token"))) return "failed";
+    if (!(await revokeXToken(tokens.access, "access_token"))) return "failed";
+  } catch {
+    return "failed";
+  }
+  await cancelActivePublications(profileId, "X was disconnected.");
+  await deleteXConnection(profileId);
+  return "revoked";
+}

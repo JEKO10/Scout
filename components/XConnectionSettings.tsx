@@ -15,6 +15,9 @@ const oauthMessages: Record<string, { ok: boolean; text: string }> = {
   budget: { ok: false, text: "Scout's daily X limit is reached. Try connecting again tomorrow." },
   failed: { ok: false, text: "X connection failed. Try again." },
   not_configured: { ok: false, text: "Connecting X isn't available yet." },
+  publishing_enabled: { ok: true, text: "X publishing enabled. Scout publishes only posts you approve." },
+  publish_not_granted: { ok: false, text: "X connected read-only: publishing wasn't allowed on X's screen. Try again and allow it." },
+  publishing_off: { ok: false, text: "Publishing from Scout isn't available yet." },
 };
 
 export type XConnectionData = {
@@ -24,6 +27,8 @@ export type XConnectionData = {
   autoEveryHours: number | null;
   /** Posts the one-time history import reads (plan) */
   importCap: number;
+  /** Day 40: publishing your approved posts (off unless X_PUBLISHING_ENABLED) */
+  publishing: { available: boolean; canPublish: boolean; planAllows: boolean };
   connection: {
     handle: string;
     displayName: string | null;
@@ -56,7 +61,7 @@ function cadence(hours: number | null): string {
   return `Scout refreshes automatically every ${hours} hours, from your plan's X reads.`;
 }
 
-/** Settings: connect or disconnect the user's own X account (OAuth, read-only) */
+/** Settings: connect or disconnect the user's own X account (OAuth; publishing only when the user enables it) */
 export function XConnectionSettings({ data }: { data: XConnectionData }) {
   const params = useSearchParams();
   const oauth = oauthMessages[params.get("x") ?? ""];
@@ -82,7 +87,10 @@ export function XConnectionSettings({ data }: { data: XConnectionData }) {
         <h2>X analytics</h2>
         <p>
           Connect your X account to understand what&apos;s working, track your growth and receive personalized
-          recommendations. Read-only: Scout can&apos;t post, like, follow or read your messages.
+          recommendations.{" "}
+          {data.publishing.canPublish
+            ? "Scout publishes only posts you approve, and never likes, follows or reads your messages."
+            : "Read-only: Scout can't post, like, follow or read your messages."}
         </p>
       </div>
 
@@ -142,8 +150,24 @@ export function XConnectionSettings({ data }: { data: XConnectionData }) {
             <div className="field-row">
               <span className="field-label">
                 <strong>Permissions</strong>
-                <small>{connection.permissions.join(" · ")}. Nothing that posts or writes.</small>
+                <small>
+                  {connection.permissions.join(" · ")}.{" "}
+                  {data.publishing.canPublish ? "Scout publishes only posts you approve." : "Nothing that posts or writes."}
+                </small>
               </span>
+            </div>
+          )}
+          {data.publishing.available && data.publishing.planAllows && !data.publishing.canPublish && (
+            <div className="field-row">
+              <span className="field-label">
+                <strong>Enable X publishing</strong>
+                <small>Allow Scout to publish posts you explicitly approve. Scout will never publish without your permission.</small>
+              </span>
+              <div className="notification-inline">
+                <a className="primary-button" href="/api/x/oauth/start?publish=1&return=%2Faccount%2Fsettings">
+                  Enable publishing
+                </a>
+              </div>
             </div>
           )}
           {connection?.status === "active" && !connection.imported && (

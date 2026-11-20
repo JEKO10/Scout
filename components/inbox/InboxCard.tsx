@@ -1,55 +1,115 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { type ReactNode, useEffect, useState, useTransition } from "react";
 
 import { inboxActAction, inboxDecideRevisionAction, inboxDeclineReasonAction, inboxReviseAction } from "@/actions/inbox";
 import { recordReplyIntentAction } from "@/actions/replyIntents";
+import { type CardAction, type CardSpec,cardSpec } from "@/lib/inbox/cards";
 import { DECLINE_LABEL, DECLINE_REASONS, type InboxItem } from "@/lib/inbox/types";
 
 import { InboxEditor } from "./InboxEditor";
+import { PublishCard } from "./PublishCard";
 
 type Preview = { revisionId: string; text: string; warning: string | null };
-type Mode = "view" | "edit" | "approved" | "feedback" | "gone";
+type Outcome = { text: string; copyText?: string; openUrl?: string | null; opportunityId?: string; replyId?: string };
+type Mode = "view" | "edit" | "approved" | "done" | "feedback" | "gone";
+
+/** 24×24 line icons in the nav's style */
+const ICONS: Record<CardSpec["icon"] | "edit" | "regenerate" | "decline" | "check", ReactNode> = {
+  reply: <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />,
+  post: <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5" />,
+  conversation: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" />
+    </>
+  ),
+  lead: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
+    </>
+  ),
+  idea: <path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M7.5 15h9" />,
+  reminder: <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0" />,
+  edit: <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4" />,
+  regenerate: <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />,
+  decline: <path d="M6 6l12 12M18 6 6 18" />,
+  check: <path d="m5 12 5 5 9-10" />,
+};
+
+function Icon({ name }: { name: keyof typeof ICONS }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {ICONS[name]}
+    </svg>
+  );
+}
+
+const SECONDARY_ICON: Partial<Record<CardAction, keyof typeof ICONS>> = { edit: "edit", regenerate: "regenerate", decline: "decline", dismiss: "decline" };
 
 /**
- * One Inbox card: a short label, the prepared result, one sentence of why,
- * one primary action and as few others as make sense for the item.
+ * One Home card, in three parts: what it is (icon, label, age), the
+ * prepared work with one line of why, and one primary action with a few
+ * quiet ones. Everything happens here; only "View on X" leaves Scout.
  */
 export function InboxCard({ item }: { item: InboxItem }) {
+  // Day 40: an approved post on its way to X has its own actions
+  if (item.type === "publish" && item.publication) return <PublishCard item={item} publication={item.publication} />;
+  return <WorkCard item={item} />;
+}
+
+function WorkCard({ item }: { item: InboxItem }) {
   const router = useRouter();
+  const spec = cardSpec(item);
   const [text, setText] = useState(item.text);
   const [mode, setMode] = useState<Mode>("view");
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [outcome, setOutcome] = useState<{ text: string; copyText?: string; openUrl?: string | null; opportunityId?: string; replyId?: string } | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const [pending, startTransition] = useTransition();
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<CardAction | null>(null);
 
-  const editable = item.type === "post" || item.type === "reply";
+  function close() {
+    setMode("gone");
+    router.refresh();
+  }
 
-  function act(action: string, then?: (result: { outcome: string; copyText?: string; openUrl?: string | null; opportunityId?: string; replyId?: string }) => void) {
+  // A short success line, then the card leaves (approvals and started experiments stay until closed)
+  useEffect(() => {
+    if (mode !== "done" || item.type === "recommendation") return;
+    const timer = setTimeout(close, 2200);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  function run(action: CardAction) {
     setError(null);
+    if (action === "edit") return setMode("edit");
+    if (action === "regenerate") return regenerate();
     setBusy(action);
     startTransition(async () => {
       const result = await inboxActAction(item.key, action);
       setBusy(null);
       if (!result.ok) return setError(result.message);
-      then?.(result);
+      // The page re-renders: the new draft(s) arrive as cards to approve
+      if (action === "write_reply" || action === "prepare") return;
+      // Approved for publishing: the page re-renders it as "Ready to publish"
+      if (action === "approve" && result.publicationId) return router.refresh();
+      const next: Outcome = { text: result.outcome, copyText: result.copyText, openUrl: result.openUrl, opportunityId: result.opportunityId, replyId: result.replyId };
+      setOutcome(next);
+      if (action === "approve" && !result.already) return setMode("approved");
+      // Declined / dismissed: gone at once; why is optional
+      if ((action === "decline" || action === "dismiss") && item.type !== "lead" && item.type !== "recommendation") return setMode("feedback");
+      setMode("done");
     });
   }
 
-  const approve = () =>
-    act("approve", (result) => {
-      setOutcome({ text: result.outcome, copyText: result.copyText, openUrl: result.openUrl, opportunityId: result.opportunityId, replyId: result.replyId });
-      setMode("approved");
-    });
-  // Declined / dismissed: gone at once; the reason is optional
-  const decline = (action: "decline" | "dismiss") => act(action, () => setMode("feedback"));
-
   function regenerate() {
-    setError(null);
     setBusy("regenerate");
     startTransition(async () => {
       const result = await inboxReviseAction(item.key, { type: "regenerate" }, text);
@@ -70,11 +130,6 @@ export function InboxCard({ item }: { item: InboxItem }) {
     });
   }
 
-  function close() {
-    setMode("gone");
-    router.refresh();
-  }
-
   /** An approved reply copied or opened on X: the existing Day 21 record ("reply opened", never "posted") */
   function recordIntent(source: "clipboard" | "x_web_intent") {
     if (!outcome?.opportunityId || !outcome.copyText) return;
@@ -93,10 +148,22 @@ export function InboxCard({ item }: { item: InboxItem }) {
 
   if (mode === "gone") return null;
 
+  const head = (
+    <div className="inbox-card-head">
+      <span className="inbox-icon" data-icon={spec.icon}>
+        <Icon name={spec.icon} />
+      </span>
+      <div>
+        <p className="inbox-label">{item.label}</p>
+        {item.meta && <p className="inbox-meta">{item.meta}</p>}
+      </div>
+    </div>
+  );
+
   if (mode === "feedback") {
     return (
       <article className="inbox-card inbox-card-compact" aria-live="polite">
-        <p className="inbox-why">Got it. Why wasn&apos;t this useful? (optional)</p>
+        <p className="inbox-done-line">Removed. Why wasn&apos;t this useful? <span className="inbox-optional">(optional)</span></p>
         <div className="inbox-chips">
           {DECLINE_REASONS.map((reason) => (
             <button
@@ -111,7 +178,7 @@ export function InboxCard({ item }: { item: InboxItem }) {
               {DECLINE_LABEL[reason]}
             </button>
           ))}
-          <button type="button" className="inbox-chip inbox-chip-quiet" onClick={close} aria-label="Skip feedback">
+          <button type="button" className="inbox-chip inbox-chip-quiet" onClick={close}>
             Skip
           </button>
         </div>
@@ -119,157 +186,156 @@ export function InboxCard({ item }: { item: InboxItem }) {
     );
   }
 
-  if (mode === "approved" && outcome) {
+  if (mode === "done" && outcome) {
     return (
-      <article className="inbox-card inbox-card-compact" aria-live="polite">
-        <p className="inbox-done">✓ {outcome.text}</p>
-        <p className="inbox-text inbox-text-small">{outcome.copyText ?? text}</p>
-        <div className="inbox-actions">
-          {outcome.copyText && (
-            <button type="button" className="primary-button" onClick={() => copy(outcome.copyText!)}>
-              {copied ? "Copied" : "Copy"}
-            </button>
-          )}
-          {outcome.openUrl && (
-            <a className="secondary-button" href={outcome.openUrl} target="_blank" rel="noreferrer" onClick={() => recordIntent("x_web_intent")}>
-              {item.type === "reply" ? "Reply on X" : "Post on X"} ↗
-            </a>
-          )}
+      <article className="inbox-card inbox-card-compact" data-type={item.type} aria-live="polite">
+        <p className="inbox-success">
+          <Icon name="check" /> {outcome.text}
+        </p>
+        {item.type === "recommendation" && (
           <button type="button" className="inbox-ghost" onClick={close}>
             Close
           </button>
-        </div>
-        {error && <p className="form-message" data-status="error">{error}</p>}
+        )}
       </article>
     );
   }
 
-  return (
-    <article className="inbox-card" data-type={item.type} aria-busy={pending}>
-      <p className="inbox-label">{item.label}</p>
-
-      {item.type === "reply" && item.context && (
-        <p className="inbox-context">
-          {item.context.author ? `@${item.context.author}: ` : ""}
-          {item.context.text}
-        </p>
-      )}
-      {(item.type === "conversation" || item.type === "lead") && item.context?.author && <p className="inbox-author">@{item.context.author}</p>}
-
-      {mode === "edit" ? (
-        <InboxEditor
-          itemKey={item.key}
-          initialText={text}
-          onChange={setText}
-          onApprove={approve}
-          onClose={() => setMode("view")}
-          approving={busy === "approve"}
-        />
-      ) : preview ? (
-        <div className="inbox-preview" aria-live="polite">
-          <p className="inbox-why">Here&apos;s another version.</p>
-          <p className="inbox-text">{preview.text}</p>
-          {preview.warning && <p className="inbox-warning">{preview.warning}</p>}
-          <div className="inbox-actions">
-            <button type="button" className="primary-button" onClick={() => resolvePreview(true)}>
-              Use this
+  if (mode === "approved" && outcome) {
+    return (
+      <article className="inbox-card" data-type={item.type} aria-live="polite">
+        {head}
+        <div className="inbox-card-body">
+          <p className="inbox-success">
+            <Icon name="check" /> {outcome.text}
+          </p>
+          <p className="inbox-work">{outcome.copyText ?? text}</p>
+        </div>
+        <div className="inbox-card-actions">
+          {outcome.copyText && (
+            <button type="button" className="primary-button inbox-primary" onClick={() => copy(outcome.copyText!)}>
+              {copied ? "Copied" : "Copy"}
             </button>
-            <button
-              type="button"
-              className="inbox-ghost"
-              disabled={pending}
-              onClick={() => {
-                // The rejected version stays in the history; ask for another
-                void inboxDecideRevisionAction(preview.revisionId, false);
-                setPreview(null);
-                regenerate();
-              }}
-            >
-              {busy === "regenerate" ? "Writing…" : "Try again"}
-            </button>
-            <button type="button" className="inbox-ghost" onClick={() => resolvePreview(false)}>
-              Keep original
+          )}
+          <div className="inbox-secondary">
+            {outcome.openUrl && (
+              <a className="inbox-ghost" href={outcome.openUrl} target="_blank" rel="noreferrer" onClick={() => recordIntent("x_web_intent")}>
+                {item.type === "reply" ? "Reply on X" : "Post on X"} ↗
+              </a>
+            )}
+            <button type="button" className="inbox-ghost" onClick={close}>
+              Close
             </button>
           </div>
         </div>
-      ) : (
-        <>
-          <p className="inbox-text">{text}</p>
-          <p className="inbox-why">{item.why}</p>
-          <div className="inbox-actions">
-            {editable && (
+        {error && <p className="form-message inbox-error" data-status="error" role="alert">{error}</p>}
+      </article>
+    );
+  }
+
+  const conversation = item.context && (item.type === "reply" || item.type === "conversation" || item.type === "lead");
+
+  return (
+    <article className="inbox-card" data-type={item.type} data-mode={mode} aria-busy={pending}>
+      {head}
+
+      <div className="inbox-card-body">
+        {conversation && (
+          <div className="inbox-source">
+            <p className="inbox-source-author">
+              {item.context!.author ? `@${item.context!.author}` : "On X"}
+              {item.externalUrl && (
+                <a className="inbox-source-link" href={item.externalUrl} target="_blank" rel="noreferrer">
+                  View on X ↗
+                </a>
+              )}
+            </p>
+            {/* The post being answered: always readable before approving */}
+            {item.type === "reply" ? (
               <>
-                <button type="button" className="primary-button" onClick={approve} disabled={pending}>
-                  {busy === "approve" ? "Approving…" : "Approve"}
-                </button>
-                <button type="button" className="inbox-ghost" onClick={() => setMode("edit")} disabled={pending}>
-                  Edit
-                </button>
-                <button type="button" className="inbox-ghost" onClick={regenerate} disabled={pending}>
-                  {busy === "regenerate" ? "Writing…" : "Regenerate"}
-                </button>
-                <button type="button" className="inbox-ghost" onClick={() => decline("decline")} disabled={pending}>
-                  Decline
-                </button>
+                <p className="inbox-source-text" data-open={contextOpen || undefined}>
+                  {item.context!.text}
+                </p>
+                {item.context!.text.length > 140 && (
+                  <button type="button" className="inbox-more" onClick={() => setContextOpen((open) => !open)} aria-expanded={contextOpen}>
+                    {contextOpen ? "Show less" : "Show full post"}
+                  </button>
+                )}
               </>
+            ) : (
+              <p className="inbox-source-text" data-open>
+                {item.context!.text}
+              </p>
             )}
-            {item.type === "conversation" && (
-              <>
-                <button type="button" className="primary-button" onClick={() => act("write_reply", () => router.refresh())} disabled={pending}>
-                  {busy === "write_reply" ? "Writing…" : "Write reply"}
-                </button>
-                <button type="button" className="inbox-ghost" onClick={() => act("save")} disabled={pending}>
-                  Save
-                </button>
-                <button type="button" className="inbox-ghost" onClick={() => decline("dismiss")} disabled={pending}>
-                  Dismiss
-                </button>
-              </>
-            )}
-            {item.type === "lead" && (
-              <>
-                <button type="button" className="primary-button" onClick={() => act("save")} disabled={pending}>
-                  {busy === "save" ? "Saving…" : "Save lead"}
-                </button>
-                <button type="button" className="inbox-ghost" onClick={() => act("dismiss")} disabled={pending}>
-                  Dismiss
-                </button>
-              </>
-            )}
-            {item.type === "recommendation" && (
-              <>
-                <button type="button" className="primary-button" onClick={() => act("accept")} disabled={pending}>
-                  Accept
-                </button>
-                <button type="button" className="inbox-ghost" onClick={() => act("dismiss")} disabled={pending}>
-                  Dismiss
-                </button>
-              </>
-            )}
-            {item.type === "reminder" && (
-              <>
-                <button type="button" className="primary-button" onClick={() => act("done")} disabled={pending}>
-                  Done
-                </button>
-                <button type="button" className="inbox-ghost" onClick={() => act("snooze")} disabled={pending}>
-                  Tomorrow
-                </button>
-              </>
-            )}
-            {item.externalUrl && (item.type === "conversation" || item.type === "reply") ? (
-              <a className="inbox-link" href={item.externalUrl} target="_blank" rel="noreferrer">
-                View ↗
-              </a>
-            ) : item.href && item.type !== "post" && item.type !== "reply" ? (
-              <a className="inbox-link" href={item.href}>
-                {item.type === "lead" ? "Details" : "Open"}
-              </a>
-            ) : null}
           </div>
-        </>
+        )}
+
+        {item.headline && <p className="inbox-headline">{item.headline}</p>}
+
+        {mode === "edit" ? (
+          <InboxEditor itemKey={item.key} initialText={text} onChange={setText} onApprove={() => run("approve")} onClose={() => setMode("view")} approving={busy === "approve"} />
+        ) : preview ? (
+          <div className="inbox-preview" aria-live="polite">
+            <p className="inbox-preview-label">Here&apos;s another version.</p>
+            <p className="inbox-work">{preview.text}</p>
+            {preview.warning && <p className="inbox-warning">{preview.warning}</p>}
+            <div className="inbox-preview-actions">
+              <button type="button" className="primary-button" onClick={() => resolvePreview(true)}>
+                Use this
+              </button>
+              <button
+                type="button"
+                className="inbox-ghost"
+                disabled={pending}
+                onClick={() => {
+                  // The rejected version stays in the history; ask for another
+                  void inboxDecideRevisionAction(preview.revisionId, false);
+                  setPreview(null);
+                  regenerate();
+                }}
+              >
+                {busy === "regenerate" ? "Writing…" : "Try again"}
+              </button>
+              <button type="button" className="inbox-ghost" onClick={() => resolvePreview(false)}>
+                Keep original
+              </button>
+            </div>
+          </div>
+        ) : (
+          item.type !== "conversation" &&
+          item.type !== "lead" && <p className={item.type === "post" || item.type === "reply" ? "inbox-work" : "inbox-text"}>{text}</p>
+        )}
+
+        {item.steps && item.steps.length > 0 && mode === "view" && (
+          <ul className="inbox-steps">
+            {item.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ul>
+        )}
+        {mode === "view" && !preview && <p className="inbox-why">{item.why}</p>}
+        {busy === "regenerate" && !preview && <p className="inbox-why" aria-live="polite">Writing another version…</p>}
+      </div>
+
+      {mode === "view" && !preview && (
+        <div className="inbox-card-actions">
+          <button type="button" className="primary-button inbox-primary" onClick={() => run(spec.primary.action)} disabled={pending}>
+            {spec.primary.action === "approve" && <Icon name="check" />}
+            {busy === spec.primary.action ? "Working…" : spec.primary.label}
+          </button>
+          <div className="inbox-secondary">
+            {spec.secondary.map(({ action, label }) => (
+              <button key={action} type="button" className="inbox-ghost" onClick={() => run(action)} disabled={pending}>
+                {SECONDARY_ICON[action] && <Icon name={SECONDARY_ICON[action]!} />}
+                {busy === action ? "…" : label}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
+
       {error && (
-        <p className="form-message" data-status="error" role="alert">
+        <p className="form-message inbox-error" data-status="error" role="alert">
           {error}
         </p>
       )}

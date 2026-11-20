@@ -7156,109 +7156,359 @@ a.stat-card:hover {
 /* ---- Day 38 Home: Approval Inbox -------------------------------------------- */
 
 .inbox-home {
-  max-width: 680px;
+  max-width: 1120px;
   margin-inline: auto;
 }
 
 .inbox-head {
-  margin: 8px 0 20px;
+  margin: 12px 0 28px;
 }
 
 .inbox-title {
   color: var(--ink);
-  font-size: clamp(1.6rem, 4vw, 2.1rem);
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  font-size: clamp(1.75rem, 3.4vw, 2.4rem);
+  font-weight: 750;
+  letter-spacing: -0.03em;
   line-height: 1.15;
 }
 
-.inbox-head .lede {
-  margin-top: 6px;
-  color: var(--ink);
-  font-size: 16px;
+.inbox-lede {
+  margin-top: 8px;
+  color: var(--muted-ink);
+  font-size: 17px;
 }
 
-.inbox-summary {
-  margin-top: 4px;
-  color: var(--muted-ink);
-  font-size: 14px;
+.inbox-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 9px 18px 9px 12px;
+}
+
+.inbox-count svg,
+.inbox-icon svg,
+.inbox-ghost svg,
+.inbox-success svg,
+.inbox-primary svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.inbox-count svg {
+  width: 18px;
+  height: 18px;
+  color: var(--blue);
+}
+
+.inbox-count[data-type="recommendation"] svg {
+  color: #6d28d9;
+}
+
+.inbox-count[data-type="lead"] svg {
+  color: #15803d;
 }
 
 .inbox-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
 
+/* Three parts: what it is | the work | the decision */
 .inbox-card {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 300px;
+  gap: 8px 28px;
+  align-items: start;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 18px;
   background: var(--card);
   box-shadow: var(--shadow-card);
-  padding: 18px;
+  padding: 26px 28px;
+}
+
+.inbox-card[data-mode="edit"] {
+  grid-template-columns: 190px minmax(0, 1fr);
 }
 
 .inbox-card-compact {
-  padding: 14px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 28px;
+}
+
+.inbox-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.inbox-icon {
+  display: inline-flex;
+  width: 46px;
+  height: 46px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--blue-light);
+  color: var(--blue);
+}
+
+.inbox-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.inbox-icon[data-icon="post"] {
+  background: #efeafe;
+  color: #5b21b6;
+}
+
+.inbox-icon[data-icon="idea"],
+.inbox-icon[data-icon="lead"] {
+  background: #e8f7ee;
+  color: #15803d;
+}
+
+.inbox-icon[data-icon="reminder"] {
+  background: var(--secondary);
+  color: #4b5563;
 }
 
 .inbox-label {
   color: var(--blue);
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
+.inbox-card[data-type="post"] .inbox-label {
+  color: #4c1d95;
+}
+
+.inbox-card[data-type="recommendation"] .inbox-label,
 .inbox-card[data-type="lead"] .inbox-label {
   color: #15803d;
 }
 
-.inbox-card[data-type="reminder"] .inbox-label,
-.inbox-card[data-type="recommendation"] .inbox-label {
-  color: var(--muted-ink);
-}
-
-.inbox-author,
-.inbox-context {
-  margin-top: 8px;
-  color: var(--muted-ink);
-  font-size: 13px;
-}
-
-.inbox-context {
-  display: -webkit-box;
-  overflow: hidden;
-  border-left: 2px solid var(--line);
-  padding-left: 10px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.inbox-text {
-  margin-top: 8px;
+.inbox-card[data-type="reminder"] .inbox-label {
   color: var(--ink);
-  font-size: 16px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
-.inbox-text-small {
+.inbox-meta {
+  margin-top: 4px;
   color: var(--muted-ink);
   font-size: 14px;
 }
 
-.inbox-why {
-  margin-top: 8px;
-  color: var(--muted-ink);
-  font-size: 13px;
+.inbox-card-body {
+  min-width: 0;
 }
 
-.inbox-done {
+.inbox-source {
+  margin-bottom: 10px;
+}
+
+.inbox-source-author {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.inbox-source-text {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 2px;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.inbox-source-text[data-open] {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.inbox-more {
+  border: 0;
+  background: none;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 0;
+}
+
+.inbox-headline {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* The prepared work itself */
+.inbox-work {
+  border-radius: 12px;
+  background: #f4f6fa;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  padding: 14px 16px;
+  white-space: pre-wrap;
+}
+
+.inbox-text {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.inbox-steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.5;
+  list-style: disc;
+}
+
+.inbox-why {
+  margin-top: 10px;
+  color: var(--muted-ink);
+  font-size: 14px;
+}
+
+.inbox-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inbox-primary {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+
+.inbox-primary svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.2;
+}
+
+.inbox-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+}
+
+.inbox-ghost {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #4b5563;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 8px;
+}
+
+.inbox-ghost svg {
+  width: 16px;
+  height: 16px;
+}
+
+.inbox-ghost:hover {
+  background: var(--secondary);
+  color: var(--ink);
+}
+
+.inbox-ghost:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.inbox-source-link {
+  margin-left: 10px;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.inbox-ghost:focus-visible,
+.inbox-chip:focus-visible,
+.inbox-more:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.inbox-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
   color: #15803d;
   font-size: 15px;
   font-weight: 600;
+}
+
+.inbox-card-compact .inbox-success {
+  margin: 0;
+}
+
+.inbox-success svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  stroke-width: 2.4;
+}
+
+.inbox-done-line {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.inbox-optional {
+  color: var(--muted-ink);
+}
+
+.inbox-error {
+  grid-column: 1 / -1;
 }
 
 .inbox-warning {
@@ -7267,61 +7517,15 @@ a.stat-card:hover {
   font-size: 13px;
 }
 
-.inbox-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.inbox-actions .primary-button,
-.inbox-actions .secondary-button {
-  min-height: 44px;
-}
-
-.inbox-ghost,
-.inbox-link {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: #374151;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 560;
-  padding: 0 12px;
-}
-
-.inbox-ghost:hover,
-.inbox-link:hover {
-  background: var(--secondary);
-}
-
-.inbox-ghost:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.inbox-link {
-  margin-left: auto;
-  color: var(--blue);
-}
-
-.inbox-ghost:focus-visible,
-.inbox-link:focus-visible,
-.inbox-chip:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
 .inbox-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.inbox-card-compact .inbox-chips {
+  margin-top: 0;
 }
 
 .inbox-chip {
@@ -7351,27 +7555,52 @@ a.stat-card:hover {
 }
 
 .inbox-preview {
-  margin-top: 10px;
   border-radius: 12px;
   background: var(--blue-light);
-  padding: 12px 14px;
+  padding: 14px 16px;
+}
+
+.inbox-preview .inbox-work {
+  background: #fff;
+}
+
+.inbox-preview-label {
+  margin-bottom: 8px;
+  color: var(--accent-foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.inbox-preview-actions,
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.inbox-preview-actions .primary-button,
+.inbox-actions .primary-button,
+.inbox-actions .secondary-button {
+  min-height: 44px;
 }
 
 .inbox-editor {
-  margin-top: 10px;
+  margin-top: 4px;
 }
 
 .inbox-textarea {
   width: 100%;
-  min-height: 120px;
+  min-height: 130px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
   color: var(--ink);
   font: inherit;
   font-size: 16px;
-  line-height: 1.5;
-  padding: 12px;
+  line-height: 1.55;
+  padding: 12px 14px;
   resize: vertical;
 }
 
@@ -7416,11 +7645,25 @@ a.stat-card:hover {
 }
 
 .inbox-empty {
-  border: 1px dashed var(--line);
-  border-radius: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
   background: var(--card);
-  color: var(--muted-ink);
-  padding: 22px 18px;
+  box-shadow: var(--shadow-card);
+  padding: 28px;
+}
+
+.inbox-empty-title {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.inbox-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 18px;
 }
 
 .inbox-foot {
@@ -7429,7 +7672,7 @@ a.stat-card:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
 .inbox-inline {
@@ -7456,16 +7699,106 @@ a.stat-card:hover {
   content: " ▾";
 }
 
+/* Tablet: the decision moves under the work */
+@media (max-width: 1080px) {
+  .inbox-card,
+  .inbox-card[data-mode="edit"] {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  .inbox-card-actions {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .inbox-primary {
+    width: auto;
+    min-width: 180px;
+  }
+
+  .inbox-secondary {
+    justify-content: flex-start;
+  }
+}
+
+/* Phone: one column, the work before the actions, Approve full width */
 @media (max-width: 640px) {
-  .inbox-card {
-    padding: 16px 14px;
+  .inbox-head {
+    margin-bottom: 20px;
   }
 
-  .inbox-actions .primary-button {
-    flex: 1 1 100%;
+  .inbox-lede {
+    font-size: 16px;
   }
 
-  .inbox-link {
-    margin-left: 0;
+  .inbox-count {
+    font-size: 14px;
+    padding: 7px 14px 7px 10px;
   }
+
+  .inbox-card,
+  .inbox-card[data-mode="edit"] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    border-radius: 16px;
+    padding: 18px 16px;
+  }
+
+  .inbox-card-compact {
+    padding: 16px;
+  }
+
+  .inbox-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .inbox-label {
+    font-size: 16px;
+  }
+
+  .inbox-card-actions {
+    grid-column: 1;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inbox-primary {
+    width: 100%;
+  }
+
+  .inbox-secondary {
+    justify-content: space-between;
+  }
+
+  .inbox-empty {
+    padding: 20px 16px;
+  }
+}
+
+/* Day 40: scheduling an approved post, inline */
+.inbox-schedule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.inbox-schedule input {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  padding: 0 10px;
+}
+
+.inbox-tz {
+  color: var(--muted-ink);
+  font-size: 13px;
 }

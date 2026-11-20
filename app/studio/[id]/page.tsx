@@ -8,12 +8,18 @@ import { AppHeader } from "@/components/AppHeader";
 import { DraftEditor } from "@/components/content/DraftEditor";
 import { PlanForm } from "@/components/content/PlanForm";
 import { PublishedUrlForm } from "@/components/content/PublishedUrlForm";
+import { ApproveForPublishing } from "@/components/inbox/ApproveForPublishing";
+import { PublishCard } from "@/components/inbox/PublishCard";
 import { InfoHint } from "@/components/InfoHint";
 import { getDraft, getProfileTimeZone } from "@/db/queries/content";
+import { latestPublicationsForDrafts } from "@/db/queries/publications";
 import { getTrend } from "@/db/queries/trends";
+import { isMissingSchemaError } from "@/db/schemaErrors";
 import { requireProfile } from "@/lib/auth/session";
 import { isValidTimeZone, lifecycle, LIFECYCLE_LABEL, zonedParts } from "@/lib/content/calendar";
 import { GOAL_LABEL } from "@/lib/content/types";
+import { PUBLICATION_LABEL } from "@/lib/x/publishing";
+import { getPublishingState, toPublicationCard } from "@/services/x/publishing";
 
 export const metadata: Metadata = { title: "Draft" };
 
@@ -45,6 +51,18 @@ async function Draft({ params, searchParams }: PageProps<"/studio/[id]">) {
   const tz = [draft.timeZone, savedTz].find((zone): zone is string => Boolean(zone && isValidTimeZone(zone))) ?? "UTC";
   const plannedParts = draft.plannedAt ? zonedParts(draft.plannedAt, tz) : null;
   const state = lifecycle(draft);
+  // Day 40: publishing this draft on X (the same state Home and the Calendar show)
+  const publishing = await getPublishingState(profile);
+  const publication = publishing.available
+    ? await latestPublicationsForDrafts(profile.id, [draft.id])
+        .then((map) => map.get(draft.id))
+        .catch((error: unknown) => {
+          if (!isMissingSchemaError(error)) throw error;
+          return undefined;
+        })
+    : undefined;
+  const showPublication = publication && !publication.deletedAt;
+  const canApprove = publishing.available && publishing.planAllows && draft.format === "post" && !draft.publishedConfirmedAt && !showPublication;
 
   return (
     <main className="workspace shell enter-content">
@@ -71,6 +89,25 @@ async function Draft({ params, searchParams }: PageProps<"/studio/[id]">) {
         initialReview={draft.review}
         publishedConfirmed={Boolean(draft.publishedConfirmedAt)}
       />
+      {(showPublication || canApprove) && (
+        <section className="crm-panel" aria-labelledby="publish-title">
+          <h2 id="publish-title">Publish on X</h2>
+          {showPublication ? (
+            <PublishCard
+              returnTo={`/studio/${draft.id}`}
+              item={{
+                label: publication.status === "scheduled" && publication.scheduledAt ? "Scheduled" : PUBLICATION_LABEL[publication.status],
+                text: publication.text,
+                why: publication.error ?? (publication.hasUrl ? "Has a link: X charges $0.20 to publish a post with a link ($0.015 without)." : "You approved this exact text."),
+                meta: undefined,
+              }}
+              publication={toPublicationCard(publication, publishing, tz, new Date(), draft.publishedUrl)}
+            />
+          ) : (
+            <ApproveForPublishing draftId={draft.id} />
+          )}
+        </section>
+      )}
       <section className="crm-panel" aria-labelledby="plan-title">
         <h2 id="plan-title">
           Calendar · {LIFECYCLE_LABEL[state]}

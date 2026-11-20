@@ -80,7 +80,15 @@ export type UsageLimits = {
   /** Writing budget automatic preparation never touches: kept for what the user asks for, USD */
   reservedManualWritingUsd: number;
   /** Day 38: AI edits and regenerations per UTC day (each also needs writing budget) */
-  maxInboxRevisionsPerDay: number;
+  maxInboxRevisionsPerDay: number;  /**
+   * Day 40 X publishing (PROPOSED, not approved; off until X_PUBLISHING_ENABLED):
+   * the user's own approved posts Scout may publish per window (UTC day, week
+   * from Monday, or month), and a hard monthly ceiling on what X charges for
+   * them ($0.015 a post, $0.20 with a link; reserved before each call).
+   */
+  publishWindow: "day" | "week" | "month";
+  maxPublishedPosts: number;
+  maxPublishingUsdPerMonth: number;
 };
 
 /** Automatic Scout (Day 18): how often a plan may scan on its own. */
@@ -139,6 +147,9 @@ export const PLANS: Record<
       maxAutoPrepareUsdPerMonth: 0.05,
       reservedManualWritingUsd: 0.15,
       maxInboxRevisionsPerDay: 10,
+      publishWindow: "month",
+      maxPublishedPosts: 0,
+      maxPublishingUsdPerMonth: 0,
     },
     // ~3 new posts a day to read: one daily scan is enough
     autoScan: { intervalsMinutes: [1440], maxAutoRunsPerDay: 1 },
@@ -172,6 +183,9 @@ export const PLANS: Record<
       maxAutoPrepareUsdPerMonth: 0.3,
       reservedManualWritingUsd: 0.2,
       maxInboxRevisionsPerDay: 25,
+      publishWindow: "week",
+      maxPublishedPosts: 3,
+      maxPublishingUsdPerMonth: 0.5,
     },
     autoScan: { intervalsMinutes: [720, 1440], maxAutoRunsPerDay: 2 },
     // Weekly: ~4 collections x 20 posts = ~86 of the 600 monthly reads
@@ -204,6 +218,9 @@ export const PLANS: Record<
       maxAutoPrepareUsdPerMonth: 1.8,
       reservedManualWritingUsd: 1.2,
       maxInboxRevisionsPerDay: 50,
+      publishWindow: "day",
+      maxPublishedPosts: 1,
+      maxPublishingUsdPerMonth: 1.5,
     },
     // 15 accounts x 4 scans = at most ~60 X requests a day
     autoScan: { intervalsMinutes: [360, 720, 1440], maxAutoRunsPerDay: 4 },
@@ -237,6 +254,9 @@ export const PLANS: Record<
       maxAutoPrepareUsdPerMonth: 5,
       reservedManualWritingUsd: 15,
       maxInboxRevisionsPerDay: 200,
+      publishWindow: "day",
+      maxPublishedPosts: 10,
+      maxPublishingUsdPerMonth: 10,
     },
     autoScan: { intervalsMinutes: [30, 60, 120], maxAutoRunsPerDay: 48 },
     growthCollection: { autoEveryHours: 24 },

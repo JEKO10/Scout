@@ -184,7 +184,7 @@ export function AutomationBuilder({ initial, editId, onDone }: { initial: Builde
             </label>
           ))}
         </div>
-        <p className="memory-note">Scout never posts, replies, sends messages or follows on X for you. Drafts wait for you to review.</p>
+        <p className="memory-note">Automations never post, reply, send messages or follow on X for you. Drafts wait for you to review.</p>
       </fieldset>
 
       <label className="automation-chip">

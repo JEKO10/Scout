@@ -18,6 +18,7 @@ import { getPostedReplies } from "@/db/queries/replies";
 import { getSocialAccountByHandle } from "@/db/queries/socialAccounts";
 import { getVoiceSamples } from "@/db/queries/voiceSamples";
 import { requireProfile } from "@/lib/auth/session";
+import { storedPostText } from "@/lib/compliance/retention";
 import { formatRelative } from "@/lib/format";
 import { getAiCostSummary } from "@/services/ai/costSummary";
 import { buildUserMemory } from "@/services/memory/buildUserMemory";
@@ -141,7 +142,7 @@ async function Dashboard() {
                           {opportunity.authorHandle ? `@${opportunity.authorHandle}` : "Unknown author"}
                           {opportunity.postedAt && ` · ${formatRelative(opportunity.postedAt)}`}
                         </span>
-                        <span className="opportunity-list-post">{opportunity.content}</span>
+                        <span className="opportunity-list-post">{storedPostText(opportunity.content)}</span>
                       </span>
                       <span className="score-badge" data-tier={opportunityTier(score)} title="Opportunity score">
                         {score}

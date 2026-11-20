@@ -4,6 +4,7 @@ import { useOptimistic, useTransition } from "react";
 
 import { setCandidateLabelAction } from "@/actions/candidates";
 import type { ScoutCandidate } from "@/db/schema";
+import { storedPostText } from "@/lib/compliance/retention";
 
 type Label = NonNullable<ScoutCandidate["userLabel"]>;
 
@@ -61,7 +62,7 @@ export function CandidateLabelList({ candidates }: { candidates: Candidate[] }) 
                 </a>{" "}
                 · {candidate.kind} · {dateFormat.format(candidate.postedAt)}
               </p>
-              <p className="candidate-text">{candidate.content}</p>
+              <p className="candidate-text">{storedPostText(candidate.content)}</p>
             </div>
             <div className="candidate-labels" role="group" aria-label="Your label">
               {labels.map(({ value, text }) => (

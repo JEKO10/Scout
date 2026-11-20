@@ -38,8 +38,10 @@ export type InboxSources = {
     body: string | null;
     href: string;
     at: Date;
+    /** A growth-plan task asking for work Scout prepares itself (see taskNeeds) */
+    needs?: ("post" | "reply")[];
   }[];
-  recommendations: { key: string; title: string; text: string; why: string; at: Date }[];
+  recommendations: { key: string; title: string; text: string; why: string; at: Date; steps?: string[] }[];
 };
 
 const short = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
@@ -56,6 +58,8 @@ export function assembleInbox(
   hidden: Set<string>,
   prefs: Pick<InboxPreferences, "avoidTopics">,
   now: Date,
+  /** Work of that kind the user already approved today: its reminder is done in spirit */
+  handledToday: ReadonlySet<"post" | "reply"> = new Set(),
 ): InboxItem[] {
   const items: InboxItem[] = [];
   const shownEntities = new Set<string>();
@@ -103,7 +107,8 @@ export function assembleInbox(
     const base = {
       key: `opportunity:${c.id}`,
       score: c.adjusted,
-      at: c.createdAt.toISOString(),
+      // The conversation's own age, not when Scout found it
+      at: (c.postedAt ?? c.createdAt).toISOString(),
       context: { author: c.authorHandle, text: c.content, url: c.postUrl },
       href: `/opportunities/${c.id}`,
       externalUrl: c.postUrl,
@@ -145,9 +150,19 @@ export function assembleInbox(
     });
   }
 
+  // A reminder to do work Scout already prepared (or the user approved today) is replaced by that work
+  const ready = {
+    post: items.some((i) => i.type === "post") || handledToday.has("post"),
+    reply: items.some((i) => i.type === "reply") || handledToday.has("reply"),
+  };
+  // A reply can only be prepared for a conversation that's on Home
+  const canPrepare = { post: true, reply: items.some((i) => i.type === "conversation") };
   let reminders = 0;
   for (const reminder of sources.reminders) {
     if (hidden.has(reminder.key) || shownEntities.has(reminder.entityId)) continue;
+    const missing = (reminder.needs ?? []).filter((need) => !ready[need]);
+    if (reminder.needs?.length && missing.length === 0) continue;
+    const prepare = missing.filter((need) => canPrepare[need]);
     if (reminders >= INBOX_CAPS.reminders) break;
     reminders++;
     shownEntities.add(reminder.entityId);
@@ -159,16 +174,46 @@ export function assembleInbox(
       at: reminder.at.toISOString(),
       label: "Reminder",
       text: reminder.title,
-      why: reminder.body ? short(reminder.body, 160) : "Due now.",
+      why: reminder.body ? short(reminder.body, 200) : "Due now.",
       href: reminder.href,
+      // Honest: nothing is prepared yet, so offer to prepare it (one click, writing budget)
+      ...(prepare.length ? { prepare } : {}),
     });
   }
 
   for (const rec of sources.recommendations.filter((r) => !hidden.has(r.key)).slice(0, INBOX_CAPS.recommendations)) {
-    items.push({ key: rec.key, type: "recommendation", rank: RANK.recommendation, score: 0, at: rec.at.toISOString(), label: "Try this", text: rec.text, why: rec.why, href: "/strategy" });
+    items.push({
+      key: rec.key,
+      type: "recommendation",
+      rank: RANK.recommendation,
+      score: 0,
+      at: rec.at.toISOString(),
+      label: "Try this",
+      headline: rec.title,
+      text: rec.text,
+      why: rec.why,
+      steps: rec.steps,
+      href: "/strategy",
+    });
   }
 
   return items.sort((a, b) => a.rank - b.rank || b.score - a.score || b.at.localeCompare(a.at));
+}
+
+/**
+ * What a growth-plan task asks for that Scout can prepare: a post ("1
+ * baseline post", "a short post", a thread) and/or a reply ("1 reply",
+ * "join conversations"). Read from its module and words, deterministically.
+ * "Reply to two posts" asks for replies, not a post.
+ */
+export function taskNeeds(module: string | null | undefined, text: string): ("post" | "reply")[] {
+  const t = text.toLowerCase();
+  const needs = new Set<"post" | "reply">();
+  if (module === "studio") needs.add("post");
+  if (module === "opportunities") needs.add("reply");
+  if (/\brepl(?:y|ies)\b|\bconversations?\b/.test(t)) needs.add("reply");
+  if (/(?<!\bto\s)\b(?:\d+|one|two|three|a|an|your)\s+(?:[a-z-]+\s+)?posts?\b|\bthreads?\b/.test(t)) needs.add("post");
+  return [...needs];
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

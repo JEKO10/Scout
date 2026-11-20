@@ -42,8 +42,8 @@ export async function inboxActAction(key: string, action: string): Promise<Inbox
   const parsedAction = z.enum(INBOX_ACTIONS).safeParse(action);
   if (!parsedKey.success || !parsedAction.success) return { ok: false, message: "Invalid request." };
   const result = await safely(() => actOnItem(profile, parsedKey.data, parsedAction.data));
-  // Approvals stay on screen with their outcome (copy / open X); the rest re-render the Inbox
-  if (result.ok && parsedAction.data !== "approve") refresh();
+  // The card shows its own success state, then leaves; only a new reply draft changes the card itself
+  if (result.ok && (parsedAction.data === "write_reply" || parsedAction.data === "prepare")) refresh();
   return result;
 }
 

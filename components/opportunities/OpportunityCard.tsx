@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 
 import { setOpportunityStatusAction } from "@/actions/opportunities";
 import type { Opportunity } from "@/db/schema";
+import { storedPostText } from "@/lib/compliance/retention";
 import { formatRelative } from "@/lib/format";
 import { DEFAULT_REPLY_STYLES, type ReplyStyle } from "@/lib/replies/styles";
 import { opportunityTier } from "@/services/opportunities/score";
@@ -123,7 +124,7 @@ export function OpportunityCard({
         )}
       </p>
 
-      <blockquote className="opportunity-post">{opportunity.content}</blockquote>
+      <blockquote className="opportunity-post">{storedPostText(opportunity.content)}</blockquote>
 
       {opportunity.reason && (
         <section className="opportunity-section">

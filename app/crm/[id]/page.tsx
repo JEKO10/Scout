@@ -11,6 +11,7 @@ import { InfoHint } from "@/components/InfoHint";
 import { getCrmLead } from "@/db/queries/crm";
 import type { LeadActivity } from "@/db/schema";
 import { requireProfile } from "@/lib/auth/session";
+import { storedPostText } from "@/lib/compliance/retention";
 import { formatRelative } from "@/lib/format";
 import { followUpState, nextBestAction, STATUS_LABEL } from "@/lib/leads/crm";
 
@@ -111,7 +112,7 @@ async function LeadDetail({ params }: PageProps<"/crm/[id]">) {
           <h2 id="signal-title" className="eyebrow">
             The post that found them · {formatRelative(lead.postedAt)}
           </h2>
-          <blockquote className="opportunity-post">{lead.content}</blockquote>
+          <blockquote className="opportunity-post">{storedPostText(lead.content)}</blockquote>
           <InfoHint text="About this data">
             Saved from public X data. If the post was deleted on X the link won&apos;t open, but what Scout saw stays here.
           </InfoHint>

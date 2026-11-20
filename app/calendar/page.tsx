@@ -9,7 +9,9 @@ import { TimeZoneHint } from "@/components/content/TimeZoneHint";
 import { TitleWithHint } from "@/components/InfoHint";
 import { InfoHint } from "@/components/InfoHint";
 import { getPlannedDrafts, getProfileTimeZone, getSavedTrendsWithoutContent, getUnplannedDrafts } from "@/db/queries/content";
-import type { ContentDraft } from "@/db/schema";
+import { latestPublicationsForDrafts } from "@/db/queries/publications";
+import type { ContentDraft, XPublication } from "@/db/schema";
+import { isMissingSchemaError } from "@/db/schemaErrors";
 import { requireProfile } from "@/lib/auth/session";
 import {
   calendarDays,
@@ -23,6 +25,7 @@ import {
   zonedTimeToUtc,
 } from "@/lib/content/calendar";
 import { CONTENT_GOALS, GOAL_LABEL } from "@/lib/content/types";
+import { PUBLICATION_LABEL } from "@/lib/x/publishing";
 import { noteMissedPlans } from "@/services/content/calendar";
 
 export const metadata: Metadata = { title: "Content Calendar" };
@@ -74,6 +77,15 @@ async function Calendar({ searchParams }: { searchParams: PageProps<"/calendar">
     getSavedTrendsWithoutContent(profile.id),
   ]);
 
+  // Day 40: what publishing says about each planned draft (scheduled, published by Scout, failed…)
+  const publications = await latestPublicationsForDrafts(
+    profile.id,
+    planned.map((draft) => draft.id),
+  ).catch((error: unknown) => {
+    if (!isMissingSchemaError(error)) throw error;
+    return new Map<string, XPublication>();
+  });
+
   const byDay = new Map<string, ContentDraft[]>();
   for (const draft of planned) {
     const day = zonedParts(draft.plannedAt!, tz).date;
@@ -96,10 +108,18 @@ async function Calendar({ searchParams }: { searchParams: PageProps<"/calendar">
 
   const Card = ({ draft }: { draft: ContentDraft }) => {
     const state = lifecycle(draft, now);
+    const publication = publications.get(draft.id);
+    // A publication's state wins while it's in flight; a confirmed post is "Published" either way
+    const label =
+      publication && !publication.deletedAt && state !== "published"
+        ? publication.status === "approved"
+          ? "Approved"
+          : PUBLICATION_LABEL[publication.status]
+        : LIFECYCLE_LABEL[state];
     return (
-      <Link href={`/studio/${draft.id}?from=calendar`} className="cal-item" data-state={state}>
+      <Link href={`/studio/${draft.id}?from=calendar`} className="cal-item" data-state={publication && state !== "published" ? `x-${publication.status}` : state}>
         <span className="cal-item-time">
-          {time(draft)} · {LIFECYCLE_LABEL[state]}
+          {time(draft)} · {label}
         </span>
         <span className="cal-item-text">{draft.posts[0]?.slice(0, 80)}</span>
         <span className="cal-item-meta">
@@ -117,7 +137,8 @@ async function Calendar({ searchParams }: { searchParams: PageProps<"/calendar">
             title="Content Calendar"
             hint={
               <>
-                A plan, not a scheduler: Scout never posts for you. When a post&apos;s time comes, open it, post it on X, and mark it posted.
+                Your plan. Scout publishes a post only when you approved its exact text and scheduled it (with X publishing
+                enabled); everything else you post on X yourself and mark posted.
               </>
             }
           />

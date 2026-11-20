@@ -14,15 +14,18 @@ import {
 } from "@/db/queries/scanJobs";
 import { getXUsageToday } from "@/db/queries/xApiUsage";
 import type { Profile, ScanJob } from "@/db/schema";
+import { isMissingSchemaError } from "@/db/schemaErrors";
 import { PLANS } from "@/lib/billing/plans";
 import { getScoutLimits } from "@/lib/scout/testLimits";
 import { type AutomationTickResult, runAutomations } from "@/services/automations/engine";
 import { blockedUntilTomorrow, currentPeriodStart } from "@/services/billing/budget";
+import { runComplianceJobs } from "@/services/compliance/xCompliance";
 import { type AutoCollectionOutcome, runDueGrowthCollections } from "@/services/growth/collect";
 import { runInboxPreparation } from "@/services/inbox/inbox";
 import { deliverPendingNotifications, type DeliveryTickResult } from "@/services/notifications/deliver";
 import { queueRunNotifications } from "@/services/notifications/queue";
 import { runScout } from "@/services/scout/runScout";
+import { type PublishingTickResult, runPublishing } from "@/services/x/publishing";
 
 import { runCleanup } from "./cleanup";
 
@@ -75,6 +78,10 @@ export type TickResult = {
   automations?: AutomationTickResult;
   /** Day 38: opt-in Inbox preparation (off unless INBOX_AUTO_PREPARE_ENABLED; no X calls) */
   inbox?: Awaited<ReturnType<typeof runInboxPreparation>>;
+  /** Day 40: scheduled X publishing (off unless X_PUBLISHING_ENABLED) */
+  publishing?: PublishingTickResult;
+  /** Day 40.1: X Batch Compliance jobs (off unless X_COMPLIANCE_JOBS_ENABLED) */
+  compliance?: Record<string, string>;
 };
 
 export async function runSchedulerTick({
@@ -134,12 +141,28 @@ export async function runSchedulerTick({
       console.error("Automations failed", caught);
     }
   }
+  // Scheduled posts first among the optional steps: they have a time the user chose
+  try {
+    const publishing = await runPublishing();
+    if (!publishing.disabled) result.publishing = publishing;
+  } catch (caught) {
+    if (!isMissingSchemaError(caught)) console.error("Scheduled publishing failed", caught);
+    else console.error("X publishing is unavailable: the database is missing migration 'x_publishing'.");
+  }
   if (Date.now() - started < timeBudgetMs) {
     try {
       const inbox = await runInboxPreparation({ timeBudgetMs: Math.min(60_000, timeBudgetMs - (Date.now() - started)) });
       if (!("disabled" in inbox)) result.inbox = inbox;
     } catch (caught) {
       console.error("Inbox preparation failed", caught);
+    }
+  }
+  if (Date.now() - started < timeBudgetMs) {
+    try {
+      const compliance = await runComplianceJobs();
+      if (!("disabled" in compliance)) result.compliance = compliance;
+    } catch (caught) {
+      console.error("X compliance jobs failed", caught instanceof Error ? caught.message : caught);
     }
   }
   if (cleanup && Date.now() - started < timeBudgetMs) result.cleanup = await runCleanup();

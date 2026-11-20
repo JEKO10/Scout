@@ -7,6 +7,7 @@ import { setItemStatus, strategyTasksDue } from "@/db/queries/automations";
 import { getDraft, getProfileTimeZone, getTrendsForContent, updateDraft } from "@/db/queries/content";
 import {
   aiCostForOperationsSince,
+  approvedTypesSince,
   archiveStalePreparedDrafts,
   claimDecision,
   claimPreparationSlot,
@@ -39,20 +40,25 @@ import {
 import { getLead } from "@/db/queries/leads";
 import { getOpportunityForProfile, setOpportunityStatus } from "@/db/queries/opportunities";
 import { getProfileById } from "@/db/queries/profiles";
+import { publicationsForHome } from "@/db/queries/publications";
 import { discardReplyDrafts, getCurrentReplies, saveReplyDrafts, setReplyApproved, updateReplyContent } from "@/db/queries/replies";
 import { countActiveExperiments, getActiveStrategy, getExperiment, updateExperiment, updatePlanTask } from "@/db/queries/strategy";
 import type { InboxDecisionRow, Profile } from "@/db/schema";
+import { isMissingSchemaError } from "@/db/schemaErrors";
 import { AutoBudgetRefused, type AutoCallLimits } from "@/lib/ai/ceiling";
 import { AI_MODELS, getOpenAI } from "@/lib/ai/client";
 import { effectiveLimits } from "@/lib/billing/plans";
-import { isValidTimeZone, zonedParts } from "@/lib/content/calendar";
+import { windowStart } from "@/lib/billing/windows";
+import { isValidTimeZone, zonedParts, zonedTimeToUtc } from "@/lib/content/calendar";
 import { type ContentGoal, MAX_POST_CHARS, xIntentUrl } from "@/lib/content/types";
-import { assembleInbox, greeting, type InboxSources, summarizeInbox } from "@/lib/inbox/assemble";
+import { formatRelative } from "@/lib/format";
+import { assembleInbox, greeting, type InboxSources, summarizeInbox, taskNeeds } from "@/lib/inbox/assemble";
 import { type InboxSignal, learnPreferences, preferenceGuidance } from "@/lib/inbox/learning";
 import {
   DECLINE_REASONS,
   INBOX_MAX_AGE_HOURS,
   type InboxDecision,
+  type InboxItem,
   type InboxItemType,
   type InboxPreferences,
   MAX_REVISIONS_PER_ITEM,
@@ -63,6 +69,7 @@ import {
 import { replyIntentUrl } from "@/lib/replies/xIntent";
 import { experimentWindow } from "@/lib/strategy/plan";
 import { MODULE_LINK, type StrategyModule } from "@/lib/strategy/types";
+import { PUBLICATION_LABEL } from "@/lib/x/publishing";
 import { recordAiUsage } from "@/services/ai/usage";
 import { track } from "@/services/analytics/track";
 import { replyStyles } from "@/services/automations/engine";
@@ -71,6 +78,7 @@ import { createDraft, RULES, userContext } from "@/services/content/studio";
 import { finishFollowUp, saveLeadToCrm } from "@/services/leads/crm";
 import { generateReplies } from "@/services/replies/generateReply";
 import { resolveScoutBrain } from "@/services/scout-brain/resolveBrain";
+import { approveForPublishing, getPublishingState, publishingAvailable, toPublicationCard } from "@/services/x/publishing";
 
 // Day 38 Approval Inbox: Scout does the work, the user makes the decisions.
 // Organizing stored data is free (no AI, no X). AI writing happens only on
@@ -184,15 +192,26 @@ export async function loadInbox(profile: Profile, now = new Date()) {
         body: task.activity,
         href: MODULE_LINK[task.module as StrategyModule]?.href ?? "/strategy",
         at: new Date(`${task.day}T00:00:00Z`),
+        needs: taskNeeds(task.module, `${task.title} ${task.activity}`),
       })),
-      ...autoItems.map((item) => ({ key: `item:${item.id}`, entityId: item.entityId, title: item.title, body: item.body, href: item.href, at: item.dueAt ?? item.createdAt })),
+      ...autoItems.map((item) => ({
+        key: `item:${item.id}`,
+        entityId: item.entityId,
+        title: item.title,
+        body: item.body,
+        href: item.href,
+        at: item.dueAt ?? item.createdAt,
+        // Automation reminders of growth-plan tasks link to the task's module
+        needs: item.entityType === "strategy_task" ? taskNeeds(item.href.replace(/^\//, ""), `${item.title} ${item.body ?? ""}`) : undefined,
+      })),
     ],
     recommendations: experiments.map((e) => ({
       key: `experiment:${e.id}`,
       title: e.title,
-      text: `${e.title}: ${e.hypothesis}`,
+      text: e.hypothesis,
       why: `A ${e.durationDays}-day experiment from your growth plan.`,
       at: e.createdAt,
+      steps: e.actions.slice(0, 3),
     })),
   };
 
@@ -206,13 +225,67 @@ export async function loadInbox(profile: Profile, now = new Date()) {
   const hidden = new Set(
     (await getDecisions(profile.id, keys)).filter((d) => isHidden(d, now)).map((d) => d.itemKey),
   );
-  const items = assembleInbox(sources, hidden, prefs, now);
+  const midnight = zonedTimeToUtc(local.date, "00:00", local.tz) ?? new Date(now.getTime() - 24 * HOUR);
+  const approved = await approvedTypesSince(profile.id, midnight);
+  const handledToday = new Set<"post" | "reply">([
+    ...(approved.has("post") ? (["post"] as const) : []),
+    ...(approved.has("reply") ? (["reply"] as const) : []),
+  ]);
+  const items = [
+    ...assembleInbox(sources, hidden, prefs, now, handledToday).map((item) => ({ ...item, meta: metaFor(item) })),
+    ...(await publishItems(profile, now, local.tz)),
+  ].sort((a, b) => a.rank - b.rank || b.score - a.score || b.at.localeCompare(a.at));
   return { items, summary: summarizeInbox(items), greeting: greeting(local.time), prefs };
+}
+
+/**
+ * Day 40: approved posts on their way to X (ready, scheduled within a week,
+ * being checked, or failed recently). Nothing when publishing is off.
+ */
+async function publishItems(profile: Profile, now: Date, tz: string): Promise<InboxItem[]> {
+  if (!publishingAvailable()) return [];
+  let rows: Awaited<ReturnType<typeof publicationsForHome>>;
+  try {
+    rows = await publicationsForHome(profile.id, now);
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+    console.error("Publishing is unavailable: the database is missing migration 'x_publishing'.");
+    return [];
+  }
+  if (rows.length === 0) return [];
+  const state = await getPublishingState(profile);
+  const when = new Intl.DateTimeFormat("en", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: tz });
+  return rows.map((p) => ({
+    key: `publication:${p.id}`,
+    type: "publish" as const,
+    // Waiting for the user's click comes before what's already scheduled
+    rank: p.status === "scheduled" ? 5 : 3,
+    score: 0,
+    at: (p.scheduledAt ?? p.approvedAt).toISOString(),
+    label: p.status === "scheduled" && p.scheduledAt ? `Scheduled for ${when.format(p.scheduledAt)}` : PUBLICATION_LABEL[p.status],
+    text: p.text,
+    why:
+      p.error ??
+      (p.status === "unknown"
+        ? "X didn't confirm it. Scout is checking your profile; don't publish it again yet."
+        : p.hasUrl
+          ? "Has a link: X charges $0.20 to publish a post with a link ($0.015 without)."
+          : "You approved this exact text. Scout publishes it as it is."),
+    meta: p.status === "scheduled" ? "Approved by you" : `Approved ${formatRelative(p.approvedAt)}`,
+    publication: toPublicationCard(p, state, tz, now),
+  }));
+}
+
+/** The small line under a card's label, formatted here so the client renders the same text */
+function metaFor(item: InboxItem): string | undefined {
+  if (item.type === "recommendation") return "Growth experiment";
+  if (item.type === "reminder") return item.prepare?.length ? "From your growth plan" : undefined;
+  return formatRelative(new Date(item.at));
 }
 
 // ---- Acting -------------------------------------------------------------------------
 
-export const INBOX_ACTIONS = ["approve", "decline", "save", "dismiss", "accept", "done", "snooze", "write_reply"] as const;
+export const INBOX_ACTIONS = ["approve", "decline", "save", "dismiss", "accept", "done", "snooze", "write_reply", "prepare"] as const;
 export type InboxAction = (typeof INBOX_ACTIONS)[number];
 
 export type ActOutcome = {
@@ -226,6 +299,8 @@ export type ActOutcome = {
   /** Approved reply: recorded as opened on X / copied when the user does it (never as posted) */
   opportunityId?: string;
   replyId?: string;
+  /** Day 40: approved for publishing; the card becomes "Ready to publish" */
+  publicationId?: string;
 };
 
 /** Which actions each card offers: anything else is refused */
@@ -234,9 +309,9 @@ const ALLOWED: Record<KeyKind, InboxAction[]> = {
   opportunity: ["approve", "decline", "save", "dismiss", "write_reply"],
   lead: ["save", "dismiss"],
   experiment: ["accept", "dismiss"],
-  item: ["done", "snooze"],
+  item: ["done", "snooze", "prepare"],
   followup: ["done", "snooze"],
-  task: ["done", "snooze"],
+  task: ["done", "snooze", "prepare"],
 };
 
 const ALREADY: ActOutcome = { outcome: "Already done.", already: true };
@@ -279,6 +354,8 @@ export async function actOnItem(profile: Profile, key: string, action: InboxActi
   if (!parsed || !ALLOWED[parsed.kind].includes(action)) return { ok: false, message: "That action isn't available here." };
   const { kind, id } = parsed;
 
+  if (action === "prepare") return prepareForReminder(profile, key, now);
+
   if (action === "snooze") {
     const until = new Date(now.getTime() + 24 * HOUR);
     return decideOnce(profile, key, "reminder", "snoozed", async () => ({ outcome: "Snoozed until tomorrow." }), { snoozedUntil: until });
@@ -297,6 +374,12 @@ export async function actOnItem(profile: Profile, key: string, action: InboxActi
         "approved",
         async () => {
           await updateDraft(profile.id, id, { status: "ready", archivedAt: null });
+          // Day 40: with publishing available on the plan, this exact text is approved for X too
+          const publishing = await getPublishingState(profile);
+          if (publishing.available && publishing.planAllows && draft.format === "post") {
+            const approved = await approveForPublishing(profile, id);
+            if (approved.ok) return { outcome: "Approved. Ready to publish.", copyText: text, publicationId: approved.publication.id };
+          }
           return { outcome: "Approved. It's in Content, ready for you to post.", copyText: text, openUrl: xIntentUrl(text) };
         },
         { meta: { topic: draft.topic, goal: draft.goal, originalLength: original.length, finalLength: text.length, edited: original !== text } },
@@ -393,7 +476,8 @@ export async function actOnItem(profile: Profile, key: string, action: InboxActi
           return { error: `You're already running ${MAX_ACTIVE_EXPERIMENTS} experiments. Finish one in Growth Strategy first.` };
         }
         await updateExperiment(profile.id, id, { status: "active", ...experimentWindow(experiment.durationDays) });
-        return { outcome: "Started. Track it in Growth Strategy." };
+        const next = experiment.actions[0];
+        return { outcome: `Started. Runs for ${experiment.durationDays} days${next ? `. First step: ${next}` : ", and Scout compares your posts"}.` };
       });
     }
     return decideOnce(profile, key, "recommendation", "dismissed", async () => {
@@ -416,6 +500,36 @@ export async function actOnItem(profile: Profile, key: string, action: InboxActi
     }
     return { outcome: "Done." };
   });
+}
+
+/**
+ * "Prepare post & reply" on a growth-plan reminder: Scout does the task's
+ * work (a post, a reply to the strongest conversation on Home) from the
+ * writing budget, and the results arrive as cards to approve. What it
+ * prepares is read from the reminder on the server, never from the client.
+ * The reminder isn't marked done: the user still approves and posts.
+ */
+async function prepareForReminder(profile: Profile, key: string, now: Date): Promise<InboxResult<ActOutcome>> {
+  const { items } = await loadInbox(profile, now);
+  const reminder = items.find((i) => i.key === key && i.type === "reminder");
+  if (!reminder?.prepare?.length) return { ok: true, outcome: "Already prepared.", already: true };
+  const prepared: string[] = [];
+  const problems: string[] = [];
+  if (reminder.prepare.includes("post")) {
+    const post = await preparePost(profile, now);
+    if (post.ok) prepared.push("a post");
+    else problems.push(post.message);
+  }
+  if (reminder.prepare.includes("reply")) {
+    // Items are ranked: the first conversation is the strongest
+    const target = items.find((i) => i.type === "conversation");
+    const reply = target ? await writeReply(profile, parseKey(target.key)!.id) : null;
+    if (reply?.ok) prepared.push("a reply");
+    else problems.push(reply?.message ?? "No conversation worth replying to right now.");
+  }
+  if (prepared.length === 0) return { ok: false, message: problems[0] ?? "Nothing to prepare right now." };
+  await track("inbox_action", { profileId: profile.id, props: { type: "reminder", action: "prepare" } });
+  return { ok: true, outcome: `Prepared ${prepared.join(" and ")}. ${prepared.length > 1 ? "They're" : "It's"} ready to review.` };
 }
 
 /** The optional "why wasn't this useful?" after a decline. No AI call. */
@@ -717,15 +831,8 @@ export async function preparePost(
 
 export type PreparationResult = { posts: number; replies: number; skipped: string[] };
 
-/** The first day of the plan's counting window (UTC): the day, its week's Monday, or the 1st */
-export function windowStart(window: "day" | "week" | "month", now: Date): string {
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate();
-  const start =
-    window === "day" ? new Date(Date.UTC(y, m, d)) : window === "week" ? new Date(Date.UTC(y, m, d - ((now.getUTCDay() + 6) % 7))) : new Date(Date.UTC(y, m, 1));
-  return start.toISOString().slice(0, 10);
-}
+/** The plan's counting windows (shared with X publishing) */
+export { windowStart } from "@/lib/billing/windows";
 
 type StepOutcome = { status: "done" | "skipped"; entityId?: string | null; note?: string | null };
 export type StepResult = "done" | "cap" | "refused" | "skipped" | "failed";

@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { TitleWithHint } from "@/components/InfoHint";
 import { getReplyActivity, getReplyIntentStats } from "@/db/queries/replyIntents";
 import { requireProfile } from "@/lib/auth/session";
+import { storedPostText } from "@/lib/compliance/retention";
 import { formatRelative } from "@/lib/format";
 import { truncateAtWord } from "@/lib/notifications/slackMessage";
 
@@ -94,7 +95,7 @@ async function Activity() {
                 </span>
               </header>
               <p className="activity-post">
-                <strong>@{opportunity.authorHandle}</strong> {truncateAtWord(opportunity.content.replace(/\s+/g, " "), 200)}
+                <strong>@{opportunity.authorHandle}</strong> {truncateAtWord(storedPostText(opportunity.content).replace(/\s+/g, " "), 200)}
               </p>
               <blockquote className="activity-reply">{intent.text}</blockquote>
               <ActivityItemActions

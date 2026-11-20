@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { requireProfile } from "@/lib/auth/session";
 import { X_OAUTH_COOKIE, X_OAUTH_COOKIE_PATH } from "@/lib/x/oauth";
+import { safeReturnPath } from "@/lib/x/publishing";
 import { handleXOAuthCallback } from "@/services/x/oauthConnection";
 
 // X sends the user back here after "Authorize app" (or "Cancel"). The code
@@ -17,7 +18,8 @@ export async function GET(request: NextRequest) {
     cookie: request.cookies.get(X_OAUTH_COOKIE)?.value,
   });
 
-  const target = new URL("/account/settings", request.url);
+  // Back where "Enable publishing" was clicked (a checked Scout path), else Settings
+  const target = new URL(safeReturnPath(result.returnTo) ?? "/account/settings", request.url);
   target.searchParams.set("x", result.status);
   // The verified handle of the account they authorized: shown so they can choose
   if (result.authorizedHandle) target.searchParams.set("authorized", result.authorizedHandle);

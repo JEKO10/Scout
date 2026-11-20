@@ -141,8 +141,31 @@ export async function resumeAccountDeletions(now = new Date()) {
   let resumed = 0;
   for (const record of await deletionsToResume(now, 5 * 60_000)) {
     try {
-      if (await profileExists(record.profileId)) await deleteProfileData(record.profileId);
-      const steps = { ...record.steps, dataDeleted: true };
+      let steps = { ...record.steps };
+      if (await profileExists(record.profileId)) {
+        // Processing stays stopped while it waits (a request that crashed before stopping it)
+        if (!steps.processingStopped) {
+          await stopProcessing(record.profileId, now);
+          await cancelActivePublications(record.profileId, "Account deletion requested.");
+          steps = { ...steps, processingStopped: true };
+        }
+        // X must confirm the revocation before any data goes: otherwise wait for the next pass
+        if (!steps.xRevoked) {
+          if ((await countPublishing(record.profileId)) > 0) continue;
+          const x = await revokeAndDeleteXConnection(record.profileId);
+          if (x === "failed") {
+            await updateDeletion(record.id, { steps, error: "X didn't confirm that Scout's access was revoked. Scout tries again; nothing was deleted yet." });
+            continue;
+          }
+          steps = { ...steps, xRevoked: true };
+        }
+        if (!steps.slackRevoked) {
+          await disconnectSlack(record.profileId);
+          steps = { ...steps, slackRevoked: true };
+        }
+        await deleteProfileData(record.profileId);
+      }
+      steps = { ...steps, dataDeleted: true };
       await updateDeletion(record.id, {
         steps,
         status: steps.loginDeleted ? "completed" : "needs_attention",

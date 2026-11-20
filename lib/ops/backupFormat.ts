@@ -9,6 +9,7 @@
 // app's TOKEN_ENCRYPTION_KEY, never stored next to the backups or in Git.
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { relative, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 
 const MAGIC = Buffer.from("SCOUTBK1");
@@ -17,13 +18,33 @@ export type BackupTable = { name: string; rows: number; csv: string };
 export type BackupContents = { version: 1; createdAt: string; snapshot: string | null; tables: BackupTable[] };
 
 /** The non-secret summary written next to a backup: names and counts, never data */
-export type BackupManifest = { file: string; createdAt: string; sha256: string; tables: { name: string; rows: number }[] };
+export type BackupManifest = {
+  file: string;
+  createdAt: string;
+  sha256: string;
+  /** Which key encrypted it (a hash prefix: identifies the key, reveals nothing about it) */
+  keyId: string;
+  tables: { name: string; rows: number }[];
+};
 
-export function backupKey(raw: string | undefined): Buffer {
+export function backupKey(raw: string | undefined, appKey?: string | undefined): Buffer {
   if (!raw) throw new Error("BACKUP_ENCRYPTION_KEY is not set.");
   const key = Buffer.from(raw, "base64");
   if (key.length !== 32) throw new Error("BACKUP_ENCRYPTION_KEY must be 32 bytes, base64-encoded.");
+  // The app's key sits in the deployment and in .env: a backup must not open with it
+  if (appKey && Buffer.from(appKey, "base64").equals(key)) throw new Error("BACKUP_ENCRYPTION_KEY must differ from TOKEN_ENCRYPTION_KEY.");
   return key;
+}
+
+/** A short, non-reversible identifier of a key, to know which key a backup needs */
+export function keyId(key: Buffer): string {
+  return createHash("sha256").update(Buffer.concat([Buffer.from("scout-backup-key-id:"), key])).digest("hex").slice(0, 16);
+}
+
+/** Whether a path is inside a directory (restoring plaintext into the repository is refused) */
+export function isInside(path: string, directory: string): boolean {
+  const rel = relative(resolve(directory), resolve(path));
+  return rel === "" || (!rel.startsWith("..") && !rel.includes(":"));
 }
 
 /** Rows in a CSV with a header line (quoted newlines inside values are respected) */
@@ -94,11 +115,12 @@ export function decryptBackup(file: Buffer, key: Buffer): BackupContents {
   return contents;
 }
 
-export function manifestFor(file: string, encrypted: Buffer, contents: BackupContents): BackupManifest {
+export function manifestFor(file: string, encrypted: Buffer, contents: BackupContents, key: Buffer): BackupManifest {
   return {
     file,
     createdAt: contents.createdAt,
     sha256: createHash("sha256").update(encrypted).digest("hex"),
+    keyId: keyId(key),
     tables: contents.tables.map(({ name, rows }) => ({ name, rows })),
   };
 }
@@ -107,4 +129,28 @@ export function manifestFor(file: string, encrypted: Buffer, contents: BackupCon
 export function backupsToPrune(files: { name: string; createdAt: Date }[], now: Date, keepDays: number, keepAtLeast = 3): string[] {
   const sorted = [...files].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   return sorted.slice(keepAtLeast).filter((f) => now.getTime() - f.createdAt.getTime() > keepDays * 86_400_000).map((f) => f.name);
+}
+
+/**
+ * Parents before children, from the target database's foreign keys (Neon
+ * doesn't let a normal role switch them off while loading). Self-references
+ * don't constrain the order; a real cycle between tables is refused.
+ */
+export function loadOrder(tables: string[], edges: { child: string; parent: string }[]): string[] {
+  const set = new Set(tables);
+  const parents = new Map(tables.map((t) => [t, new Set<string>()]));
+  for (const { child, parent } of edges) {
+    if (child !== parent && set.has(child) && set.has(parent)) parents.get(child)!.add(parent);
+  }
+  const order: string[] = [];
+  const done = new Set<string>();
+  while (order.length < tables.length) {
+    const ready = tables.filter((t) => !done.has(t) && [...parents.get(t)!].every((p) => done.has(p)));
+    if (ready.length === 0) throw new Error(`Foreign keys form a cycle between: ${tables.filter((t) => !done.has(t)).join(", ")}`);
+    for (const t of ready) {
+      done.add(t);
+      order.push(t);
+    }
+  }
+  return order;
 }

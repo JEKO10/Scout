@@ -18,6 +18,10 @@ export const THIRD_PARTY_RETENTION_DAYS = {
   automationSnippets: 30,
   /** Posts imported from CSV files (testing) */
   imported: 30,
+  /** Bios of accounts the user compares with (Peer Intelligence): read once when added */
+  peerBios: 30,
+  /** Trend summaries and AI insights, after the trend's last post */
+  trendTexts: 30,
 } as const;
 
 /** Product analytics events (no content, pseudonymous profile ID) */

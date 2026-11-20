@@ -54,7 +54,11 @@ export async function profileExists(profileId: string): Promise<boolean> {
   return Boolean(row);
 }
 
-/** Deletions whose data step can be finished without the user (X access already revoked) */
+/**
+ * Deletions Scout can carry on without the user: the data isn't deleted yet
+ * and the record hasn't moved for a while (a stopped request, a crash, X
+ * not confirming the revocation). The sign-in step is never done here.
+ */
 export async function deletionsToResume(now: Date, olderThanMs: number, limit = 10): Promise<AccountDeletion[]> {
   return db
     .select()
@@ -62,7 +66,6 @@ export async function deletionsToResume(now: Date, olderThanMs: number, limit = 
     .where(
       and(
         inArray(t.status, ["in_progress", "needs_attention"]),
-        sql`coalesce((${t.steps}->>'xRevoked')::boolean, false)`,
         sql`not coalesce((${t.steps}->>'dataDeleted')::boolean, false)`,
         lt(t.updatedAt, new Date(now.getTime() - olderThanMs)),
       ),

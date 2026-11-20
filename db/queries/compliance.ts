@@ -6,10 +6,13 @@ import db from "@/db";
 import {
   analyticsEventsTable,
   automationItemsTable,
+  growthPeersTable,
   importedPostsTable,
   leadsTable,
   opportunitiesTable,
+  postsTable,
   scoutCandidatesTable,
+  trendsTable,
   type XComplianceJob,
   xComplianceJobsTable,
   xPostsTable,
@@ -22,7 +25,18 @@ import type { THIRD_PARTY_RETENTION_DAYS } from "@/lib/compliance/retention";
 
 export type RemovalReason = "deleted" | "protected" | "suspended" | "deactivated" | "edited" | "request" | "retention";
 
-export type RemovalCounts = { cache: number; candidates: number; opportunities: number; leads: number; imported: number; snippets: number };
+export type RemovalCounts = {
+  cache: number;
+  candidates: number;
+  opportunities: number;
+  leads: number;
+  imported: number;
+  snippets: number;
+  /** The user's own posts */
+  ownPosts?: number;
+  peerBios?: number;
+  trendTexts?: number;
+};
 
 const DAY = 86_400_000;
 
@@ -54,13 +68,12 @@ export async function removeXContent(
   if (postIds.length) {
     counts.imported = (await db.delete(importedPostsTable).where(inArray(importedPostsTable.platformPostId, postIds)).returning({ id: importedPostsTable.id })).length;
   }
-  counts.candidates = (
-    await db
-      .update(scoutCandidatesTable)
-      .set({ content: "", reason: null, suggestedAngle: null, ...removed })
-      .where(and(isNull(scoutCandidatesTable.contentRemovedAt), match(scoutCandidatesTable.platformPostId as never, scoutCandidatesTable.authorPlatformUserId as never)))
-      .returning({ id: scoutCandidatesTable.id })
-  ).length;
+  const candidates = await db
+    .update(scoutCandidatesTable)
+    .set({ content: "", reason: null, suggestedAngle: null, ...removed })
+    .where(and(isNull(scoutCandidatesTable.contentRemovedAt), match(scoutCandidatesTable.platformPostId as never, scoutCandidatesTable.authorPlatformUserId as never)))
+    .returning({ id: scoutCandidatesTable.id });
+  counts.candidates = candidates.length;
   const opportunities = await db
     .update(opportunitiesTable)
     .set({ content: "", reason: null, suggestedAngle: null, ...removed })
@@ -74,7 +87,42 @@ export async function removeXContent(
   counts.opportunities = opportunities.length;
   counts.leads = leads.length;
   counts.snippets = await clearSnippets([...opportunities, ...leads].map((row) => row.id));
+  // The user's own posts (posts table has no author column: by post ID)
+  if (postIds.length) {
+    counts.ownPosts = (
+      await db
+        .update(postsTable)
+        .set({ content: "", unavailableAt: now })
+        .where(and(inArray(postsTable.platformPostId, postIds), sql`${postsTable.content} <> ''`))
+        .returning({ id: postsTable.id })
+    ).length;
+  }
+  // Accounts the user compares with: an author removed from X keeps only its handle and counts
+  if (authorIds.length) {
+    counts.peerBios = (
+      await db
+        .update(growthPeersTable)
+        .set({ bio: null, displayName: null })
+        .where(and(inArray(growthPeersTable.platformUserId, authorIds), isNotNull(growthPeersTable.bio)))
+        .returning({ id: growthPeersTable.id })
+    ).length;
+  }
+  counts.trendTexts = await clearTrendTexts(candidates.map((row) => row.id));
   return counts;
+}
+
+/** Trend texts written from these posts (summary, reasons, AI insight); counts and labels stay */
+async function clearTrendTexts(candidateIds: string[]): Promise<number> {
+  if (candidateIds.length === 0) return 0;
+  const ids = sql`array[${sql.join(candidateIds.map((id) => sql`${id}`), sql`, `)}]::uuid[]`;
+  const rows = await db
+    .update(trendsTable)
+    .set({ summary: null, why: null, insight: null, insightBasis: null, insightGeneratedAt: null })
+    .where(
+      sql`(${trendsTable.representativeCandidateIds} && ${ids} or coalesce(${trendsTable.insightBasis}->'candidateIds', '[]'::jsonb) ?| ${ids}::text[])`,
+    )
+    .returning({ id: trendsTable.id });
+  return rows.length;
 }
 
 /** Notification and review-item snippets of removed posts */
@@ -160,7 +208,7 @@ export async function expireThirdPartyContent(days: typeof THIRD_PARTY_RETENTION
           .where(
             and(
               isNotNull(automationItemsTable.body),
-              inArray(automationItemsTable.entityType, ["opportunity", "lead"]),
+              inArray(automationItemsTable.entityType, ["opportunity", "lead", "trend"]),
               lt(automationItemsTable.createdAt, before(days.automationSnippets)),
             ),
           )
@@ -168,6 +216,39 @@ export async function expireThirdPartyContent(days: typeof THIRD_PARTY_RETENTION
       ),
     )
     .returning({ id: automationItemsTable.id });
+  const peerBios = await db
+    .update(growthPeersTable)
+    .set({ bio: null })
+    .where(
+      inArray(
+        growthPeersTable.id,
+        db
+          .select({ id: growthPeersTable.id })
+          .from(growthPeersTable)
+          .where(and(isNotNull(growthPeersTable.bio), lt(sql`coalesce(${growthPeersTable.lastRefreshedAt}, ${growthPeersTable.lookedUpAt})`, before(days.peerBios))))
+          .limit(batch),
+      ),
+    )
+    .returning({ id: growthPeersTable.id });
+  const trendTexts = await db
+    .update(trendsTable)
+    .set({ summary: null, why: null, insight: null, insightBasis: null, insightGeneratedAt: null })
+    .where(
+      inArray(
+        trendsTable.id,
+        db
+          .select({ id: trendsTable.id })
+          .from(trendsTable)
+          .where(
+            and(
+              lt(trendsTable.lastPostAt, before(days.trendTexts)),
+              sql`(${trendsTable.summary} is not null or ${trendsTable.why} is not null or ${trendsTable.insight} is not null)`,
+            ),
+          )
+          .limit(batch),
+      ),
+    )
+    .returning({ id: trendsTable.id });
   return {
     cache: 0,
     candidates: candidates.length,
@@ -175,6 +256,8 @@ export async function expireThirdPartyContent(days: typeof THIRD_PARTY_RETENTION
     leads: leads.length,
     imported: imported.length,
     snippets: snippets.length,
+    peerBios: peerBios.length,
+    trendTexts: trendTexts.length,
   };
 }
 
@@ -208,6 +291,7 @@ export async function storedXIds(type: "tweets" | "users", limit: number): Promi
             union select "platformPostId" from ${scoutCandidatesTable} where "contentRemovedAt" is null
             union select "platformPostId" from ${opportunitiesTable} where "contentRemovedAt" is null
             union select "platformPostId" from ${leadsTable} where "contentRemovedAt" is null
+            union select "platformPostId" from ${postsTable} where "unavailableAt" is null
           ) ids where id ~ '^[0-9]+$' limit ${limit}
         `)
       : await db.execute<{ id: string }>(sql`
@@ -216,6 +300,7 @@ export async function storedXIds(type: "tweets" | "users", limit: number): Promi
             union select "authorPlatformUserId" from ${scoutCandidatesTable} where "contentRemovedAt" is null
             union select "authorPlatformUserId" from ${opportunitiesTable} where "contentRemovedAt" is null
             union select "authorPlatformUserId" from ${leadsTable} where "contentRemovedAt" is null
+            union select "platformUserId" from ${growthPeersTable} where "bio" is not null
           ) ids where id ~ '^[0-9]+$' limit ${limit}
         `);
   return result.rows.map((row) => String(row.id));

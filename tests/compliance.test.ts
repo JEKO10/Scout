@@ -14,30 +14,38 @@ import { eq, inArray } from "drizzle-orm";
 import db from "@/db";
 import { getDeletionByUserId } from "@/db/queries/accountDeletions";
 import { deleteOldAnalyticsEvents, removeXContent } from "@/db/queries/compliance";
+import { markPostsUnavailable } from "@/db/queries/growth";
 import { profilesToPrepare } from "@/db/queries/inbox";
 import { getLeadCandidates } from "@/db/queries/leads";
+import { getRecentPostsForProfile, savePosts } from "@/db/queries/posts";
 import { getPublication } from "@/db/queries/publications";
 import { getPostedReplies } from "@/db/queries/replies";
 import { getXConnection } from "@/db/queries/xConnections";
 import * as s from "@/db/schema";
 import { REMOVED_POST_TEXT, storedPostText, THIRD_PARTY_RETENTION_DAYS } from "@/lib/compliance/retention";
 import {
+  backupKey,
   backupScript,
   backupsToPrune,
   countCsvRows,
   decryptBackup,
   encryptBackup,
+  isInside,
+  keyId,
+  loadOrder,
   manifestFor,
   splitBackupOutput,
 } from "@/lib/ops/backupFormat";
 import { createXOAuthStart } from "@/lib/x/oauth";
 import { deleteAccount, resumeAccountDeletions } from "@/services/account/deleteAccount";
-import { applyComplianceEvents, applyRetention, parseComplianceResults, runComplianceJobs } from "@/services/compliance/xCompliance";
-import { loadInbox } from "@/services/inbox/inbox";
+import { automationsPaused } from "@/services/automations/engine";
+import { applyComplianceEvents, applyRetention, complianceJobsEnabled, parseComplianceResults, runComplianceJobs } from "@/services/compliance/xCompliance";
+import { autoPrepareAvailable, loadInbox } from "@/services/inbox/inbox";
 import { generateReplies } from "@/services/replies/generateReply";
 import { runHourlyRetention } from "@/services/scheduler/cleanup";
+import { isPeerRefreshEnabled } from "@/services/strategy/peers";
 import { handleXOAuthCallback } from "@/services/x/oauthConnection";
-import { approveForPublishing, runPublishing, schedulePublication } from "@/services/x/publishing";
+import { approveForPublishing, publishingAvailable, runPublishing, schedulePublication } from "@/services/x/publishing";
 
 import { cleanup, getProfile, newProfile, rememberXUsage, trackXUser } from "./helpers/db";
 import { ai, installMocks, nextId, x, xOAuth } from "./helpers/mocks";
@@ -413,7 +421,7 @@ test("backups: encrypted round trip, tampering and wrong keys fail, manifests ho
   tampered[tampered.length - 1] ^= 1;
   assert.throws(() => decryptBackup(tampered, key));
   assert.throws(() => decryptBackup(file, Buffer.alloc(32, 1)));
-  const manifest = manifestFor("x.scoutbackup", file, contents);
+  const manifest = manifestFor("x.scoutbackup", file, contents, key);
   assert.deepEqual(manifest.tables, [{ name: "public.profiles", rows: 1 }]);
   assert.ok(!JSON.stringify(manifest).includes("secret"));
   assert.equal(countCsvRows(contents.tables[0].csv), 1, "a quoted newline isn't a row");
@@ -434,4 +442,153 @@ test("backups: one snapshot script, output split by a random marker, retention k
 test("backups can't be committed by accident", () => {
   const ignore = readFileSync(".gitignore", "utf8");
   for (const pattern of ["/scout-backups/", "*.scoutbackup", "*.scoutbackup.manifest.json", ".env*"]) assert.ok(ignore.includes(pattern), pattern);
+});
+
+// ---- Final review: remaining gaps, recovery, backups, flags ---------------------------------------
+
+test("the user's own posts that X no longer returns lose their text and aren't used; a post found again comes back", async () => {
+  const p = await newProfile();
+  const [account] = await db.insert(s.socialAccountsTable).values({ profileId: p.id, platform: "x", platformUserId: nextId(), handle: `own${nextId().slice(-6)}` }).returning();
+  const kept = nextId();
+  const gone = nextId();
+  await db.insert(s.postsTable).values([
+    { socialAccountId: account.id, platformPostId: gone, content: "A post I deleted on X", publishedAt: new Date(Date.now() - 2 * DAY) },
+    { socialAccountId: account.id, platformPostId: kept, content: "Still on X", publishedAt: new Date(Date.now() - 3 * DAY) },
+  ]);
+  // A refresh returned only `kept` (and nothing older than it was asked about)
+  assert.equal(await markPostsUnavailable(account.id, new Date(Date.now() - 3 * DAY), [kept]), 1);
+  const [removed] = await db.select().from(s.postsTable).where(eq(s.postsTable.platformPostId, gone));
+  assert.equal(removed.content, "");
+  assert.ok(removed.unavailableAt);
+  assert.deepEqual((await getRecentPostsForProfile(p.id, 10)).map((post) => post.platformPostId), [kept], "not used for the Scout Brain");
+  // X returns it again (it was only hidden): the text is back
+  await savePosts(account.id, [{ platformPostId: gone, content: "A post I deleted on X", publishedAt: removed.publishedAt, url: null, metrics: null }] as never);
+  assert.equal((await db.select().from(s.postsTable).where(eq(s.postsTable.platformPostId, gone)))[0].content, "A post I deleted on X");
+  // A removal request by post ID reaches the user's own posts too
+  await removeXContent({ postIds: [kept] }, "request");
+  assert.equal((await db.select().from(s.postsTable).where(eq(s.postsTable.platformPostId, kept)))[0].content, "");
+});
+
+test("peer bios and trend texts: removed with their author or posts, and after their retention", async () => {
+  const p = await newProfile();
+  const author = nextId();
+  const [peer] = await db
+    .insert(s.growthPeersTable)
+    .values({ profileId: p.id, platformUserId: author, handle: "peer", displayName: "Peer", bio: "Founder of a thing", source: "manual", lookedUpAt: new Date() })
+    .returning();
+  const [oldPeer] = await db
+    .insert(s.growthPeersTable)
+    .values({ profileId: p.id, platformUserId: nextId(), handle: "oldpeer", bio: "Old bio", source: "manual", lookedUpAt: new Date(Date.now() - 40 * DAY) })
+    .returning();
+  const post = await storedPost(p.id, { author });
+  const trend = (opts: { lastPostAt: Date; ids: string[] }) =>
+    db
+      .insert(s.trendsTable)
+      .values({
+        profileId: p.id,
+        key: `t-${nextId()}`,
+        label: "AI onboarding",
+        summary: "Founders say onboarding is hard",
+        why: "You write about it",
+        status: "rising",
+        confidence: "medium",
+        score: 70,
+        relevance: 80,
+        scoreBreakdown: {} as never,
+        momentum: {} as never,
+        dailyCounts: [],
+        postCount: 3,
+        authorCount: 2,
+        engagement: 10,
+        representativeCandidateIds: opts.ids,
+        firstPostAt: opts.lastPostAt,
+        lastPostAt: opts.lastPostAt,
+        insight: { summary: "x" } as never,
+      })
+      .returning();
+  const [linked] = await trend({ lastPostAt: new Date(), ids: [post.candidate.id] });
+  const [old] = await trend({ lastPostAt: new Date(Date.now() - 40 * DAY), ids: [] });
+
+  const counts = await removeXContent({ authorIds: [author] }, "suspended");
+  assert.equal(counts.peerBios, 1);
+  assert.equal(counts.trendTexts, 1);
+  const [peerAfter] = await db.select().from(s.growthPeersTable).where(eq(s.growthPeersTable.id, peer.id));
+  assert.equal(peerAfter.bio, null);
+  assert.equal(peerAfter.handle, "peer", "the handle and counts stay");
+  const [linkedAfter] = await db.select().from(s.trendsTable).where(eq(s.trendsTable.id, linked.id));
+  assert.equal(linkedAfter.summary, null);
+  assert.equal(linkedAfter.insight, null);
+  assert.equal(linkedAfter.label, "AI onboarding", "labels and counts stay");
+
+  await applyRetention();
+  assert.equal((await db.select().from(s.growthPeersTable).where(eq(s.growthPeersTable.id, oldPeer.id)))[0].bio, null);
+  assert.equal((await db.select().from(s.trendsTable).where(eq(s.trendsTable.id, old.id)))[0].summary, null);
+});
+
+test("an abandoned deletion is finished by the scheduler once X confirms the revocation", async () => {
+  const profile = await connectedProfile();
+  xOAuth.revokeFails = true;
+  const failed = await deleteAccount(profile, { deleteLogin: async () => true });
+  assert.ok(!failed.ok && !failed.dataDeleted);
+  await db.update(s.accountDeletionsTable).set({ updatedAt: new Date(Date.now() - 10 * 60_000) }).where(eq(s.accountDeletionsTable.userId, profile.userId));
+  // X still failing: nothing deleted, it waits
+  await resumeAccountDeletions();
+  assert.equal((await db.select().from(s.profilesTable).where(eq(s.profilesTable.id, profile.id))).length, 1);
+  xOAuth.revokeFails = false;
+  await db.update(s.accountDeletionsTable).set({ updatedAt: new Date(Date.now() - 10 * 60_000) }).where(eq(s.accountDeletionsTable.userId, profile.userId));
+  await resumeAccountDeletions();
+  assert.equal((await db.select().from(s.profilesTable).where(eq(s.profilesTable.id, profile.id))).length, 0);
+  assert.equal(await getXConnection(profile.id), undefined);
+  const record = await getDeletionByUserId(profile.userId);
+  assert.equal(record?.steps.xRevoked, true);
+  assert.equal(record?.status, "needs_attention", "the login still needs the user");
+});
+
+test("backup keys: a wrong-sized key or the app's own key are refused; manifests name the key, not reveal it", () => {
+  const appKey = Buffer.alloc(32, 3).toString("base64");
+  assert.throws(() => backupKey(appKey, appKey), /differ/);
+  assert.throws(() => backupKey(Buffer.alloc(16).toString("base64")), /32 bytes/);
+  assert.throws(() => backupKey(undefined), /not set/);
+  const key = backupKey(Buffer.alloc(32, 4).toString("base64"), appKey);
+  assert.equal(keyId(key).length, 16);
+  assert.notEqual(keyId(key), keyId(Buffer.alloc(32, 5)));
+  assert.ok(!key.toString("hex").includes(keyId(key)));
+});
+
+test("backup restore: plaintext only outside the repository; tables load parents first", () => {
+  assert.equal(isInside("D:/repo/backups/x", "D:/repo"), true);
+  assert.equal(isInside("D:/repo", "D:/repo"), true);
+  assert.equal(isInside("D:/other/x", "D:/repo"), false);
+  assert.equal(isInside("D:/repo-backups/x", "D:/repo"), false);
+  const order = loadOrder(
+    ["public.replies", "public.opportunities", "public.profiles", "public.scout_runs"],
+    [
+      { child: "public.replies", parent: "public.opportunities" },
+      { child: "public.opportunities", parent: "public.scout_runs" },
+      { child: "public.opportunities", parent: "public.profiles" },
+      { child: "public.scout_runs", parent: "public.profiles" },
+      { child: "public.profiles", parent: "public.profiles" },
+    ],
+  );
+  assert.deepEqual(order, ["public.profiles", "public.scout_runs", "public.opportunities", "public.replies"]);
+  assert.throws(() => loadOrder(["a.x", "a.y"], [{ child: "a.x", parent: "a.y" }, { child: "a.y", parent: "a.x" }]), /cycle/);
+});
+
+test("production flags: every paid or outward-facing feature is off unless explicitly enabled", () => {
+  const saved = { ...process.env };
+  for (const name of ["X_PUBLISHING_ENABLED", "X_COMPLIANCE_JOBS_ENABLED", "INBOX_AUTO_PREPARE_ENABLED", "PEER_REFRESH_ENABLED", "X_PUBLISHING_PAUSED", "AUTOMATIONS_KILL_SWITCH"]) delete process.env[name];
+  try {
+    assert.equal(publishingAvailable(), false);
+    assert.equal(complianceJobsEnabled(), false);
+    assert.equal(autoPrepareAvailable(), false);
+    assert.equal(isPeerRefreshEnabled(), false);
+    assert.equal(automationsPaused(), false);
+    // Anything other than the exact string "true" stays off
+    process.env.X_PUBLISHING_ENABLED = "TRUE";
+    process.env.X_COMPLIANCE_JOBS_ENABLED = "1";
+    assert.equal(publishingAvailable(), false);
+    assert.equal(complianceJobsEnabled(), false);
+  } finally {
+    process.env = saved;
+  }
 });

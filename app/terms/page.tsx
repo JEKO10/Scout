@@ -28,7 +28,8 @@ export default function TermsPage() {
         Scout helps you grow on X. It builds a profile of your interests and writing style (your &quot;Scout
         Brain&quot;) from information you provide and public posts, monitors the public X accounts and topics you
         choose, finds conversations worth joining, and prepares reply and post drafts for you to review. If you
-        connect your X account and enable publishing, Scout can also publish posts you approved, now or at a time you
+        connect your X account and enable publishing (being introduced gradually; not available to every account yet),
+        Scout can also publish posts you approved, now or at a time you
         choose. Scout is in beta: features may change, and the service may be interrupted.
       </p>
 
@@ -50,6 +51,11 @@ export default function TermsPage() {
 
       <h2>5. Publishing to X</h2>
       <ul>
+        <li>
+          <strong>Availability.</strong> Publishing from Scout is being introduced gradually and may not be available
+          for your account or plan. Where it isn&apos;t, you copy your approved post and publish it in X&apos;s own
+          composer.
+        </li>
         <li>
           <strong>Optional and separate.</strong> Publishing requires connecting your X account and granting Scout
           X&apos;s publishing permission in a separate step. You can use Scout without it, and copy drafts to X

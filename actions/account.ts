@@ -30,7 +30,10 @@ export async function deleteAccountAction(confirmation: string): Promise<DeleteA
   const target = profile ?? (await getDeletionByUserId(user.id).then((record) => (record ? { id: record.profileId, userId: user.id } : null)));
   if (!target) return { ok: false, status: "invalid", message: "There's no account to delete.", dataDeleted: false };
   try {
-    return await deleteAccount({ id: target.id, userId: user.id }, { deleteLogin: deleteNeonAuthUser });
+    const result = await deleteAccount({ id: target.id, userId: user.id }, { deleteLogin: deleteNeonAuthUser });
+    // The sign-in is gone: end the session cookie too (best effort; the deletion record blocks access either way)
+    if (result.ok) await auth.signOut().catch(() => undefined);
+    return result;
   } catch (error) {
     console.error("Account deletion failed", error instanceof Error ? error.message : error);
     return { ok: false, status: "needs_attention", message: "Something went wrong. Nothing more was deleted; try again.", dataDeleted: false };

@@ -2,7 +2,8 @@
 //
 //   create   one consistent snapshot of every table -> <dir>/scout-<stamp>.scoutbackup (+ .manifest.json)
 //   verify   decrypts in memory, prints table row counts (and compares with the live database with --live)
-//   restore  decrypts into a directory of CSV files, for a manual restore (plaintext: an explicit operator step)
+//   restore  decrypts into a directory of CSV files (plaintext: needs --plaintext, never inside the repository)
+//   load     loads such a directory into an EMPTY, freshly migrated database (refuses one holding data), then compares counts
 //   seal     encrypts an existing directory of plaintext CSV backups (older backups); never deletes the originals
 //   prune    lists encrypted backups past the retention; deletes them only with --confirm
 //
@@ -14,15 +15,16 @@
 //
 //   npx tsx scripts/ops/backup.ts create --dir "D:/secure/scout-backups"
 //   npx tsx scripts/ops/backup.ts verify --file <file> [--live]
-//   npx tsx scripts/ops/backup.ts restore --file <file> --out <dir>
+//   npx tsx scripts/ops/backup.ts restore --file <file> --out <dir> --plaintext
+//   npx tsx scripts/ops/backup.ts load --dir <dir>            (DATABASE_URL = the empty target)
 //   npx tsx scripts/ops/backup.ts seal --in <plaintext dir> --out <file>
 //   npx tsx scripts/ops/backup.ts prune --dir <dir> [--keep-days 30] [--confirm]
 import "dotenv/config";
 
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 
 import {
   type BackupContents,
@@ -32,9 +34,27 @@ import {
   countCsvRows,
   decryptBackup,
   encryptBackup,
+  isInside,
+  loadOrder,
   manifestFor,
   splitBackupOutput,
 } from "../../lib/ops/backupFormat";
+
+/** The repository: never a place for backups or plaintext exports */
+const REPO = resolve(__dirname, "..", "..");
+const key = () => backupKey(process.env.BACKUP_ENCRYPTION_KEY, process.env.TOKEN_ENCRYPTION_KEY);
+
+/** Written next to the target, verified, then moved into place: a crash never leaves a half file that looks complete */
+function writeVerified(path: string, encrypted: Buffer) {
+  const temp = `${path}.partial`;
+  writeFileSync(temp, encrypted, { mode: 0o600 });
+  decryptBackup(readFileSync(temp), key());
+  renameSync(temp, path);
+}
+
+function refuseRepo(path: string, what: string) {
+  if (isInside(path, REPO)) throw new Error(`${what} must be outside the repository (${REPO}).`);
+}
 
 const PSQL = process.env.PSQL_PATH ?? "C:/Program Files/PostgreSQL/17/bin/psql.exe";
 /** Encrypted backups are kept this long by default (the newest 3 always stay) */
@@ -88,23 +108,24 @@ function tables(): string[] {
 function create() {
   const dir = arg("dir");
   if (!dir) throw new Error("--dir is required.");
-  const key = backupKey(process.env.BACKUP_ENCRYPTION_KEY);
+  refuseRepo(dir, "--dir");
+  const backupKeyBytes = key();
   const marker = `--scout-${randomUUID()}--`;
   const output = psql(["-f", "-"], backupScript(tables(), marker));
   const { snapshot, tables: data } = splitBackupOutput(output, marker);
   const contents: BackupContents = { version: 1, createdAt: new Date().toISOString(), snapshot, tables: data };
-  const encrypted = encryptBackup(contents, key);
+  const encrypted = encryptBackup(contents, backupKeyBytes);
   mkdirSync(dir, { recursive: true });
   const name = `scout-${contents.createdAt.replace(/[-:]/g, "").slice(0, 13)}Z.scoutbackup`;
-  writeFileSync(join(dir, name), encrypted, { mode: 0o600 });
-  writeFileSync(join(dir, `${name}.manifest.json`), JSON.stringify(manifestFor(name, encrypted, contents), null, 2));
+  writeVerified(join(dir, name), encrypted);
+  writeFileSync(join(dir, `${name}.manifest.json`), JSON.stringify(manifestFor(name, encrypted, contents, backupKeyBytes), null, 2));
   console.log(`Encrypted backup: ${join(dir, name)} (${data.length} tables, ${data.reduce((sum, t) => sum + t.rows, 0)} rows)`);
 }
 
 function verify() {
   const file = arg("file");
   if (!file) throw new Error("--file is required.");
-  const contents = decryptBackup(readFileSync(file), backupKey(process.env.BACKUP_ENCRYPTION_KEY));
+  const contents = decryptBackup(readFileSync(file), key());
   let mismatches = 0;
   for (const table of contents.tables) {
     let live = "";
@@ -123,10 +144,15 @@ function restore() {
   const file = arg("file");
   const out = arg("out");
   if (!file || !out) throw new Error("--file and --out are required.");
-  const contents = decryptBackup(readFileSync(file), backupKey(process.env.BACKUP_ENCRYPTION_KEY));
+  // Writing personal data in plaintext is a deliberate step, never a default
+  if (!process.argv.includes("--plaintext")) throw new Error("restore writes plaintext CSV files: add --plaintext to confirm.");
+  refuseRepo(out, "--out");
+  const contents = decryptBackup(readFileSync(file), key());
   mkdirSync(out, { recursive: true });
   for (const table of contents.tables) writeFileSync(join(out, `${table.name}.csv`), table.csv, { mode: 0o600 });
-  console.log(`Decrypted ${contents.tables.length} tables into ${out}. These files are plaintext: restore from them, then delete them.`);
+  console.log(
+    `Decrypted ${contents.tables.length} tables into ${out}. To restore: migrate an EMPTY database with drizzle-kit, then run "load --dir" against it. These files are plaintext: delete them when done.`,
+  );
 }
 
 function seal() {
@@ -143,11 +169,12 @@ function seal() {
       return { name: f.replace(/\.csv$/, ""), rows: countCsvRows(csv), csv };
     }),
   };
-  const encrypted = encryptBackup(contents, backupKey(process.env.BACKUP_ENCRYPTION_KEY));
-  writeFileSync(out, encrypted, { mode: 0o600 });
-  writeFileSync(`${out}.manifest.json`, JSON.stringify(manifestFor(basename(out), encrypted, contents), null, 2));
-  // Round trip before anyone deletes the originals
-  decryptBackup(readFileSync(out), backupKey(process.env.BACKUP_ENCRYPTION_KEY));
+  refuseRepo(out, "--out");
+  const sealKey = key();
+  const encrypted = encryptBackup(contents, sealKey);
+  // Verified before it's in place: only then may anyone delete the originals
+  writeVerified(out, encrypted);
+  writeFileSync(`${out}.manifest.json`, JSON.stringify(manifestFor(basename(out), encrypted, contents, sealKey), null, 2));
   console.log(`Sealed ${files.length} tables into ${out} and verified it decrypts. The plaintext originals in ${input} were NOT deleted.`);
 }
 
@@ -173,7 +200,56 @@ function prune() {
   console.log(`Deleted ${old.length} backups past ${keepDays} days.`);
 }
 
-const commands: Record<string, () => void> = { create, verify, restore, seal, prune };
+/**
+ * Loads a restored folder into the database in DATABASE_URL, which must be
+ * EMPTY (just migrated): a database that holds any data is refused, so this
+ * can't overwrite production. Tables load parents first; tables the target
+ * doesn't have (neon_auth, managed by Neon Auth) are skipped and listed.
+ * Every table's row count is compared afterwards.
+ */
+function load() {
+  const dir = arg("dir");
+  if (!dir) throw new Error("--dir is required (a folder made by restore).");
+  const quoted = (t: string) => `"${t.split(".")[0]}"."${t.split(".")[1]}"`;
+  const lines = (text: string) => text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".csv"));
+  const existing = new Set(lines(psql(["-At", "-c", "select schemaname||'.'||tablename from pg_tables where schemaname in ('public','neon_auth')"])));
+  const wanted = files.map((f) => f.replace(/\.csv$/, "")).filter((t) => !t.startsWith("drizzle."));
+  const skipped = wanted.filter((t) => !existing.has(t));
+  const tablesToLoad = wanted.filter((t) => existing.has(t));
+  const rowsInTarget = tablesToLoad.length
+    ? lines(psql(["-At", "-c", `${tablesToLoad.map((t) => `select count(*) from ${quoted(t)}`).join(" union all ")};`])).reduce((sum, n) => sum + Number(n), 0)
+    : 0;
+  if (rowsInTarget > 0) throw new Error(`The target database isn't empty (${rowsInTarget} rows). load only fills a freshly migrated, empty database.`);
+  const edges = lines(
+    psql([
+      "-At",
+      "-F",
+      "|",
+      "-c",
+      "select n1.nspname||'.'||c1.relname, n2.nspname||'.'||c2.relname from pg_constraint k join pg_class c1 on c1.oid=k.conrelid join pg_namespace n1 on n1.oid=c1.relnamespace join pg_class c2 on c2.oid=k.confrelid join pg_namespace n2 on n2.oid=c2.relnamespace where k.contype='f'",
+    ]),
+  ).map((line) => {
+    const [child, parent] = line.split("|");
+    return { child, parent };
+  });
+  const order = loadOrder(tablesToLoad, edges);
+  const copyPath = (t: string) => resolve(dir, `${t}.csv`).split("\\").join("/");
+  const script = ["\\set ON_ERROR_STOP on", "begin;", ...order.map((t) => `\\copy ${quoted(t)} from '${copyPath(t)}' csv header`), "commit;"].join("\n");
+  psql(["-f", "-"], `${script}\n`);
+  let mismatches = 0;
+  for (const t of order) {
+    const expected = countCsvRows(readFileSync(join(dir, `${t}.csv`), "utf8"));
+    const actual = Number(psql(["-At", "-c", `select count(*) from ${quoted(t)}`]).trim());
+    if (expected !== actual) {
+      mismatches++;
+      console.log(`MISMATCH ${t}: backup ${expected}, loaded ${actual}`);
+    }
+  }
+  console.log(`Loaded ${order.length} tables, ${mismatches} mismatches.${skipped.length ? ` Skipped (not in this database): ${skipped.join(", ")}` : ""}`);
+}
+
+const commands: Record<string, () => void> = { create, verify, restore, seal, prune, load };
 try {
   const command = commands[process.argv[2] ?? ""];
   if (!command) throw new Error(`Commands: ${Object.keys(commands).join(", ")}`);

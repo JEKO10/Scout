@@ -57,7 +57,8 @@ export default function PrivacyPage() {
           day.
         </li>
         <li>
-          <strong>Publishing permission (optional, separate):</strong> only if you choose &quot;Enable publishing&quot;
+          <strong>Publishing permission (optional, separate; being introduced gradually and not available to every
+          account yet):</strong> only if you choose &quot;Enable publishing&quot;
           and allow it on X&apos;s screen, Scout also holds the permission <code>tweet.write</code>. With it, Scout
           publishes on your X account only original posts whose exact text you approved, at the time you chose, and
           deletes a post it published only when you ask. Scout doesn&apos;t use it to reply to other people&apos;s
@@ -108,8 +109,8 @@ export default function PrivacyPage() {
       <p>
         To score posts, draft and edit replies and posts, and prepare suggestions, Scout sends the relevant parts of
         your profile, your Scout Brain and settings, the posts involved (your own and those from accounts and topics
-        you follow) and, when you ask for an edit, the current draft and your instruction to OpenAI&apos;s API. If you
-        turn on automatic preparation, Scout does this on its own within your plan&apos;s limits. AI output can be
+        you follow) and, when you ask for an edit, the current draft and your instruction to OpenAI&apos;s API. Where automatic preparation
+        is available and you turn it on, Scout does this on its own within your plan&apos;s limits. AI output can be
         wrong: you review and approve what is published.
       </p>
       <p>
@@ -187,12 +188,15 @@ export default function PrivacyPage() {
       <h2>Your choices</h2>
       <ul>
         <li>Review and edit your Scout Brain, answers, preferences and what Scout learned in Settings.</li>
-        <li>Remove monitored accounts, disconnect Slack or turn off automatic scans and automatic preparation at any time.</li>
+        <li>
+          Remove monitored accounts, disconnect Slack or turn off automatic scans (and automatic preparation, where
+          available) at any time.
+        </li>
         <li>
           Nothing is published without your approval of its exact text. Until a post is being sent, you can edit it
           (which requires approving it again), reschedule it or cancel its schedule.
         </li>
-        <li>You can delete a post Scout published from X, from within Scout.</li>
+        <li>Where publishing is available, you can delete a post Scout published from X, from within Scout.</li>
         <li>
           Disconnect your X account at any time in Settings: Scout revokes its access at X, deletes the tokens and
           cancels all approved and scheduled posts that haven&apos;t been sent. A post X is already processing at that

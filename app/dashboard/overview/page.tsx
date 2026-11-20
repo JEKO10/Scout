@@ -288,7 +288,7 @@ function PostList({ posts }: { posts: Awaited<ReturnType<typeof getWorkspaceData
       {posts.map(({ post, account }) => (
         <article className="post-row" key={post.id}>
           <div className="post-body">
-            <p>{post.content}</p>
+            <p>{storedPostText(post.content)}</p>
             <div className="post-meta">
               <span>@{account.handle}</span>
               <span>{formatDate(post.publishedAt)}</span>

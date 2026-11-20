@@ -138,7 +138,9 @@ export async function sumGrowthXPostReads(profileId: string, since: Date): Promi
 export async function markPostsUnavailable(socialAccountId: string, from: Date, keepIds: string[], now = new Date()): Promise<number> {
   const rows = await db
     .update(postsTable)
-    .set({ unavailableAt: now })
+    // Day 40.1: X no longer returns it (deleted or hidden): its text isn't kept. A later
+    // refresh that finds it again restores it (savePosts clears unavailableAt).
+    .set({ unavailableAt: now, content: "" })
     .where(
       and(
         eq(postsTable.socialAccountId, socialAccountId),

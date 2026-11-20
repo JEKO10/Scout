@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import db from "@/db";
 import { type Post, postsTable, socialAccountsTable } from "@/db/schema";
@@ -59,7 +59,8 @@ export async function getRecentPostsForProfile(
       socialAccountsTable,
       eq(postsTable.socialAccountId, socialAccountsTable.id),
     )
-    .where(eq(socialAccountsTable.profileId, profileId))
+    // Day 40.1: posts X no longer returns aren't used (their text was removed)
+    .where(and(eq(socialAccountsTable.profileId, profileId), isNull(postsTable.unavailableAt)))
     .orderBy(desc(postsTable.publishedAt))
     .limit(limit);
   return rows.map((row) => row.post);
@@ -83,6 +84,7 @@ export async function getProfilePostsByPlatformIds(
       and(
         eq(socialAccountsTable.profileId, profileId),
         inArray(postsTable.platformPostId, platformPostIds),
+        isNull(postsTable.unavailableAt),
       ),
     )
     .orderBy(desc(postsTable.publishedAt));
